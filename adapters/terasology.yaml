@@ -1,0 +1,12 @@
+# terasology adapter — build/test commands and AI context pointers
+commands:
+  build: "./gradlew build"
+  test: "./gradlew test"
+  run: "./gradlew run"
+  clean: "./gradlew clean"
+
+ai_context:
+  - path: "CONTRIBUTING.md"
+    description: "Contribution guidelines and PR conventions"
+  - path: "docs/architecture.md"
+    description: "Module architecture overview"

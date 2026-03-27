@@ -1,0 +1,10 @@
+# nordri adapter — build/test commands and AI context pointers
+commands:
+  test: "make test"
+  lint: "make lint"
+
+ai_context:
+  - path: "AGENTS.md"
+    description: "Agent guidelines for nordri development"
+  - path: "docs/"
+    description: "Architecture and bootstrap documentation"

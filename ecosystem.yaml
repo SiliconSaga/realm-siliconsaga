@@ -1,0 +1,97 @@
+# ecosystem.yaml — SiliconSaga Community Overlay
+#
+# This overlay declares the SiliconSaga ecosystem components, defaults,
+# and identity. It is merged with upstream Yggdrasil's ecosystem.yaml
+# and any per-developer ecosystem.local.yaml overrides.
+
+defaults:
+  chartRegistry: oci://ghcr.io/siliconsaga
+  gitOrg: https://github.com/SiliconSaga
+  gitea:
+    # Internal Gitea URL pattern used by ArgoCD inside the cluster.
+    # {repo} is replaced by the component name at resolve time.
+    internalUrl: "http://gitea-http.gitea.svc.cluster.local:3000/nordri-admin/{repo}.git"
+
+identity:
+  agent_account: agent-refr
+  human_account: Cervator
+  attribution: "Submitted via @{agent_account} on behalf of @{human_account}"
+  co_authored_by: "Claude Opus 4.6"
+
+# ---------------------------------------------------------------------------
+# Components
+# ---------------------------------------------------------------------------
+
+components:
+  # -- Tier 1: Cluster Substrate -------------------------------------------
+  nordri:
+    tier: 1
+    chartVersion: "0.0.0"
+    path: "platform/fundamentals"
+    namespace: argocd
+
+  # -- Tier 2: Platform ----------------------------------------------------
+  nidavellir:
+    tier: 2
+    chartVersion: "0.0.0"
+    path: "apps"
+    namespace: argocd
+
+  mimir:
+    tier: 2
+    chartVersion: "0.0.0"
+    namespace: mimir
+    values:
+      postgres:
+        enabled: true
+      kafka:
+        enabled: false
+      valkey:
+        enabled: false
+
+  vordu:
+    tier: 2
+    chartVersion: "0.0.0"
+    namespace: vordu
+
+  heimdall:
+    tier: 2
+    chartVersion: "0.0.0"
+    namespace: heimdall
+
+  # -- Tier 2: Platform Services --------------------------------------------
+  tafl:
+    tier: 2
+    chartVersion: "0.0.0"
+    namespace: tafl
+
+  bifrost:
+    tier: 2
+    chartVersion: "0.0.0"
+    namespace: bifrost
+
+  # -- Tier 3: End-User Platform -------------------------------------------
+  ymir:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: ymir
+
+  terasology:
+    tier: 3
+    chartVersion: "0.0.0"
+    chartName: "ts-game"
+    namespace: terasology
+
+  destinationsol:
+    tier: 3
+    chartVersion: "0.0.0"
+    chartName: "ds-game"
+    namespace: destinationsol
+
+  # -- Test chart (validates chart-mode resolution) ------------------------
+  echo-test:
+    tier: test
+    chartVersion: "0.1.0"
+    chartName: "echo-test"
+    namespace: echo-test
+    disabled: true
