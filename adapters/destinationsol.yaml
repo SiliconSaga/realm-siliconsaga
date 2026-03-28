@@ -1,0 +1,10 @@
+# destinationsol adapter — build/test commands and AI context pointers
+commands:
+  build: "./gradlew :desktop:build"
+  test: "./gradlew test"
+  run: "./gradlew :desktop:run"
+  clean: "./gradlew clean"
+
+ai_context:
+  - path: "README.md"
+    description: "Project overview and setup instructions"

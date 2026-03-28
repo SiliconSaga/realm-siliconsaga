@@ -1,8 +1,8 @@
 # terasology adapter — build/test commands and AI context pointers
 commands:
-  build: "./gradlew build"
+  build: "./gradlew :facades:PC:build"
   test: "./gradlew test"
-  run: "./gradlew run"
+  run: "./gradlew :facades:PC:run"
   clean: "./gradlew clean"
 
 ai_context:
