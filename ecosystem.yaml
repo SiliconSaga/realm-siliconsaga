@@ -14,9 +14,8 @@ defaults:
 
 identity:
   agent_account: agent-refr
-  # human_account: set in ecosystem.local.yaml (personal, not shared)
-  attribution: "Submitted via @{agent_account}"
   co_authored_by: "Claude Opus 4.6"
+  # human_account is personal — set it in ecosystem.local.yaml, not here
 
 # ---------------------------------------------------------------------------
 # Components
