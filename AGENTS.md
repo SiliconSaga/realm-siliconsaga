@@ -37,3 +37,4 @@ orientation skill during trust verification.
 | **ArgoCD Bootstrap on K3d** | Bootstrapping ArgoCD app-of-apps on k3d, CRD chicken-and-egg fixes, portable shell scripts | nordri |
 | **Crossplane on K3d** | Guide for configuring Crossplane in local K3d clusters, Composition Pipeline mode | mimir |
 | **Nordri Bootstrap Guide** | Bootstrapping Nordri (refr-k8s) on k3d, Mimir integration, ArgoCD sync troubleshooting | nordri |
+| **Terasology Testing** | Engine-level and MTE integration test patterns, network event gotchas, Gradle execution | terasology |
