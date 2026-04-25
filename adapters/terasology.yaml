@@ -10,3 +10,5 @@ ai_context:
     description: "Contribution guidelines and PR conventions"
   - path: "docs/architecture.md"
     description: "Module architecture overview"
+  - path: "docs/Engine-Testing-Patterns.md"
+    description: "Engine test patterns: MTE, network events, context isolation, Gradle execution"
