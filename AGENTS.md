@@ -1,8 +1,8 @@
-# SiliconSaga Overlay — AI Agent Context
+# SiliconSaga Realm — AI Agent Context
 
-This overlay declares the SiliconSaga ecosystem components, identity, and
+This realm declares the SiliconSaga ecosystem components, identity, and
 component-specific skills. It is loaded automatically when present in
-`overlays/overlay-yggdrasil-live/`.
+`realms/realm-siliconsaga/`.
 
 For workspace-level instructions (GDD methodology, ws CLI, git workflow,
 auth setup), see the root [`AGENTS.md`](../../AGENTS.md).
@@ -28,8 +28,8 @@ auth setup), see the root [`AGENTS.md`](../../AGENTS.md).
 
 ## Component-Specific Skills
 
-Skills in this overlay live in `.agent/skills/<name>/SKILL.md` (relative to
-this overlay directory). They are discovered automatically by the GDD
+Skills in this realm live in `.agent/skills/<name>/SKILL.md` (relative to
+this realm directory). They are discovered automatically by the GDD
 orientation skill during trust verification.
 
 | Skill Name | Description | Target Component(s) |

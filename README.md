@@ -1,13 +1,13 @@
-# SiliconSaga — Yggdrasil Overlay
+# SiliconSaga — Yggdrasil Realm
 
-Community overlay for the SiliconSaga ecosystem. Declares components,
+Community realm for the SiliconSaga ecosystem. Declares components,
 build adapters, identity, and AI context pointers.
 
 ## Usage
 
 ```bash
 cd yggdrasil
-ws overlay https://github.com/SiliconSaga/overlay-yggdrasil-live.git
+ws realm https://github.com/SiliconSaga/realm-siliconsaga.git
 ws clone --all
 ```
 

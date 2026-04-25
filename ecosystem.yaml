@@ -1,6 +1,6 @@
-# ecosystem.yaml — SiliconSaga Community Overlay
+# ecosystem.yaml — SiliconSaga Community Realm
 #
-# This overlay declares the SiliconSaga ecosystem components, defaults,
+# This realm declares the SiliconSaga ecosystem components, defaults,
 # and identity. It is merged with upstream Yggdrasil's ecosystem.yaml
 # and any per-developer ecosystem.local.yaml overrides.
 
