@@ -1,0 +1,6 @@
+# heimdall adapter — AI context pointers for observability stack
+ai_context:
+  - path: "design.md"
+    description: "Architecture and component design for the LGTM observability stack"
+  - path: "crossplane/"
+    description: "Crossplane XRD, Composition, and HeimdallStack Claim"
