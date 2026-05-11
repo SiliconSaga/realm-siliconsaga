@@ -1,0 +1,13 @@
+# ting adapter — pytest + ruff via venv-pinned python.
+# Component cwd is components/ting/ when ws-test runs; .venv lives there.
+commands:
+  test: ".venv/bin/python -m pytest tests/unit tests/integration -v"
+  lint: ".venv/bin/python -m ruff check src/ tests/"
+
+ai_context:
+  - path: "README.md"
+    description: "Quickstart + deploy tier overview"
+  - path: "AGENTS.md"
+    description: "Agent guidance for ting"
+  - path: "docs/"
+    description: "Architecture and operations docs"
