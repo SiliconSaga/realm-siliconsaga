@@ -253,9 +253,10 @@ code-only change.
 ### 8.1 Code format
 
 8 chars from a no-confusion alphabet (Crockford-ish: excludes `0/O/1/I/L`),
-hyphenated 4-4 with an optional cohort prefix: `MPE-XK7M-N3PQ`. 23⁸ ≈ 78B
-unique combinations. Input normalized to uppercase + hyphens stripped
-before lookup.
+hyphenated 4-4 with an optional cohort prefix: `MPE-XK7M-N3PQ`. The
+alphabet is 31 characters (`23456789ABCDEFGHJKMNPQRSTUVWXYZ` — digits
+2-9 plus letters A-Z minus I/L/O), giving 31⁸ ≈ 853B unique combinations.
+Input normalized to uppercase + hyphens stripped before lookup.
 
 ### 8.2 Entry paths (analytics-distinguishable)
 
@@ -447,7 +448,7 @@ Four tiers, all sharing the same code with env-var-driven configuration:
 components/ting/
 ├── AGENTS.md                # agent guidance
 ├── README.md                # human-facing setup, deploy, ops
-├── Dockerfile               # python:3.12-slim base, multi-stage
+├── Dockerfile               # python:3.12-slim base, multi-stage (local dev: 3.12+)
 ├── docker-compose.yml       # dev tier: postgres + valkey
 ├── pyproject.toml           # FastAPI, Jinja2, SQLAlchemy, Alembic, Typer, qrcode, httpx, etc.
 ├── .env.example
