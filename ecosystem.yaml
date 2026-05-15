@@ -87,6 +87,11 @@ components:
     chartName: "ds-game"
     namespace: destinationsol
 
+  ting:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: ting
+
   # -- Test chart (validates chart-mode resolution) ------------------------
   echo-test:
     tier: test
