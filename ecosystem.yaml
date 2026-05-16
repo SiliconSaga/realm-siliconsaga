@@ -14,7 +14,15 @@ defaults:
 
 identity:
   agent_account: agent-refr
-  co_authored_by: "Claude Opus 4.6"
+  # co_authored_by is intentionally unset here — when omitted,
+  # ws-commit.sh falls back to "Claude ${CLAUDE_MODEL:-Opus 4.7}",
+  # so the trailer tracks whichever model is actually running. A
+  # static value here would override the dynamic mechanism and age
+  # as Anthropic ships new models.
+  #
+  # Override only if a non-Claude agent is running this realm:
+  # co_authored_by: "MyBot 1.0"
+  #
   # human_account is personal — set it in ecosystem.local.yaml, not here
 
 # ---------------------------------------------------------------------------
