@@ -1,0 +1,5 @@
+(no author) = no-author <noauthor@users.sourceforge.net>
+lgrignon = lgrignon <lgrignon@users.sourceforge.net>
+nur = nur <nur@users.sourceforge.net>
+puybaret = Emmanuel Puybaret <puybaret@users.sourceforge.net>
+root = root <root@users.sourceforge.net>
