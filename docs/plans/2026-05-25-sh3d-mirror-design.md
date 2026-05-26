@@ -9,7 +9,7 @@ Stand up a faithful, well-maintained GitHub mirror of Sweet Home 3D (SH3D) — t
 ## Context (why this is worth doing)
 
 - SH3D was handed from eTeks/Emmanuel Puybaret to **Space Mushrooms srl** (Aug 2024). It remains **GPL-2.0**; the SVN is active on SourceForge (trunk HEAD **r9031**, Dec 2024; repo HEAD **r9047**, Apr 2025, on the `develop-SweetHome3D-7.7-Online` branch).
-- Space Mushrooms holds the **`Sweet Home 3D®` trademark** and copyright → a *branded* fork must not use the name; a descriptive *mirror* (nominative use) is fine.
+- Space Mushrooms holds the **`Sweet Home 3D®` trademark** and copyright.
 - Upstream is **SVN-only** by the original author's deliberate, long-stated choice; existing GitHub mirrors are tiny/stale → a maintained mirror is **greenfield**.
 
 ## Workspace mapping
@@ -28,7 +28,7 @@ Stand up a faithful, well-maintained GitHub mirror of Sweet Home 3D (SH3D) — t
 
 - `--stdlayout` — faithful trunk/branches/tags. *Fallback if branches/tags prove messy: a trunk-only re-clone.*
 - `--authors-file` — 5 authors mapped (`puybaret` → Emmanuel Puybaret; `lgrignon`/`nur`/`root`/`(no author)` kept as usernames; SourceForge-convention emails). Persist out of `.tmp/` to `realms/realm-siliconsaga/sweethome3d/authors.txt`.
-- `--ignore-paths` — the exclusion list (assets, junk, installer binaries, **all jars**) is defined and justified in the companion doc `2026-05-25-sh3d-modernization-and-assets.md`. The same value MUST be reused on every `git svn fetch` or git-svn re-imports the excluded paths.
+- `--ignore-paths` — the exclusion list (assets, junk, installers, jars, native libs, demo homes) is defined and justified in the companion doc `2026-05-25-sh3d-modernization-and-assets.md`. The same value MUST be reused on every `git svn fetch` or git-svn re-imports the excluded paths.
 
 **Consequence accepted now:** changing the asset/layout/jar decision later means **re-importing** (git-svn metadata is tied to the chosen paths). We accept the chosen exclusion set as the mirror's permanent shape; excluded content remains available from upstream SVN if ever needed.
 
@@ -36,7 +36,7 @@ Stand up a faithful, well-maintained GitHub mirror of Sweet Home 3D (SH3D) — t
 
 Two branches with sharply separated roles:
 
-- **`upstream`** — *machine-only, never hand-edited.* Exact SVN `trunk` minus the excluded paths. Written **solely** by `git svn fetch`; append-only (never rebased/force-pushed). Not standalone-buildable (jars excluded). This is the provenance line, pushed to a **protected** GitHub `upstream` branch that no PR targets.
+- **`upstream`** — *machine-only, never hand-edited.* Exact SVN `trunk` minus the excluded paths. Written **solely** by `git svn fetch`; append-only (never rebased/force-pushed). Not standalone-buildable (deps/natives excluded). This is the provenance line, pushed to a **protected** GitHub `upstream` branch that no PR targets.
 - **`main`** — our buildable, improved GitHub version. Branched from `upstream`; absorbs upstream by periodic **merge** of `upstream` → `main` (never rebase — `main` is published).
 
 **What lives only on `main` (the "special cases"):**
@@ -52,7 +52,7 @@ Two branches with sharply separated roles:
 
 **Maintenance rules to bank:**
 1. The sync must always fetch with the **same `--ignore-paths`** (stored in-repo) or git-svn re-imports excluded content.
-2. If upstream changes its dependencies, `upstream` won't carry the new/updated jar (it's ignored) — so **update `resolve-libs` to match.** Periodic watch item.
+2. Upstream changes to ignored/infra paths (deps, natives, build files) don't appear in `upstream` — so `sync.sh` runs a **change radar**: it scans each incoming SVN range (via remote `svn log -v`, no second checkout) against the ignore/infra patterns and **flags** dep/build changes for review, then we update `resolve-libs` to match. Scripted detection, not a manual watch. Modes: default report-then-fetch, `--check` (preview, no fetch), `--strict` (exit non-zero if flagged — a CI gate).
 
 ## Ongoing sync
 
@@ -61,11 +61,9 @@ Two branches with sharply separated roles:
 1. **Local (now):** `git svn fetch` → fast-forward `upstream` → push. Run by hand initially; wrap in a `ws` subcommand if it recurs (per the workflow-auditor skill).
 2. **Automated (later):** a scheduled **GitHub Action** modeled on `wch/r-source-git-svn` — commit the `.git/svn` metadata into the repo and rehydrate it each run (Actions runners are ephemeral), then `git svn fetch` (same ignore-paths), fast-forward `upstream`, push, and **open a PR `upstream` → `main`** for review (so the build.xml-hook conflict, if any, is resolved deliberately). Daily cron.
 
-SubGit (turnkey continuous mirroring, free for ≤10 committers) is the fallback if babysitting git-svn becomes tiresome.
-
 ## GitHub hosting & contribution
 
-- Push to a GitHub repo under the user's org, **named descriptively** (e.g. `sweethome3d-mirror`), keeping the trademark out of the branding.
+- Push to a GitHub repo under the user's org. A **mirror** may use the name **descriptively** — `sweethome3d-mirror` truthfully identifies what it mirrors (legitimate nominative use). The trademark caution is for a **branded fork** (the "break free" product presenting itself *as* a product), which would need its own distinct name.
 - Protect `upstream` (machine-written); do all human work via PRs into `main`. Enable review bots (CodeRabbit / Copilot) on `main` PRs.
 - **Fixes:** branch off `main` → PR (bot-reviewed) → also submit the patch upstream on SourceForge (honest-mirror etiquette; aim to "light the way" toward an eventual GitHub migration).
 
@@ -75,17 +73,17 @@ If Space Mushrooms relicenses in a way that breaks the sync, or objects to the m
 
 ## House hoard (enables Track A)
 
-- Track the **exploded** `.sh3d` (it is a ZIP) in git: `Home.xml` (text — walls/rooms/levels/furniture), the `.obj`/`.mtl` model files, `ContentDigests`, plus the few binary background images. The `.sh3d` itself becomes a **generated artifact** via a pack/unpack script.
+- Track the **exploded** `.sh3d` (it is a ZIP) in git: `Home.xml` (text — walls/rooms/levels/furniture), the `.obj`/`.mtl` model files, `ContentDigests`, plus the few binary background images. The `.sh3d` itself becomes a **generated artifact** via a pack/unpack script (the script lives in the realm tooling, not the hoard).
 - Enables **"PR your house"**: branch `hvac-next-gen`, diff the change, show the contractor, merge when built.
 - **Diff-stability** depends on SH3D writing `Home.xml` deterministically — to verify empirically; if noisy, the unpack script gains a **normalize** step.
-- Keep this hoard **separate from `borgr`** (the PKM); cross-link planning notes.
+- A **dedicated** hoard (not `borgr`); `borgr` (the PKM) only links to it.
 
 ## Risks & verification
 
 - **stdlayout edge cases** → watch the clone log; fall back to trunk-only. (First clone confirmed clean: trunk + 6 develop branches + ~150 version tags as git-svn refs.)
 - **Clone interruption** → resumable via `git svn fetch`.
 - **Home.xml read-priority** + **diff-stability** → empirical in-app checks (Track A, next session).
-- **Mirror acceptance checks:** authors mapped in `git log`; history reaches trunk HEAD; no file ≥100 MB; a `git svn fetch` immediately after clone is a clean no-op. (All passed on the first clone except the size — addressed by the jar/asset exclusions.)
+- **Mirror acceptance checks:** authors mapped in `git log`; history reaches trunk HEAD; no file ≥100 MB; a `git svn fetch` immediately after clone is a clean no-op. (All passed on the lean clone.)
 
 ## Out of scope (separate specs)
 
