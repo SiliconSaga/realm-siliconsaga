@@ -36,7 +36,7 @@ Stand up a faithful, well-maintained GitHub mirror of Sweet Home 3D (SH3D) — t
 
 Two branches with sharply separated roles:
 
-- **`upstream`** — *machine-only, never hand-edited.* Exact SVN `trunk` minus the excluded paths. Written **solely** by `git svn fetch`; append-only (never rebased/force-pushed). Not standalone-buildable (deps/natives excluded). This is the provenance line, pushed to a **protected** GitHub `upstream` branch that no PR targets.
+- **`upstream`** — *machine-only, never hand-edited.* Exact SVN `trunk` minus the excluded paths. Updated **only by the sync** — `git svn fetch`, then a fast-forward `merge --ff-only remotes/origin/trunk` — and is append-only (never rebased/force-pushed). Not standalone-buildable (deps/natives excluded). This is the provenance line, pushed to a **protected** GitHub `upstream` branch that no PR targets.
 - **`main`** — our buildable, improved GitHub version. Branched from `upstream`; absorbs upstream by periodic **merge** of `upstream` → `main` (never rebase — `main` is published).
 
 **What lives only on `main` (the "special cases"):**
@@ -63,7 +63,7 @@ Two branches with sharply separated roles:
 
 ## GitHub hosting & contribution
 
-- Push to a GitHub repo under the user's org. A **mirror** may use the name **descriptively** — `sweethome3d-mirror` truthfully identifies what it mirrors (legitimate nominative use). The trademark caution is for a **branded fork** (the "break free" product presenting itself *as* a product), which would need its own distinct name.
+- Push to a GitHub repo under the user's org. A **mirror** may use the name **descriptively** — `sweethome3d-mirror` truthfully identifies what it mirrors (intended as descriptive/nominative use — subject to legal review, not a settled legal conclusion). The trademark caution is for a **branded fork** (the "break free" product presenting itself *as* a product), which would need its own distinct name.
 - Protect `upstream` (machine-written); do all human work via PRs into `main`. Enable review bots (CodeRabbit / Copilot) on `main` PRs.
 - **Fixes:** branch off `main` → PR (bot-reviewed) → also submit the patch upstream on SourceForge (honest-mirror etiquette; aim to "light the way" toward an eventual GitHub migration).
 
