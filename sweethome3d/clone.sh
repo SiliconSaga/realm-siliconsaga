@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
 # (Re-)clone Sweet Home 3D SVN trunk into components/sweethome3d as a git-svn mirror.
-# Faithful SOURCE only — assets, junk, installer binaries, and jars excluded (see config.sh).
+# Faithful SOURCE only — assets, junk, installers, jars, natives, demo homes excluded (config.sh).
 # Usage: bash clone.sh [--force]    (--force replaces an existing clone; it is fully regenerable)
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
 
 if [ -e "$COMPONENT_DIR" ]; then
   if [ "${1:-}" = "--force" ] || [ "${FORCE:-}" = "1" ]; then
+    # Safety guard: never let an empty/misderived path feed `rm -rf`.
+    case "$COMPONENT_DIR" in
+      "" | "/" | "$HOME")
+        echo "error: refusing to rm unsafe COMPONENT_DIR='$COMPONENT_DIR'" >&2
+        exit 1 ;;
+    esac
+    case "$COMPONENT_DIR" in
+      "$WORKSPACE_ROOT"/components/*) ;;  # expected location — ok
+      *)
+        echo "error: COMPONENT_DIR '$COMPONENT_DIR' is not under '$WORKSPACE_ROOT/components/' — refusing rm" >&2
+        exit 1 ;;
+    esac
     echo ">> removing existing $COMPONENT_DIR (regenerable)"
     rm -rf "$COMPONENT_DIR"
   else
@@ -15,7 +27,7 @@ if [ -e "$COMPONENT_DIR" ]; then
   fi
 fi
 
-echo ">> git svn clone --stdlayout"
+echo ">> git svn clone --stdlayout (via $GIT_BIN)"
 echo "   ignoring: $IGNORE_PATHS"
 "$GIT_BIN" svn clone \
   --stdlayout \
