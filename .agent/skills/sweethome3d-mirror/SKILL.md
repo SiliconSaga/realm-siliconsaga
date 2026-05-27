@@ -25,7 +25,7 @@ A faithful git-svn mirror of Sweet Home 3D's SourceForge SVN at `components/swee
 bash realms/realm-siliconsaga/sweethome3d/sync.sh
 ```
 
-A no-op prints `Already up to date.`; a real pull prints the fetched revisions plus a merge summary. Either way the final `>> '<upstream>' now at:` line shows the resulting HEAD — that line is how you confirm what happened. (Upstream SVN trunk is largely dormant, so a no-op is the normal outcome.)
+A no-op prints `Already up to date.`; a real pull prints the fetched revisions plus a merge summary. Either way the final `>> '<upstream>' now at:` line shows the resulting HEAD — that line is how you confirm what happened. No-op is the normal outcome: the trunk is largely dormant and some releases ship outside the public SVN, so the mirror can lag actual releases — see the realm `sweethome3d/README.md` § Upstream status.
 
 ## Rules
 
