@@ -32,10 +32,14 @@ Skills in this realm live in `.agent/skills/<name>/SKILL.md` (relative to
 this realm directory). They are discovered automatically by the GDD
 orientation skill during trust verification.
 
+Generic ArgoCD and Crossplane patterns previously lived here have been moved
+to workspace-root skills (`argocd-gitops`, `crossplane-compositions`) per the
+SiliconSaga skill taxonomy design (`docs/plans/2026-05-30-skill-taxonomy-design.md`).
+Realm-specific skills below; they defer to the root capability skills for the
+generic content.
+
 | Skill Name | Description | Target Component(s) |
 | :--- | :--- | :--- |
-| **ArgoCD Bootstrap on K3d** | Bootstrapping ArgoCD app-of-apps on k3d, CRD chicken-and-egg fixes, portable shell scripts | nordri |
-| **Crossplane on K3d** | Guide for configuring Crossplane in local K3d clusters, Composition Pipeline mode | mimir |
 | **Nordri Bootstrap Guide** | Bootstrapping Nordri (refr-k8s) on k3d, Mimir integration, ArgoCD sync troubleshooting | nordri |
 | **Terasology Testing** | Engine-level and MTE integration test patterns, network event gotchas, Gradle execution | terasology |
 
