@@ -1,0 +1,22 @@
+# knarr adapter — pytest + ruff via system python3 (plain-pip, no venv).
+# Component cwd is components/knarr/ when `ws test` / `ws lint` run.
+#
+# test: BDD tests (tests/features) need a live Synapse homeserver, so the
+# default run excludes them — run those explicitly when a k3d-nordri-test
+# cluster is up. No explicit "tests/" path here: knarr's pyproject sets
+# testpaths = ["tests"], so a bare `ws test knarr` collects the unit
+# suite, while `ws test knarr tests/test_x.py` passes an explicit path
+# that overrides the default scan — target one file (also lets a single
+# file run when an unrelated module has a collection error).
+#
+# lint: consumed by `ws lint knarr`; extra args pass through
+# (e.g. `ws lint knarr --fix`).
+commands:
+  test: "python3 -m pytest --ignore=tests/features"
+  lint: "python3 -m ruff check src/ tests/"
+
+ai_context:
+  - path: "README.md"
+    description: "Knarr overview + deploy/operations entry points"
+  - path: "docs/"
+    description: "Architecture, deploy, operations, troubleshooting docs"
