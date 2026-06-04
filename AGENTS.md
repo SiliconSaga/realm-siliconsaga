@@ -26,7 +26,7 @@ auth setup), see the root [`AGENTS.md`](../../AGENTS.md).
 
 ---
 
-## Component-Specific Skills
+## Realm Skills
 
 Skills in this realm live in `.agent/skills/<name>/SKILL.md` (relative to
 this realm directory). They are discovered automatically by the GDD
@@ -37,12 +37,13 @@ Per the SiliconSaga skill taxonomy design
 review), opinionated platform-choice skills (ArgoCD, Crossplane,
 AlertManager, kube-prometheus-stack) live in their owning components:
 `components/heimdall/.agent/skills/` and `components/nordri/.agent/skills/`.
-The realm carries the navigation index (`siliconsaga-stack` — landing in a
-follow-up PR) and realm-internal skills below.
+The realm carries the navigation index (`siliconsaga-stack`) and
+realm-internal skills (e.g. `terasology-testing`).
 
 | Skill Name | Description | Target Component(s) |
 | :--- | :--- | :--- |
-| **Nordri Bootstrap Guide** | Bootstrapping Nordri (refr-k8s) on k3d, Mimir integration, ArgoCD sync troubleshooting | nordri |
+| **siliconsaga-stack** | Stack narrative + skill index — which component owns which capability, the alert pipeline end-to-end, GitOps model (`argo` ns + in-cluster seed-Gitea), homelab-vs-GKE seam, bare-workspace recipe | realm-wide |
+| **Nordri Bootstrap Guide** | Bootstrapping Nordri (refr-k8s) on k3d, Mimir integration, ArgoCD sync troubleshooting *(slimmed to component `nordri` in Phase 4)* | nordri |
 | **Terasology Testing** | Engine-level and MTE integration test patterns, network event gotchas, Gradle execution | terasology |
 
 
