@@ -32,10 +32,16 @@ Skills in this realm live in `.agent/skills/<name>/SKILL.md` (relative to
 this realm directory). They are discovered automatically by the GDD
 orientation skill during trust verification.
 
+Per the SiliconSaga skill taxonomy design
+(`docs/plans/2026-05-30-skill-taxonomy-design.md`, revised after first-pass
+review), opinionated platform-choice skills (ArgoCD, Crossplane,
+AlertManager, kube-prometheus-stack) live in their owning components:
+`components/heimdall/.agent/skills/` and `components/nordri/.agent/skills/`.
+The realm carries the navigation index (`siliconsaga-stack` — landing in a
+follow-up PR) and realm-internal skills below.
+
 | Skill Name | Description | Target Component(s) |
 | :--- | :--- | :--- |
-| **ArgoCD Bootstrap on K3d** | Bootstrapping ArgoCD app-of-apps on k3d, CRD chicken-and-egg fixes, portable shell scripts | nordri |
-| **Crossplane on K3d** | Guide for configuring Crossplane in local K3d clusters, Composition Pipeline mode | mimir |
 | **Nordri Bootstrap Guide** | Bootstrapping Nordri (refr-k8s) on k3d, Mimir integration, ArgoCD sync troubleshooting | nordri |
 | **Terasology Testing** | Engine-level and MTE integration test patterns, network event gotchas, Gradle execution | terasology |
 
