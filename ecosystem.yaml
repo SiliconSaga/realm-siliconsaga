@@ -35,14 +35,14 @@ components:
     tier: 1
     chartVersion: "0.0.0"
     path: "platform/fundamentals"
-    namespace: argocd
+    namespace: argo
 
   # -- Tier 2: Platform ----------------------------------------------------
   nidavellir:
     tier: 2
     chartVersion: "0.0.0"
     path: "apps"
-    namespace: argocd
+    namespace: argo
 
   mimir:
     tier: 2
