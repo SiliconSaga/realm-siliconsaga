@@ -32,11 +32,13 @@ Skills in this realm live in `.agent/skills/<name>/SKILL.md` (relative to
 this realm directory). They are discovered automatically by the GDD
 orientation skill during trust verification.
 
-Generic ArgoCD and Crossplane patterns previously lived here have been moved
-to workspace-root skills (`argocd-gitops`, `crossplane-compositions`) per the
-SiliconSaga skill taxonomy design (`docs/plans/2026-05-30-skill-taxonomy-design.md`).
-Realm-specific skills below; they defer to the root capability skills for the
-generic content.
+Per the SiliconSaga skill taxonomy design
+(`docs/plans/2026-05-30-skill-taxonomy-design.md`, revised after first-pass
+review), opinionated platform-choice skills (ArgoCD, Crossplane,
+AlertManager, kube-prometheus-stack) live in their owning components:
+`components/heimdall/.agent/skills/` and `components/nordri/.agent/skills/`.
+The realm carries the navigation index (`siliconsaga-stack` — landing in a
+follow-up PR) and realm-internal skills below.
 
 | Skill Name | Description | Target Component(s) |
 | :--- | :--- | :--- |
