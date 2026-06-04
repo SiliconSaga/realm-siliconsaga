@@ -11,7 +11,7 @@ Reorganize the SiliconSaga realm's agent skills into a focused, gap-filling set:
 
 Each skill lives at the **highest tier where the knowledge is genuinely owned** — not just where it might be useful. Three tiers exist:
 
-- **Workspace root** `.agent/skills/` — generic developer-workspace capabilities where no specific component owns the knowledge. Sibling in flavor to `tdd`, `bdd`, `scribe`, `gdd-housekeeping`: anyone in any workspace might need them, and no single component wrote the canonical content.
+- **Workspace root** `.agent/skills/` — generic developer-workspace capabilities where no specific component owns the knowledge. Sibling in flavor to `tdd`, `gdd-bdd`, `gdd-scribe`, `gdd-housekeeping`: anyone in any workspace might need them, and no single component wrote the canonical content.
 - **Realm** `realm-siliconsaga/.agent/skills/` — SiliconSaga ecosystem glue + the **skill index** pointing at component skills. Cross-component coordination, the stack narrative, the homelab-vs-GKE shape.
 - **Component** `components/<repo>/.agent/skills/` — operational knowledge of whatever that component owns. The component is the experts-of-record for its own stack choices.
 
@@ -41,7 +41,7 @@ The earlier draft's "highest applicable tier by *capability*" rule risked confla
 
 The originally-planned root skills — `alertmanager-config`, `kube-prometheus-stack`, `crossplane-compositions`, `argocd-gitops` — were authored at root during initial Phase 1+2 work (yggdrasil PRs #78–81) per the draft taxonomy. After this review, they move to their owning components: each is an opinionated platform choice with competing alternatives, so the component that operates it is the experts-of-record. See the Component section below for landing places.
 
-The pre-existing GDD methodology skills (`writing-yggdrasil-docs`, `scribe`, `gdd-housekeeping`, etc.) stay at root unchanged — they're explicitly the framework-of-GDD content the root was always meant to carry.
+The pre-existing GDD methodology skills (`gdd-doc-writing`, `gdd-scribe`, `gdd-housekeeping`, etc.) stay at root — they're explicitly the framework-of-GDD content the root was always meant to carry. (`gdd-doc-writing` was `writing-yggdrasil-docs` and `gdd-scribe` was `scribe` prior to the workspace-root rename pass; renamed for naming consistency with the rest of the `gdd-*` family.)
 
 ### Realm `realm-siliconsaga/.agent/skills/`
 
@@ -132,7 +132,7 @@ Each phase is independently shippable; dependencies are documentation-only (cros
 
 - The discovery/registration wiring (see linked mini-design).
 - Writing the actual SKILL.md files (Phase 1+ uses `superpowers:writing-skills`; this spec is the brief).
-- Reorganizing the workspace-root GDD / methodology skills (`gdd-*`, `scribe`, etc.) — they're a different concern (GDD methodology, not infra ownership).
+- Reorganizing the workspace-root GDD / methodology skills (`gdd-*` family) — they're a different concern (GDD methodology, not infra ownership). The naming-convention pass that brought `scribe`, `bdd`, `workflow-auditor`, `writing-yggdrasil-docs`, etc. under the `gdd-*` prefix ran separately as the `skill-taxonomy-2` arc's first thread.
 
 ## Self-Review Notes
 
