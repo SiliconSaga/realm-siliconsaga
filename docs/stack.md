@@ -20,7 +20,7 @@ SiliconSaga is **one realm of many possible** — the upstream Yggdrasil workspa
 
 | Tier | Role | SiliconSaga components | Doc |
 |------|------|-----------------------|-----|
-| 🌱 — | Workspace root (not deployed) | `yggdrasil` itself — docs, agent skills, `ws` CLI, config | (see yggdrasil's [`docs/ecosystem-architecture.md`](../../../docs/ecosystem-architecture.md)) |
+| 🌱 — | Workspace root (not deployed) | `yggdrasil` itself — docs, agent skills, `ws` CLI, config | (see yggdrasil's [`docs/ecosystem-architecture.md`](https://github.com/SiliconSaga/yggdrasil/blob/main/docs/ecosystem-architecture.md)) |
 | **1** | Foundation — cluster substrate | `nordri` (Traefik, Crossplane, Velero, Longhorn, Garage, seed-Gitea, ArgoCD) | [`stack-tier-1.md`](stack-tier-1.md) |
 | **2** | Platform services | `nidavellir`, `heimdall`, `mimir`, `vordu`, `tafl`, `bifrost` | [`stack-tier-2.md`](stack-tier-2.md) |
 | **3** | End-user applications | `ymir`, `terasology`, `destinationsol`, `ting` (plus aspirational `demicracy` etc.) | [`stack-tier-3.md`](stack-tier-3.md) |
@@ -120,4 +120,4 @@ Deep dive: [Nordri's `crossplane-compositions` skill](../../../components/nordri
 - [`siliconsaga-stack` realm skill](../.agent/skills/siliconsaga-stack/SKILL.md) — agent-facing navigation index (same shape map, for AI agents).
 - [`terasology-testing` realm skill](../.agent/skills/terasology-testing/SKILL.md) — engine-level + MTE integration test patterns.
 - `docs/plans/2026-05-30-skill-taxonomy-design.md` — design doc behind the skill structure.
-- Yggdrasil's [`docs/ecosystem-architecture.md`](../../../docs/ecosystem-architecture.md) — the GDD-generic three-tier framing this realm inhabits.
+- Yggdrasil's [`docs/ecosystem-architecture.md`](https://github.com/SiliconSaga/yggdrasil/blob/main/docs/ecosystem-architecture.md) — the GDD-generic three-tier framing this realm inhabits.

@@ -26,4 +26,4 @@ Plus a couple of operational / security topic pages:
 - **Operational depth for specific capabilities** — those live in component skills under `components/<name>/.agent/skills/` (e.g. AlertManager routing trees in `components/heimdall/.agent/skills/alertmanager-config/`).
 - **GDD methodology** — that's a workspace-root concern; see `docs/gdd/` in the yggdrasil workspace.
 - **Per-component README content** — each component repo has its own README.
-- **The generic 3-tier framing** — that lives at workspace-root in yggdrasil's [`docs/ecosystem-architecture.md`](../../../docs/ecosystem-architecture.md). This realm-side narrative is the SiliconSaga-flavoured *instance* of that generic shape.
+- **The generic 3-tier framing** — that lives at workspace-root in yggdrasil's [`docs/ecosystem-architecture.md`](https://github.com/SiliconSaga/yggdrasil/blob/main/docs/ecosystem-architecture.md). This realm-side narrative is the SiliconSaga-flavoured *instance* of that generic shape.

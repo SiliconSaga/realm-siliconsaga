@@ -16,7 +16,7 @@ Nordri provides the cluster fundamentals:
 
 | Subsystem | Purpose | Notes |
 |-----------|---------|-------|
-| **Traefik** | Ingress controller + Gateway API | Pinned chart 38.x / 3.6.5 (Gateway-provider cert regression in 3.7.x — see Loki-thalamus). |
+| **Traefik** | Ingress controller + Gateway API | Pinned chart 38.x / 3.6.5 — Gateway-provider cert regression in app 3.7.x; bump only after upstream resolution. |
 | **Crossplane** | Declarative platform API | Compositions describe high-level resources that decompose into Kubernetes manifests. `function-go-templating` + `function-environment-configs` + `provider-kubernetes` v1alpha2. |
 | **Velero** | Cluster backup | Object-storage target (Garage S3 on homelab, GCS on GKE). |
 | **Longhorn** | Distributed block storage | Homelab only — GKE uses PD-backed `standard-rwo`. |

@@ -76,5 +76,5 @@ debugging, one-off migrations.
 
 The AI (on M1 or Intel Mac) pushes branches and opens PRs. It has read-only cluster
 access for observing state. It never has cluster-admin credentials.
-See [Nordri bootstrap docs](../../.agent/skills/nordri-bootstrap-guide/SKILL.md) for
+See the [Nordri component skill](https://github.com/SiliconSaga/nordri/blob/main/.agent/skills/nordri/SKILL.md) (or `docs/stack-tier-1.md` realm-side) for
 the actual cluster setup.

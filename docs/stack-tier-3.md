@@ -22,7 +22,7 @@ Repo: `components/terasology` (fork of upstream [MovingBlocks/Terasology](https:
 
 Open-source voxel sandbox engine. SiliconSaga's fork carries the realm's customizations and integrations (BDD-style testing patterns, observability hooks, Bifrost federation when that lands).
 
-Realm-tier skill: [`terasology-testing`](../../.agent/skills/terasology-testing/SKILL.md) — engine-level + MTE (Module Test Environment) integration test patterns, network event gotchas, Gradle execution.
+Realm-tier skill: [`terasology-testing`](../.agent/skills/terasology-testing/SKILL.md) — engine-level + MTE (Module Test Environment) integration test patterns, network event gotchas, Gradle execution.
 
 ---
 
