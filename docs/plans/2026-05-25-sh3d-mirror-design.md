@@ -58,7 +58,7 @@ Two branches with sharply separated roles:
 
 `git svn` *is* the bridge that maintains the mirror. Two phases:
 
-1. **Local (now):** `git svn fetch` → fast-forward `upstream` → push. Run by hand initially; wrap in a `ws` subcommand if it recurs (per the workflow-auditor skill).
+1. **Local (now):** `git svn fetch` → fast-forward `upstream` → push. Run by hand initially; wrap in a `ws` subcommand if it recurs (per the gdd-workflow-audit skill).
 2. **Automated (later):** a scheduled **GitHub Action** modeled on `wch/r-source-git-svn` — commit the `.git/svn` metadata into the repo and rehydrate it each run (Actions runners are ephemeral), then `git svn fetch` (same ignore-paths), fast-forward `upstream`, push, and **open a PR `upstream` → `main`** for review (so the build.xml-hook conflict, if any, is resolved deliberately). Daily cron.
 
 ## GitHub hosting & contribution
