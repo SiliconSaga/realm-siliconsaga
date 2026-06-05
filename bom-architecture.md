@@ -18,7 +18,7 @@ To establish a standardized, "Single Source of Truth" (SSOT) approach for defini
 Since Yggdrasil changes less frequently and lacks a complex build artifact pipeline, it uses the standard Backstage "Pull" model.
 
 * **Source**: Simply the `project-constellation.md` file along with Git repos arranged by hand by a human.
-  * *Maintenance*: Manually updated or generated via a simple script scanning the `d:\Dev\GitWS` directory.
+  * *Maintenance*: Manually updated or generated via a simple script scanning the `<workspace-root>` directory (the per-developer parent of the yggdrasil checkout).
 * **Ingestion**: Backstage `Catalog` reads catalog files from Git
 * **Goal**: Visualize the "Constellation" of workspaces (Norðri, Nidavellir, Vörðu) and their high-level dependencies.
 

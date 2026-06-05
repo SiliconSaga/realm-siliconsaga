@@ -24,7 +24,7 @@ choco install git pyenv-win -y
 
 > **Note**: You may need to restart your terminal after this step for the `pyenv` and `git` commands to be recognized.
 
-### 3. Configure Python (via pyenv)
+### Configure Python (via pyenv)
 
 We use `pyenv` to ensure all developers use the same Python version (Target: **3.11.x**).
 
@@ -120,10 +120,11 @@ If you need to wipe the cluster clean (e.g., to clear out old deployments before
 
 *   **GUI**: *File -> Preferences -> Troubleshooting -> Reset Kubernetes*.
 *   **CLI**:
+
     ```powershell
     # Resets just the Kubernetes workloads (keeping images/settings)
     rdctl reset --k8s
-    
+
     # Factory reset (wipes everything, including images)
     # rdctl reset --factory
     ```
@@ -133,18 +134,20 @@ If you need to wipe the cluster clean (e.g., to clear out old deployments before
 PowerShell's default security settings can sometimes block `pyenv` scripts.
 
 *   **Execution Policy Error**: If you see "cannot be loaded because running scripts is disabled", allow scripts for the current process:
+
     ```powershell
     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
     ```
 
 *   **Outdated Version List**: If `pyenv install --list` shows only old versions (e.g., stopping at 3.11.0a), your local pyenv definitions are stale. Update them manually:
+
     ```powershell
     # Navigate to the pyenv-win directory
     cd $env:USERPROFILE\.pyenv\pyenv-win
-    
+
     # Ensure you are on the master branch (fix detached head state)
     git checkout master
-    
+
     # Pull latest changes
     git pull
     ```

@@ -47,7 +47,7 @@ It [Primary Action/Purpose].
 
 Three worked examples drawn from active components:
 
-#### Norðri
+### Norðri
 
 ```markdown
 # Norðri
@@ -59,7 +59,7 @@ Three worked examples drawn from active components:
 Kubernetes substrate (K3s/Longhorn) that holds up the rest of the digital world.
 ```
 
-#### Nidavellir
+### Nidavellir
 
 ```markdown
 # Nidavellir
@@ -71,7 +71,7 @@ Kubernetes substrate (K3s/Longhorn) that holds up the rest of the digital world.
 applications, hosting CI/CD, dashboards, and identity systems.
 ```
 
-#### Yggdrasil
+### Yggdrasil
 
 ```markdown
 # Yggdrasil
