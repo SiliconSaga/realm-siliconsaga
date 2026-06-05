@@ -47,7 +47,7 @@ Source-of-truth: `ecosystem.yaml` at workspace root. `ws list` summarizes curren
 | Terasology engine + MTE integration tests | `terasology-testing` | `realms/realm-siliconsaga/.agent/skills/` | always available |
 | Nordri bootstrap (Layer 2 Gitea, Layer 2.5–2.8 CRDs, Layer 3 ArgoCD adoption, Layer 5 Garage init) | `nordri` *(Phase 4)* | `components/nordri/.agent/skills/` | `ws clone nordri` |
 | Heimdall composition (claim params, ntfy receiver wiring, Knarr escalation seam) | `heimdall` *(Phase 4)* | `components/heimdall/.agent/skills/` | `ws clone heimdall` |
-| GDD methodology (orientation, housekeeping, review triage, scribe, doc writing) | `gdd-*` (incl. `gdd-scribe`, `gdd-doc-writing`, `gdd-bdd`, `gdd-permissions`, etc.) | workspace-root `.agent/skills/` | always available |
+| GDD methodology (session orientation, housekeeping, review triage, vault capture, doc writing, permissions, BDD, branch workflow, GitHub-issue filing, workflow audit, MCP, …) | `gdd-*` family — see workspace-root `.agent/skills/` for the canonical list | workspace-root `.agent/skills/` | always available |
 
 If a capability isn't listed: grep the realm and component `.agent/skills/` dirs as a fallback. Missing entries are Tier-2 housekeeping candidates — flag.
 
