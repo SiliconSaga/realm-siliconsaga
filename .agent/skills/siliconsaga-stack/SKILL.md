@@ -45,8 +45,8 @@ Source-of-truth: `ecosystem.yaml` at workspace root. `ws list` summarizes curren
 | kube-prometheus-stack (chart wiring, `release:` label requirement, RWO+Recreate, GKE dual-stack-cost) | `kube-prometheus-stack` | `components/heimdall/.agent/skills/` | `ws clone heimdall` |
 | Kuttl end-to-end testing (Claim→Ready, AM config-reload assertions) | `kuttl-testing` | workspace-root `.agent/skills/` | always available |
 | Terasology engine + MTE integration tests | `terasology-testing` | `realms/realm-siliconsaga/.agent/skills/` | always available |
-| Nordri bootstrap (Layer 2 Gitea, Layer 2.5–2.8 CRDs, Layer 3 ArgoCD adoption, Layer 5 Garage init) | `nordri` *(Phase 4)* | `components/nordri/.agent/skills/` | `ws clone nordri` |
-| Heimdall composition (claim params, ntfy receiver wiring, Knarr escalation seam) | `heimdall` *(Phase 4)* | `components/heimdall/.agent/skills/` | `ws clone heimdall` |
+| Nordri bootstrap (Layer 2 Gitea, Layer 2.5–2.8 CRDs, Layer 3 ArgoCD adoption, Layer 5 Garage init) | `nordri` | `components/nordri/.agent/skills/` | `ws clone nordri` |
+| Heimdall composition (claim params, ntfy receiver wiring, Knarr escalation seam) | `heimdall` | `components/heimdall/.agent/skills/` | `ws clone heimdall` |
 | GDD methodology (session orientation, housekeeping, review triage, vault capture, doc writing, permissions, BDD, branch workflow, GitHub-issue filing, workflow audit, MCP, …) | `gdd-*` family — see workspace-root `.agent/skills/` for the canonical list | workspace-root `.agent/skills/` | always available |
 
 If a capability isn't listed: grep the realm and component `.agent/skills/` dirs as a fallback. Missing entries are Tier-2 housekeeping candidates — flag.
@@ -81,7 +81,7 @@ ArgoCD lives in namespace **`argo`** (NOT `argocd`). It syncs from the **in-clus
 
 **Environment shape:** **homelab = staging** (rancher-desktop, resettable), **GKE = production**. Re-hydrate locally, exercise on homelab, then promote.
 
-Deep dives: Nordri's `argocd-gitops` skill (the operational gotchas — test-through-Git, parent-prune, etc.), plus the eventual Nordri component skill (the bootstrap layer sequence).
+Deep dives: Nordri's `argocd-gitops` skill (the operational gotchas — test-through-Git, parent-prune, etc.), plus Nordri's component skill `nordri` (the bootstrap layer sequence).
 
 ## Cluster Identity / Env-Aware Compositions
 
@@ -115,6 +115,6 @@ Working with only `yggdrasil` + `realms/realm-siliconsaga/` cloned? This skill I
 
 - Workspace declaration: `ecosystem.yaml` at workspace root (machine-readable index of components + tiers).
 - Realm manifest: `realms/realm-siliconsaga/AGENTS.md`.
-- Component skills referenced above (Heimdall, Nordri, eventually Mimir/Nidavellir Phase 4).
+- Component skills referenced above (Heimdall, Nordri; Mimir + Nidavellir component skills are future Phase-4 work).
 - Skill taxonomy + ownership rule: `realms/realm-siliconsaga/docs/plans/2026-05-30-skill-taxonomy-design.md`.
 - Realm `docs/` (Phase 3) will carry the long-form stack narrative for human readers; this skill is the agent-facing index.

@@ -42,9 +42,8 @@ realm-internal skills (e.g. `terasology-testing`).
 
 | Skill Name | Description | Target Component(s) |
 | :--- | :--- | :--- |
-| **siliconsaga-stack** | Stack narrative + skill index — which component owns which capability, the alert pipeline end-to-end, GitOps model (`argo` ns + in-cluster seed-Gitea), homelab-vs-GKE seam, bare-workspace recipe | realm-wide |
-| **Nordri Bootstrap Guide** | Bootstrapping Nordri (refr-k8s) on k3d, Mimir integration, ArgoCD sync troubleshooting *(slimmed to component `nordri` in Phase 4)* | nordri |
-| **Terasology Testing** | Engine-level and MTE integration test patterns, network event gotchas, Gradle execution | terasology |
+| siliconsaga-stack | Stack narrative + skill index — which component owns which capability, the alert pipeline end-to-end, GitOps model (`argo` ns + in-cluster seed-Gitea), homelab-vs-GKE seam, bare-workspace recipe | realm-wide |
+| terasology-testing | Engine-level and MTE integration test patterns, network event gotchas, Gradle execution | terasology |
 
 
 ## Tone Guide
