@@ -77,6 +77,13 @@ components:
     chartVersion: "0.0.0"
     namespace: bifrost
 
+  # knarr — integration/bridging layer (Matrix homeserver, bridge fleet,
+  # Kafka bus, routing). See docs/plans/2026-04-02-knarr-design.md.
+  knarr:
+    tier: 2
+    chartVersion: "0.0.0"
+    namespace: knarr
+
   # -- Tier 3: End-User Platform -------------------------------------------
   ymir:
     tier: 3
@@ -99,6 +106,21 @@ components:
     tier: 3
     chartVersion: "0.0.0"
     namespace: ting
+
+  # schools — overarching volunteer pitch for the local school system,
+  # a custom site akin to ting. See docs/plans/ (schools next-year.md upstream).
+  schools:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: schools
+
+  # mtl-site — Mountain Top League youth sports site. Static Jekyll on
+  # GitHub Pages today (not cluster-deployed); declared here so the workspace
+  # can clone/exec/commit it. See docs/plans/2026-04-08-mtl-site-design.md.
+  mtl-site:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: mtl-site
 
   # -- Test chart (validates chart-mode resolution) ------------------------
   echo-test:
