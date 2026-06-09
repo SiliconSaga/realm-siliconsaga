@@ -87,9 +87,14 @@ Candidate implementations:
 
 | Option | Pros | Cons |
 |---|---|---|
-| **Django** *(current lean)* | Free admin panel (covers Phase-4 operator UI cheaply), ORM, DRF API; prior experience (Autoboros) | Heavier; a new framework alongside Ting/knarr |
+| **Django** *(current lean for a custom store)* | Free admin panel (covers Phase-4 operator UI cheaply), ORM, DRF API; prior experience (Autoboros) | Heavier; a new framework alongside Ting/knarr |
 | FastAPI | Lighter; matches Ting/knarr Python; consistent toolchain | Build the admin UI yourself (or defer to a Backstage plugin) |
-| Backstage backend plugin (Node) | Stays inside Backstage | Node; couples marketplace lifecycle to Backstage |
+| Backstage backend plugin (Node) | Stays inside Backstage; Backstage's own DB/API machinery | Node; couples marketplace lifecycle to Backstage |
+| **Lightweight issue tracker as the store** *(strong contender — evaluate first)* | Offers/needs/wishes become issues with labels and other categorization; Backstage plugin widgets run filtered label searches on the relevant entity pages; free comment threads, mentions, and audit history; natural sync surface to real dev projects' GitHub issues and to knarr pokes; much less wheel-reinvention | Power-user-leaning — the busy-parent UX still needs Ting fronting it; claim/transfer/expiry/moderation semantics strain a generic issue model (labels can fake state machines only so far); marketplace data in a tracker needs the same privacy discipline (§8); choice of tracker matters (GitHub Issues = external dependency; self-hosted Forgejo — see the existing forgejo-day2 arc — keeps it in-stack) |
+
+Note these compose rather than strictly compete: a tracker could be the system of record for *opportunity-shaped* things (wishes, volunteer offers, project ideas) while structured marketplace state (claims, transfers, inventory counts) lives in a DB — or the tracker IS the MVP store and a DB comes only when the semantics outgrow it. The Backstage reference doc's own "Skill Exchange Lite" guidance points the same way: "start with GitHub issue labels and a Backstage page/card that indexes them." Evaluate the tracker path before committing to custom DB work.
+
+**Low-barrier capture flows** (orthogonal to the store choice — they feed the intake bus): browser highlight-something-make-it-an-insight (à la Jira Product Discovery's clipper, minus Atlassian), the Obsidian Web Clipper (already in the stack's orbit), chat/SMS via knarr. Each lowers the engagement barrier; all land on the same Kafka intake topic and get processed into whatever store wins. Django (or Backstage backend services) remains useful for one-off apps needing a quick API surface regardless.
 
 ### 5.2 Catalog source of truth & sync
 Hand-authored `catalog-info.yaml` (GitHub discovery) for MTL is fine to start; a custom entity provider can come later if entities are generated from the marketplace DB.
@@ -104,7 +109,7 @@ The old "Logistics" repo and the legacy GKE Keycloak+Backstage may hold reusable
 
 | Phase | Title | Depends on | Done signal |
 |---|---|---|---|
-| **1** | Platform prerequisites (OpenBao + Keycloak) | — | Both deploy env-aware (homelab + GKE); green kuttl smoke; closed out as reusable platform |
+| **1** | Platform prerequisites (OpenBao + Keycloak; plans 1a + 1b) | — | Both deploy env-aware (homelab + GKE); green kuttl smoke; closed out as reusable platform |
 | **2** | Backstage skeleton + DevEx | 1 | Full SDLC loop closes: change → CI → image → GitOps → running Backstage with SSO |
 | **3** | Community domain model | 2 | Catalog kinds defined; MTL entities seeded; Backstage admin surface live |
 | **4** | Gear-swap MVP | 3, 5.1 resolved | One MTL season run end-to-end (Offer/Need/claim/expiry + moderator matching) |
@@ -121,14 +126,14 @@ The old "Logistics" repo and the legacy GKE Keycloak+Backstage may hold reusable
 - **Phase 3 — Community domain model.** Define `CommunityGroup`, `Program`/`Season`, `Activity`, `ResourceType`, `Facility` as catalog-backed kinds (do not overload `Component`). Seed real MTL data. Build Backstage entity pages, docs, and search. Add catalog-hygiene scorecard checks.
 - **Phase 4 — Gear-swap MVP.** Marketplace store (§5.1) with `ResourceOffer`, `ResourceNeed`, `Transfer`, moderation state. Ting flows: Offer / Need / browse / claim / expiry. Manual browse + moderator matching. Adult-only identity via Keycloak. Run one season-bound gear swap with explicit pickup rules.
 - **Phase 5 — knarr intent ingestion.** A `knarr.leidangr.intent` topic; a processor that extracts structured offers/needs from chat and bridge-phone SMS (LLM-assisted), dedupes, and writes the marketplace store. Outbound notifications via the existing Heimdall→ntfy seam: expiry nudges, uncovered-volunteer alerts, moderation-queue counts.
-- **Phase 6 — Expansion.** Volunteer/skill-exchange profiles ("can mentor / can help / want to learn"), facility reservation workflow, season-readiness scorecards (Tech Insights or a Block/Grid-style custom plugin), framed as operational status, not judgment.
+- **Phase 6 — Expansion.** Volunteer/skill-exchange profiles ("can mentor / can help / want to learn"), facility reservation workflow, season-readiness scorecards (Tech Insights or a grouped-checks custom plugin), framed as operational status, not judgment.
 - **Phase 7+ — Breadth + governance.** PTA/schools surfaces (more privacy-sensitive — gated on review), Demicracy narrative integration, and ADR distillation of these plans.
 
 ## 7. Phase 1 — Platform Prerequisites *(specified)*
 
 **Goal:** Stand up OpenBao and Keycloak as generic, reusable platform services in the SiliconSaga stack, env-aware across homelab and GKE, validated with kuttl, and closed out independently of anything Leiðangr-specific. They complete the secret-management and SSO substrate that Phase 2's Backstage (and later Ting) will consume.
 
-**Starting truth:** Nidavellir currently has **zero** Keycloak/OpenBao work — both are greenfield here. The legacy GKE Keycloak is not in this workspace and is not assumed.
+**Starting truth:** Nidavellir has **no Keycloak/OpenBao app manifests yet** — `apps/kustomization.yaml` carries TODO comment placeholders for both, and the realm's `stack-tier-2.md` lists them as planned. Both are greenfield here. The legacy GKE Keycloak is not in this workspace and is not assumed.
 
 **Scope:**
 
@@ -145,7 +150,12 @@ The old "Logistics" repo and the legacy GKE Keycloak+Backstage may hold reusable
 
 **Non-goals for Phase 1:** No Backstage. No Leiðangr domain modeling. No production hardening beyond a "very basic" working instance — the aim is a complete, testable SDLC substrate, not a fully tuned identity platform.
 
-**Detailed implementation plan:** Deferred to a companion plan doc (`2026-06-09-leidangr-phase1-plan.md` or similar) produced via the writing-plans workflow, which will inspect Nidavellir's app-of-apps and Mimir composition structure and lay out the concrete steps, manifests, and kuttl assertions.
+**Detailed implementation plans:** Phase 1 splits into two independent companion plans (the two subsystems share no dependency — Keycloak's Postgres comes from Mimir, not OpenBao):
+
+- [`2026-06-09-leidangr-phase1a-openbao-eso-plan.md`](2026-06-09-leidangr-phase1a-openbao-eso-plan.md) — OpenBao + External Secrets Operator
+- [`2026-06-09-leidangr-phase1b-keycloak-plan.md`](2026-06-09-leidangr-phase1b-keycloak-plan.md) — Keycloak (Operator-based, Mimir Postgres)
+
+Both were produced via the writing-plans workflow after inspecting Nidavellir's app-of-apps, the heimdall composition pattern, and Mimir's Postgres claim + kuttl conventions.
 
 ## 8. Privacy, Safety, and Trust
 

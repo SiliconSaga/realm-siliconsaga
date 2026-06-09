@@ -22,7 +22,7 @@ The target reader is an agent or platform engineer starting from `npx @backstage
 
 ## Current Upstream Context
 
-Backstage has moved materially since many older mature instances were built. Current docs show stable Backstage at v1.51.0 in June 2026, and GitHub reports v1.51.0 as the latest release on 2026-05-19. New projects should assume the modern backend and frontend systems rather than copying legacy patterns.
+Backstage has moved materially since many older mature instances were built. As of June 2026 the latest stable Backstage release is v1.51.1 (published 2026-05-29; v1.51.0 preceded it on 2026-05-19). New projects should assume the modern backend and frontend systems rather than copying legacy patterns.
 
 The important upstream shifts are:
 
@@ -43,7 +43,7 @@ The strongest parts of the sample are not the company-specific integrations, but
 - **Secrets are centralized.** The sample docs describe adding secret-store paths, local developer secrets, deployment secrets, and environment-variable wiring. The approach is too enterprise-specific to copy directly, but the lifecycle thinking is good.
 - **Integration seams are backend modules.** The sample uses backend modules to add catalog processors, entity providers, custom scaffolder actions, and filters. This is the right shape for a growing instance.
 - **Multi-tenant plugin configuration is called out.** The sample captures a useful rule: prefer `instances:` style config when a tool may have multiple accounts or installations. That lesson transfers directly to GitHub, Jenkins, Prometheus, Grafana, Argo CD, and similar integrations.
-- **The homegrown health-check system is a useful poor man's Soundcheck.** The companion docs describe `Block` entities (a set of "checks"), check modules, filters, optional enrollment, scheduled evaluation, retention, history, grids/levels, and tests. The design is a strong model for a custom scorecard system when Soundcheck is not available.
+- **The homegrown health-check system is a useful poor man's Soundcheck.** The companion docs describe catalog-defined check groups (a set of checks, plus supersets that roll groups up — we can pick our own names later), check modules, filters, optional enrollment, scheduled evaluation, retention, history, rollups/levels, and tests. The design is a strong model for a custom scorecard system when Soundcheck is not available.
 - **Template validation exists.** The sample validates important scaffolder templates on a schedule with explicit inputs, cleanup expectations, and owner notifications. This is exactly the kind of DevEx feature that keeps templates from rotting.
 - **The CI documentation is unusually useful.** The sample explains pipeline triggers, change-based skipping, post-merge scans, release/deploy gates, and which failures block deployment. A GitHub Actions version of this should exist in the new instance.
 
@@ -216,7 +216,13 @@ Use GitHub Actions with fast PR feedback and slower post-merge checks:
 - Main: full build, image build, vulnerability/dependency scanning, TechDocs build, and optional scorecard/template validation.
 - Release: publish container to GHCR or the chosen registry, deploy via Helm/GitOps, record release notes, and run a post-deploy smoke check.
 
+**CI runner alternative — in-cluster Jenkins.** If GitHub Actions gets heavy (intensive PR test suites, quota pressure), the stack's self-hosted Jenkins is a real alternative: it runs in the same cluster the deployments target, so it reaches cluster resources natively without parking cluster credentials on GitHub, and it preserves a pull-flavored GitOps posture. GitHub Actions stays attractive for fast, public-ish PR feedback; Jenkins suits the heavyweight and cluster-touching jobs. Mix as needed.
+
+**Registry posture.** GHCR is fine early on. Long-term, plan for an in-cluster registry so images live next to the cluster that pulls them — Artifactory already exists in-cluster (with a mixed track record); Nexus and other alternatives have been considered. Not a now-concern; record it as a deliberate later decision.
+
 Use Renovate or Dependabot, but treat Backstage upgrades as a managed workflow rather than arbitrary package bumps. Backstage moves quickly and frequently includes framework migrations. A practical cadence is monthly patch/minor review with a quarterly larger migration window if the instance has many plugins. Each upgrade should run `backstage-cli versions:bump`, any applicable migration helpers, config checks, and plugin smoke tests.
+
+**Attach a learning loop to upgrades** (GDD-housekeeping style): each time the instance enters "upgrade mode," capture lessons learned — what migrated cleanly, what broke, which helpers worked. The same workflow shape is wanted for upgrading the workspace's own hoards, components, and templates, so these notes compound toward generic upgrade support for our own templates — possibly one day including Backstage itself. Long-term goal; the habit starts with the first upgrade.
 
 The release doc should explain when jobs run, why they run, what skips on documentation-only changes, what is post-merge-only, what is non-blocking, and what blocks deployment.
 
@@ -241,16 +247,16 @@ Recommended starting point:
 
 - Install and evaluate the open-source `@backstage-community/plugin-tech-insights` stack first. It already models facts, checks, scorecards, fact retrievers, historical data, and JSON rules.
 - If Tech Insights fits, build custom fact retrievers for GitHub repository hygiene, TechDocs presence, workflow health, Kubernetes ownership labels, Prometheus alert coverage, and dependency/security status.
-- If Tech Insights is too constrained, build a custom health-check plugin modeled on the sample's `Block` and `Grid` system: catalog-defined check groups, filters, enrollment annotations, scheduled execution, result retention, and entity/team pages.
+- If Tech Insights is too constrained, build a custom health-check plugin modeled on the sample's grouped-checks system: catalog-defined check groups (and supersets of groups), filters, enrollment annotations, scheduled execution, result retention, and entity/team pages.
 - Avoid treating scorecards as punishment. Start with advisory levels, clear remediation links, and visible owners. Add hard gates only for narrow production-readiness checks with strong consensus.
 
-A Block/Grid-style health-check system has particularly good ideas to preserve:
+A grouped-checks health-check system has particularly good ideas to preserve:
 
-- Catalog-defined `Block` entities keep scorecard definitions out of code.
+- Catalog-defined check-group entities keep scorecard definitions out of code.
 - Enrollment prevents broad checks from surprising every catalog entity.
 - Scheduled execution makes pages fast and preserves history.
 - Retention avoids unbounded data growth.
-- Grids/levels give a readable maturity model.
+- Group rollups/levels give a readable maturity model.
 - Tests live alongside check modules and validate success, failure, and misconfiguration paths.
 
 Suggested first tracks:
@@ -267,13 +273,13 @@ Treat this list as a starting shortlist, not as a package manifest. Check curren
 | Area | Recommendation | Notes |
 |---|---|---|
 | Core | Software Catalog, Software Templates, TechDocs, Search, Kubernetes, Home, Permission, Notifications | These are foundational. Start with catalog/templates/docs before adding specialty plugins. |
-| GitHub | GitHub catalog backend module, GitHub scaffolder backend module, GitHub Actions plugin, GitHub Pull Requests plugin | GitHub Actions plugin is actively maintained in `@backstage-community` and surfaces workflow status, details, logs, and retry where permissions allow. |
+| GitHub | GitHub catalog backend module, GitHub scaffolder backend module, GitHub Actions plugin, GitHub Pull Requests plugin | `@backstage-community/plugin-github-actions` is actively maintained (npm publish 2026-05-27) and surfaces workflow status, details, logs, and retry where permissions allow. |
 | Keycloak | OIDC auth provider plus Keycloak catalog/org provider if needed | Use OIDC for sign-in. Use Keycloak org/catalog sync only if Keycloak is the source of users/groups; otherwise sync org data from GitHub or another IdP source. |
-| Observability | Kubernetes, Prometheus, Grafana | Prometheus plugin is a good fit for alerts/metrics cards. Grafana plugin is useful for dashboard links/embeds, but its package appears older than Prometheus; verify maintenance before committing. |
+| Observability | Kubernetes, Prometheus, Grafana | `@roadiehq/backstage-plugin-prometheus` (npm publish 2026-04-23) is a good fit for alerts/metrics cards. For Grafana use `@backstage-community/plugin-grafana` (npm publish 2026-05-31 — actively maintained; avoid the older `@k-phoen/backstage-plugin-grafana` it descends from, last published 2023). |
 | GitOps/deployments | Argo CD if you use GitOps | Not in the stated stack, but commonly valuable if deployment state is managed by Argo CD. |
-| Scorecards | Tech Insights, custom health-check plugin, possibly System scoring | Tech Insights is the closest OSS Soundcheck substitute. A Block/Grid-style model from the sample is a strong custom alternative. |
+| Scorecards | Tech Insights, custom health-check plugin, possibly System scoring | `@backstage-community/plugin-tech-insights` (npm publish 2026-06-02) models facts, checks, and scorecards — the closest OSS analog to Soundcheck's check/scorecard concepts (verify fit against its docs rather than taking parity on faith). The sample's grouped-checks model is a strong custom alternative. |
 | Security | Security Insights, Snyk/FOSSA/DependencyTrack depending on your tools | Pick based on the actual scanner you use; avoid duplicating security portals unless Backstage adds context. |
-| CI/CD legacy | Jenkins plugin | The Jenkins plugin has improved: community package, new backend support, multi-project support, scaffolder actions, and recent releases. It still has project-type limitations, so use it only if Jenkins remains important. For a GitHub-first instance, prefer GitHub Actions. |
+| CI/CD legacy | Jenkins plugin | `@backstage-community/plugin-jenkins` is actively maintained (npm publish 2026-04-24); check its release notes for the exact feature set (multi-project support and project-type limitations vary by version) before committing. Use it only if Jenkins remains important — though see the CI section above: an in-cluster Jenkins has real advantages here. |
 | InnerSource/community | Synergy, Playlist, Q&A, Entity Feedback | Synergy is aimed at inner-source projects/issues/maintainers. Playlist helps curated collections. Q&A and Entity Feedback can support community knowledge loops. Verify maintenance and UX before broad rollout. |
 | Learning/volunteering | Custom "Skill Exchange Lite" plugin or catalog entity model | There is no obvious OSS replacement for Spotify Skill Exchange. Model opportunities as catalog entities or a small plugin: request help, offer mentorship, track temporary project needs, and link to GitHub issues/projects. |
 | Resource/time tracking | TimeSaver, DORA metrics plugins, OpenCost/Infracost | Use TimeSaver only if you actively measure scaffolder value. Use DORA/cost plugins only when teams will act on the data. |
@@ -366,10 +372,11 @@ Third slice:
 2. Add custom plugin packaging standards.
 3. Add richer scorecard rollups by team/system.
 4. Add production deployment automation.
+5. Work out the catalog `Domain` taxonomy. The instance will serve several distinct audiences, each a candidate Domain (Domains can nest): a meta-domain for the infrastructure stack itself; The Terasology Foundation as a top-level domain with child domains for Terasology and Destination Sol; volunteering likely fans out into several groupings of its own. Sketch this early enough that systems and components land under the right roofs.
 
 ## Risks
 
-- **Backstage maintenance load:** Backstage is a product, not a config file. Keep the initial plugin set small and maintain an upgrade cadence.
+- **Backstage maintenance load:** Backstage is a framework, not a config file — each adopting organization effectively turns its instance into an internal product it then owns. Keep the initial plugin set small and maintain an upgrade cadence.
 - **Plugin sprawl:** Every plugin adds package, auth, config, UX, and support surface. Maintain a plugin inventory with owner, package, status, config keys, annotations, and test coverage.
 - **Secret leakage:** Avoid checked-in generated files, avoid broad proxy routes, and validate config visibility. CI should run secret scanning.
 - **Catalog distrust:** If ownership and metadata are wrong, every plugin becomes less useful. Prioritize catalog hygiene and validation.
@@ -465,7 +472,7 @@ Recommended isolated version:
 
 ### Scorecards And Health Checks
 
-The sample demonstrates two generations of scorecard thinking: simple per-entity health checks and a richer Block/Grid-style model. Both are useful.
+The sample demonstrates two generations of scorecard thinking: simple per-entity health checks and a richer grouped-checks model. Both are useful.
 
 Simple health-check pattern:
 
@@ -475,13 +482,13 @@ Simple health-check pattern:
 - Home or owner pages summarize the least healthy status across owned production entities.
 - Status values should distinguish healthy, warning, error, pending/running, aborted, misconfigured, no data, and communication failure.
 
-Block/Grid-style pattern:
+Grouped-checks pattern:
 
 - Catalog-defined check groups keep scorecard definitions out of code.
 - Enrollment annotations prevent broad checks from surprising every entity.
 - Scheduled execution keeps entity pages fast and preserves historical results.
 - Retention policy prevents unbounded result growth.
-- Grids and levels create a readable maturity model.
+- Group rollups and levels create a readable maturity model.
 - Tests for checks should cover success, failure, unavailable data, misconfiguration, and external API errors.
 
 ### Plugin Extension Practices
@@ -522,6 +529,8 @@ Use Backstage as the power-user and administrator surface, not necessarily as th
 - **Catalog:** stable index of groups, activities, programs, facilities, resource categories, and ownership, with links into the mini-frontend for live interactions.
 
 The recommended strategy is a hybrid. Keep stable, owned, documented things in Backstage/catalog-friendly structures; keep volatile marketplace and signup data in an application database behind a custom backend plugin or companion API. A gear-swap listing or volunteer claim should not require editing YAML.
+
+Backstage's Software Templates also earn their keep here: scaffolding new efforts (a new group, season, activity, or drive) from templates that encode existing practices encourages reuse across organizations, volunteer groups, and efforts rather than each one improvising from scratch.
 
 ### Design Principles
 
@@ -682,7 +691,7 @@ Poor ADR candidates:
 
 ### Backstage ADR Plugin Compatibility
 
-The current Backstage Community ADR plugin expects ADR files associated with catalog entities. The entity points to the ADR directory with `backstage.io/adr-location`, and the plugin can expose ADRs on entity pages and through Backstage Search. The current community docs say the default parser supports MADR v2.x and MADR 3.x, and the backend can be extended with a custom parser if a different format is needed.
+The current Backstage Community ADR plugin expects ADR files associated with catalog entities. The entity points to the ADR directory with `backstage.io/adr-location`, and the plugin can expose ADRs on entity pages and through Backstage Search. The current community docs say the default parser supports MADR v2.x and the MADR v3.0.0 template format, and the backend can be extended with a custom parser if a different format is needed.
 
 Recommended setup for a new instance:
 

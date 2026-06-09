@@ -108,7 +108,8 @@ components:
     namespace: ting
 
   # schools — overarching volunteer pitch for the local school system,
-  # a custom site akin to ting. See docs/plans/ (schools next-year.md upstream).
+  # a custom site akin to ting. Forward-looking framing lives in the component
+  # repo itself: https://github.com/SiliconSaga/schools/blob/main/next-year.md
   schools:
     tier: 3
     chartVersion: "0.0.0"
