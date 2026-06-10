@@ -17,7 +17,7 @@ Nidavellir is the Tier 2 app-of-apps. Its `apps/` directory holds Application ma
 - `vegvisir/` — Vegvísir Operator: shared Traefik Gateway + cert-manager wiring + TLS termination + (future) per-service routing standards
 - `ntfy/` — phone-push notification destination + server-side template (`heimdall-template.yaml`)
 - `tailscale-operator/` — Tailscale Kubernetes operator
-- `keycloak/` — identity / SSO (consumes a Mimir Postgres claim)
+- `keycloak/` — identity / SSO (planned — will consume a Mimir Postgres claim)
 - `openbao/` — secrets management (planned)
 
 Adding a brand-new platform service that isn't owned by any one component? This is where it goes. New manifests get picked up by ArgoCD on the next sync (subject to the re-hydration step from `stack.md`'s GitOps section).
