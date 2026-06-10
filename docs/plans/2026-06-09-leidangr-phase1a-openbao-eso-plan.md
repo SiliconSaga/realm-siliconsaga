@@ -346,28 +346,40 @@ kubectl exec -n openbao openbao-0 -- bao operator init -key-shares=3 -key-thresh
 # Unseal with 2 of 3 keys:
 kubectl exec -n openbao openbao-0 -- bao operator unseal <key-1>
 kubectl exec -n openbao openbao-0 -- bao operator unseal <key-2>
+# Park the init material in-cluster so later steps and the kuttl suite read
+# from one place (the minimal-posture tradeoff from Assumptions #4 — anyone
+# with cluster admin can read this Secret; acceptable for the staging
+# substrate, retired by KMS auto-unseal in the hardening phase):
+kubectl create secret generic openbao-init -n openbao --from-file=init.json=openbao-init.json
+rm openbao-init.json
 ```
-Store `openbao-init.json` (unseal keys + root token) **off the cluster, short-term** (e.g. the operator's password manager). Harden-later note: a future phase replaces this with KMS auto-unseal so manual unseal after restart is unnecessary.
+Also keep an off-cluster copy of the unseal keys (e.g. the operator's password manager) so an OpenBao restart can be unsealed even if the Secret is lost. Harden-later note: a future phase replaces all of this with KMS auto-unseal.
 
 - [ ] **Step 3: Enable KV v2 + Kubernetes auth + an ESO policy/role**
 
 ```bash
-export VAULT_TOKEN=<root-token-from-init>
-kubectl exec -n openbao openbao-0 -- sh -c 'BAO_TOKEN=$VAULT_TOKEN bao secrets enable -version=2 -path=secret kv'
-kubectl exec -n openbao openbao-0 -- sh -c 'BAO_TOKEN=$VAULT_TOKEN bao auth enable kubernetes'
-# Configure k8s auth to trust the in-cluster API:
-kubectl exec -n openbao openbao-0 -- sh -c 'BAO_TOKEN=$VAULT_TOKEN bao write auth/kubernetes/config kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443"'
-# Read-only policy for ESO over secret/*:
-kubectl exec -n openbao openbao-0 -- sh -c 'BAO_TOKEN=$VAULT_TOKEN echo "path \"secret/data/*\" { capabilities = [\"read\"] }" | bao policy write eso-read -'
+# Read the root token from the parked Secret. Host-side expansion is the
+# point — the container has no token env of its own, so `env BAO_TOKEN=…`
+# injects the host-expanded value into the exec'd process:
+ROOT_TOKEN=$(kubectl get secret openbao-init -n openbao -o jsonpath='{.data.init\.json}' | base64 -d | jq -r '.root_token')
+kubectl exec -n openbao openbao-0 -- env BAO_TOKEN="$ROOT_TOKEN" bao secrets enable -version=2 -path=secret kv
+kubectl exec -n openbao openbao-0 -- env BAO_TOKEN="$ROOT_TOKEN" bao auth enable kubernetes
+# Configure k8s auth to trust the in-cluster API. Mixed expansion: $ROOT_TOKEN
+# expands on the host (double quotes), \$KUBERNETES_… in the container:
+kubectl exec -n openbao openbao-0 -- sh -c "BAO_TOKEN='$ROOT_TOKEN' bao write auth/kubernetes/config kubernetes_host=https://\$KUBERNETES_PORT_443_TCP_ADDR:443"
+# Read-only policy for ESO over secret/* (policy body via exec -i stdin):
+kubectl exec -i -n openbao openbao-0 -- env BAO_TOKEN="$ROOT_TOKEN" bao policy write eso-read - <<'EOF'
+path "secret/data/*" { capabilities = ["read"] }
+EOF
 # Role binding the ESO ServiceAccount to that policy:
-kubectl exec -n openbao openbao-0 -- sh -c 'BAO_TOKEN=$VAULT_TOKEN bao write auth/kubernetes/role/eso-role bound_service_account_names=external-secrets bound_service_account_namespaces=external-secrets policies=eso-read ttl=1h'
+kubectl exec -n openbao openbao-0 -- env BAO_TOKEN="$ROOT_TOKEN" bao write auth/kubernetes/role/eso-role bound_service_account_names=external-secrets bound_service_account_namespaces=external-secrets policies=eso-read ttl=1h
 ```
-(Exact env-var passing into `bao` may need a small wrapper; the intent — KV v2 at `secret/`, k8s auth, an `eso-read` policy, an `eso-role` bound to ESO's ServiceAccount — is what matters. Confirm each `bao` call returns success.)
+(The intent — KV v2 at `secret/`, k8s auth, an `eso-read` policy, an `eso-role` bound to ESO's ServiceAccount — is what matters. Confirm each `bao` call returns success. `bao operator init -format=json` emits the `root_token` key the jq filter reads.)
 
 - [ ] **Step 4: Seed a demo value (for the ESO smoke test later)**
 
 ```bash
-kubectl exec -n openbao openbao-0 -- sh -c 'BAO_TOKEN=$VAULT_TOKEN bao kv put secret/demo foo=bar'
+kubectl exec -n openbao openbao-0 -- env BAO_TOKEN="$ROOT_TOKEN" bao kv put secret/demo foo=bar
 ```
 
 ## Part A2 — External Secrets Operator
@@ -506,8 +518,17 @@ apiVersion: kuttl.dev/v1beta1
 kind: TestStep
 commands:
   - script: |
-      # Seed a known KV value (idempotent)
-      kubectl exec -n openbao openbao-0 -- sh -c 'BAO_TOKEN=$VAULT_TOKEN bao kv put secret/kuttl-demo k=v' || true
+      # Pull the root token from the parked init Secret (Task A1.5) — the test
+      # needs no host-side env. Fail loudly if it's missing or unparsable.
+      ROOT_TOKEN=$(kubectl get secret openbao-init -n openbao -o jsonpath='{.data.init\.json}' | base64 -d | jq -r '.root_token')
+      if [ -z "$ROOT_TOKEN" ] || [ "$ROOT_TOKEN" = "null" ]; then
+        echo "openbao-init Secret missing or unparsable - run Task A1.5 first" >&2
+        exit 1
+      fi
+      # Seed a known KV value, then read it back so a failed write fails the
+      # test here rather than letting stale data satisfy the later assertion.
+      kubectl exec -n openbao openbao-0 -- env BAO_TOKEN="$ROOT_TOKEN" bao kv put secret/kuttl-demo k=v
+      kubectl exec -n openbao openbao-0 -- env BAO_TOKEN="$ROOT_TOKEN" bao kv get -field=k secret/kuttl-demo | grep -qx v
       kubectl apply -n $NAMESPACE -f - <<EOF
       apiVersion: external-secrets.io/v1
       kind: ExternalSecret
@@ -587,5 +608,5 @@ bash scripts/ws cr nidavellir "feat: OpenBao + External Secrets Operator (Leiða
 ## Self-Review
 
 - **Spec coverage (design §7):** OpenBao deployed env-aware ✔ (A1); ESO wired ✔ (A2); Postgres via Mimir is Plan 1b (Keycloak), not here ✔; kuttl smoke ✔ (A3); homelab + GKE ✔ (A4); closed out as reusable platform ✔ (A4.2). Gap: none for the OpenBao/ESO half.
-- **Placeholder scan:** chart versions (`0.18.0`, `0.20.0`) are explicit replace-me values gated behind a "confirm latest version" research step — not silent TBDs. The `bao` env-var wrapper detail is flagged as needing confirmation, with the required end-state spelled out.
+- **Placeholder scan:** chart versions (`0.18.0`, `0.20.0`) are explicit replace-me values gated behind a "confirm latest version" research step — not silent TBDs. Token plumbing is concrete: init material parks in the `openbao-init` Secret, and every `bao` call host-expands the token via `env BAO_TOKEN="$ROOT_TOKEN"` (review cycle 2 fix — the earlier single-quoted form never expanded).
 - **Consistency:** `eso-role`/`eso-read`/`secret/` path, `ClusterSecretStore` name `openbao-kv`, namespace `openbao`/`external-secrets`, and the `external-secrets` ServiceAccount are used consistently across A1.5, A2.1, A2.2, and A3.

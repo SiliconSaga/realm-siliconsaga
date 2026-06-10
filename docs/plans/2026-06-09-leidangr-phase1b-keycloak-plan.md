@@ -77,7 +77,7 @@ curl -fsSL -o operator.yaml              https://raw.githubusercontent.com/keycl
 - [ ] **Step 3: Capture the CR schema for later tasks**
 
 Run: `grep -nE 'hostname|httpEnabled|proxy|usernameSecret|passwordSecret|vendor' components/nidavellir/keycloak-operator/crd-keycloaks.yaml | head -40`
-Expected: confirms the `spec.db`, `spec.hostname`, `spec.http`, `spec.proxy` field names for `$KCVER`. **Adjust the Keycloak CR in Task B3 to match exactly** — these fields are the ones that drift across versions.
+Expected: confirms the `spec.db`, `spec.hostname`, `spec.http`, `spec.proxy` field names for `$KCVER`. **Adjust the Keycloak CR in Task B2.2 to match exactly** — these fields are the ones that drift across versions.
 
 ### Task B1.2: ArgoCD app for the operator
 
@@ -203,7 +203,7 @@ spec:
       name: keycloak-postgres-user-secret
       key: password
   hostname:
-    hostname: https://keycloak.cmdbee.org
+    hostname: keycloak.cmdbee.org    # host-only, matching the HTTPRoute; some operator versions' hostname-v2 schema wants a full URL — verify against the pinned CRD (Task B1.1 Step 3) and switch to https://keycloak.cmdbee.org only if required
   http:
     httpEnabled: true               # TLS terminates at the gateway; Keycloak serves HTTP internally
   proxy:
@@ -369,20 +369,28 @@ apiVersion: kuttl.dev/v1beta1
 kind: TestStep
 commands:
   - script: |
-      kubectl run kc-oidc-probe --rm --restart=Never --image=curlimages/curl:8.10.1 -n $NAMESPACE -- \
+      # No --rm: kubectl would delete the pod on command exit, so the phase
+      # poll below would never see it. Create, poll, dump logs on failure,
+      # then delete explicitly.
+      kubectl run kc-oidc-probe --restart=Never --image=curlimages/curl:8.10.1 -n $NAMESPACE -- \
         sh -c 'for i in $(seq 1 30); do
           curl -fsS http://keycloak-service.keycloak.svc:8080/realms/siliconsaga/.well-known/openid-configuration | grep -q authorization_endpoint && exit 0
           sleep 5
         done; exit 1'
+      RESULT=1
       for i in $(seq 1 60); do
         PHASE=$(kubectl get pod kc-oidc-probe -n $NAMESPACE -o jsonpath='{.status.phase}' 2>/dev/null)
-        [ "$PHASE" = "Succeeded" ] && exit 0
-        [ "$PHASE" = "Failed" ] && exit 1
+        if [ "$PHASE" = "Succeeded" ]; then RESULT=0; break; fi
+        if [ "$PHASE" = "Failed" ]; then break; fi
         sleep 2
       done
-      exit 1
+      if [ "$RESULT" -ne 0 ]; then
+        kubectl logs kc-oidc-probe -n $NAMESPACE >&2 || true
+      fi
+      kubectl delete pod kc-oidc-probe -n $NAMESPACE --ignore-not-found
+      exit $RESULT
 ```
-(Confirm the service name/port from B2.2 Step 2. `--rm` one-shot pods report status via `phase`, never a Ready condition.)
+(Confirm the service name/port from B2.2 Step 2. One-shot pods report status via `phase`, never a Ready condition — which is also why the probe pod is created without `--rm` and deleted explicitly after the poll.)
 
 - [ ] **Step 3: Register the test dir** in `kuttl-test.yaml` (`./tests/e2e/keycloak`).
 

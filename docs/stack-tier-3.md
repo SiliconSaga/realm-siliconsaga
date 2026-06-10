@@ -51,9 +51,9 @@ The original Yggdrasil "project constellation" map carried several aspirational 
 - **Demicracy** — design/governance portal (Backstage-based). The "Constitution" of the wider ecosystem. Public face: `demicracy.github.io`.
 - **Uplifted Mascot (UM)** — RAG-style librarian bot that ingests Demicracy docs to answer user questions. Python / ChromaDB / Docker. The "Brain" of the chatops chain.
 - **Autoboros** — ChatOps "Doer" bot. Python/Django + Discord API. The "Hands" that creates PRs in response to chat instructions. Pairs with UM.
-- **Knarr** — viking-merchant integration/bridging layer (and a [board game](https://boardgamegeek.com/boardgame/379629/knarr) the user enjoys). Lives in a separate workspace today; potentially incorporates OpenClaw for agentic work. The "Grand Unification" workflow originally envisioned Knarr as the message-and-event substrate between Demicracy designs, UM intelligence, Autoboros execution, and Nidavellir identity verification.
+- **Knarr** — viking-merchant integration/bridging layer (and a [board game](https://boardgamegeek.com/boardgame/379629/knarr) the user enjoys). **Graduated 2026-06:** declared in `ecosystem.yaml` (Tier 2) and cloned at `components/knarr/` — the Matrix homeserver, bridge fleet, and Kafka bus are real code. The "Grand Unification" workflow originally envisioned Knarr as the message-and-event substrate between Demicracy designs, UM intelligence, Autoboros execution, and Nidavellir identity verification; the Leiðangr design (`docs/plans/2026-06-09-leidangr-design.md`) carries that role forward as the community intake/notify spine.
 
-None of these are in the current `ecosystem.yaml` declaration; if/when any graduates, it gets a `components/<name>/` entry and `realms/realm-siliconsaga/ecosystem.yaml` declaration.
+Apart from Knarr (graduated above), none of these are in the current `ecosystem.yaml` declaration; if/when any graduates, it gets a `components/<name>/` entry and `realms/realm-siliconsaga/ecosystem.yaml` declaration.
 
 ---
 
@@ -64,6 +64,8 @@ Not Kubernetes components, but part of the public surface area:
 - **Front State** (`frontstate.github.io`) — the philosophical companion (civics).
 - **Demicracy** (`demicracy.github.io`) — the platform's public-facing pages (tech).
 - **Cervator** (`Cervator.github.io`) — personal blog adjacent to the project.
+- **Schools** — volunteer pitch for the local school system (Jekyll / GitHub Pages). Declared Tier 3 in `ecosystem.yaml` and cloned at `components/schools/` as of 2026-06, though it stays a static site rather than a cluster deploy.
+- **MTL site** (`siliconsaga.github.io/mtl-site`) — Mountain Top League youth sports site (Jekyll / GitHub Pages). Declared Tier 3 and cloned at `components/mtl-site/` as of 2026-06; same static-site caveat.
 
 ---
 
