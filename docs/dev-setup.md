@@ -77,6 +77,35 @@ For Nordri development on Windows, we suggest **Rancher Desktop**
 
 If you need _additional_ k3s clusters beyond the one provided by Rancher Desktop, you could install the full `k3d` environment that works via Docker and manage multiple clusters that way. This could also be a fine approach on Mac or Linux.
 
+### Crossplane CLI (offline composition rendering)
+
+The `crossplane` CLI lets you render a Composition offline — no cluster needed — which catches go-templating errors and verifies env-aware values (storageClass, domains) before anything deploys. Compositions in this stack (nidavellir, heimdall) are exercised this way; nidavellir ships ready-made fixtures under `tests/render/`.
+
+**Install (Windows):**
+
+1. Download the binary for your OS/arch from https://cli.crossplane.io/stable/current/bin (e.g. `windows_amd64/crossplane.exe`).
+2. Place it in a tools directory on your PATH (e.g. `D:\Dev\MiscTools`).
+
+> **Checksum caveat (observed 2026-06-10):** the published `.sha256` files in the release bucket did not match the actual binaries for v2.3.1/v2.3.2 (and the exes are not Authenticode-signed). Verify provenance by downloading over HTTPS from the official domain and make your own trust call — or build from source with Go: `go install github.com/crossplane/crossplane/cmd/crank@<version>`, then rename `crank.exe` → `crossplane.exe`.
+
+**Install (macOS):** `brew install crossplane` (or the same download page).
+
+**Config:** none. `crossplane render` runs the pipeline functions as local Docker containers, so Docker (Rancher Desktop / Docker Desktop) must be running. First render pulls the function images.
+
+**Usage** — render the OpenBao composition offline (from the nidavellir repo root):
+
+```bash
+crossplane render tests/render/openbao-xr.yaml openbao/composition.yaml \
+  tests/render/functions.yaml --extra-resources tests/render/cluster-identity-homelab.yaml
+```
+
+Notes:
+
+- `render` takes an **XR**, not a claim (`tests/render/openbao-xr.yaml` is the bare-XR fixture).
+- `function-environment-configs` gets its EnvironmentConfig via `--extra-resources` — swap in a gke-flavored identity file to check the other environment.
+- Pin function versions in `functions.yaml` to what the cluster runs (`kubectl get functions.pkg.crossplane.io`).
+- Inspect the output for the env-aware seams: `storageClass`, hostnames, replica counts. That is the whole point of the offline check.
+
 ### WSL2 inotify Limits
 
 Rancher Desktop runs k3s inside a WSL2 VM. The default Linux `inotify` limits are too low
