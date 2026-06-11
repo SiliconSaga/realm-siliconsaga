@@ -17,10 +17,27 @@ Nidavellir is the Tier 2 app-of-apps. Its `apps/` directory holds Application ma
 - `vegvisir/` — Vegvísir Operator: shared Traefik Gateway + cert-manager wiring + TLS termination + (future) per-service routing standards
 - `ntfy/` — phone-push notification destination + server-side template (`heimdall-template.yaml`)
 - `tailscale-operator/` — Tailscale Kubernetes operator
-- `keycloak/` — identity / SSO (planned — will consume a Mimir Postgres claim)
-- `openbao/` — secrets management (planned)
+- `openbao/` — secrets management: OpenBao composition + the ESO `ClusterSecretStore` wiring (Leiðangr Phase 1a)
+- `external-secrets/` — External Secrets Operator (direct Helm app; delivers OpenBao values as plain Kubernetes Secrets)
+- `keycloak/` — identity / SSO (planned, Leiðangr Phase 1b — will consume a Mimir Postgres claim and hold its credentials via OpenBao/ESO)
 
 Adding a brand-new platform service that isn't owned by any one component? This is where it goes. New manifests get picked up by ArgoCD on the next sync (subject to the re-hydration step from `stack.md`'s GitOps section).
+
+### The Secrets Path (a second Tier 2 narrative)
+
+Like the alert pipeline below, the secrets path crosses ownership lines, so here's the shape:
+
+```text
+1. Operator writes a value: bao kv put secret/<path> (OpenBao, ns openbao)
+2. A workload's namespace declares an ExternalSecret CR referencing
+   the cluster-scoped openbao-kv ClusterSecretStore
+3. ESO (ns external-secrets) authenticates to OpenBao via Kubernetes
+   auth (no static credential) and reads the value
+4. ESO materializes + refreshes a plain Kubernetes Secret next to the
+   workload — which never knows OpenBao exists
+```
+
+The beginner-trap to know up front: **a restarted OpenBao pod always comes back sealed** (`0/1 Running`) and waits for a manual unseal — that's the design, not a failure. The full explainer ("sealing from zero", put/consume how-to, unseal + init runbooks, the KV v2 `data/` path gotcha, test-vs-live key custody) lives in nidavellir: [`docs/secrets-management.md`](https://github.com/SiliconSaga/nidavellir/blob/main/docs/secrets-management.md) (workspace path: `components/nidavellir/docs/secrets-management.md`). Decision records: [`adrs/`](adrs/) 0001–0003.
 
 ---
 

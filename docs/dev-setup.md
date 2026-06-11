@@ -77,6 +77,47 @@ For Nordri development on Windows, we suggest **Rancher Desktop**
 
 If you need _additional_ k3s clusters beyond the one provided by Rancher Desktop, you could install the full `k3d` environment that works via Docker and manage multiple clusters that way. This could also be a fine approach on Mac or Linux.
 
+### Crossplane CLI (offline composition rendering)
+
+The `crossplane` CLI lets you render a Composition offline — no cluster needed — which catches go-templating errors and verifies env-aware values (storageClass, domains) before anything deploys. Compositions in this stack are exercised this way; nidavellir ships ready-made fixtures under `tests/render/` (heimdall's composition renders the same way but has no committed fixtures yet).
+
+**Install — build from source (recommended):** the published release checksums are currently unreliable (observed 2026-06-10: the `.sha256` files in the release bucket did not match the actual v2.3.1/v2.3.2 binaries, and the Windows exes are not Authenticode-signed). Until upstream fixes that, build the CLI from source — Go makes this a one-liner and the provenance is the source repo itself. Prerequisite: a Go toolchain — check with `go version`; any Go ≥ 1.21 works because it auto-fetches the toolchain crossplane's `go.mod` actually requires (`GOTOOLCHAIN=auto` is the default). Missing or ancient: `choco install golang` (Windows), `brew install go` (macOS), https://go.dev/doc/install (Linux).
+
+```bash
+go install github.com/crossplane/crossplane/cmd/crank@v2.3.2
+```
+
+`go install` drops the binary in `$GOBIN` (default `~/go/bin` — `C:\Users\<you>\go\bin` on Windows). It builds as `crank`, the CLI's internal name, so rename a copy to `crossplane` somewhere on your PATH:
+
+```bash
+# Linux / macOS (~/go/bin is on PATH if your profile exports it)
+cp ~/go/bin/crank ~/go/bin/crossplane
+
+# Windows (Git Bash) — or copy to any tools dir already on PATH
+cp ~/go/bin/crank.exe ~/go/bin/crossplane.exe
+```
+
+If the target directory isn't on PATH yet: add `export PATH="$HOME/go/bin:$PATH"` to your shell profile (Linux/macOS/Git Bash), or on Windows add it under *Settings → System → About → Advanced system settings → Environment Variables*. Verify with `crossplane version --client`.
+
+**Install — direct download (fallback):** binaries per OS/arch at https://cli.crossplane.io/stable/current/bin (e.g. `windows_amd64/crossplane.exe`); place on PATH (e.g. `D:\Dev\MiscTools`). Treat this as a last resort while the checksum mismatch stands — do not run a downloaded binary whose published `.sha256` doesn't verify unless you've made a deliberate, informed exception (HTTPS + official domain narrows but does not eliminate the risk). macOS can use `brew install crossplane` instead (Homebrew builds carry their own checksums).
+
+**Config:** none. `crossplane render` runs the pipeline functions as local Docker containers, so Docker (Rancher Desktop / Docker Desktop) must be running. First render pulls the function images.
+
+**Usage** — render the OpenBao composition offline. Prerequisite: nidavellir cloned (`ws clone nidavellir`); run from its repo root and confirm the fixtures are present (`ls tests/render/`):
+
+```bash
+crossplane render tests/render/openbao-xr.yaml openbao/composition.yaml \
+  tests/render/functions.yaml --extra-resources tests/render/cluster-identity-homelab.yaml
+```
+
+**Expected output:** three YAML docs and no template errors — the `XOpenBao` XR, a Helm `Release` whose values carry the env-aware fields (`storageClass: local-path` for the homelab fixture), and an `Object` wrapping an HTTPRoute with hostname `openbao.homelab.local`. Wrong/missing storageClass or hostname means the EnvironmentConfig didn't reach the template — that's the failure mode this check exists to catch.
+
+Notes:
+
+- `render` takes an **XR**, not a claim (`tests/render/openbao-xr.yaml` is the bare-XR fixture).
+- `function-environment-configs` gets its EnvironmentConfig via `--extra-resources` — swap in `tests/render/cluster-identity-gke.yaml` to check the other environment (expect `storageClass: standard-rwo` and hostname `openbao.cmdbee.org`).
+- Pin function versions in `functions.yaml` to what the cluster runs (`kubectl get functions.pkg.crossplane.io`).
+
 ### WSL2 inotify Limits
 
 Rancher Desktop runs k3s inside a WSL2 VM. The default Linux `inotify` limits are too low
@@ -172,8 +213,10 @@ We recommend using **Homebrew** to manage tools and **pyenv** for Python version
 ### Install Core Tools
 
 ```bash
-brew install git pyenv k3d kubectl helm kuttl
+brew install git pyenv k3d kubectl helm kuttl crossplane
 ```
+
+(`crossplane` is the CLI for offline composition rendering — see the Crossplane CLI section under Windows Setup for what it's for and how to use it; the Homebrew formula sidesteps the upstream checksum caveat described there.)
 
 ### Configure Python (via pyenv)
 

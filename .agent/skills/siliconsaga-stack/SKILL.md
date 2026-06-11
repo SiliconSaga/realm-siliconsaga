@@ -1,6 +1,6 @@
 ---
 name: siliconsaga-stack
-description: Use when working anywhere in the SiliconSaga ecosystem and needing the navigation map — which component owns which capability (alerting, GitOps, Compositions, observability, notifications), how the pipelines fit together (PrometheusRule → AlertManager → ntfy → phone), what to clone in a bare workspace to access a specific deep skill, the homelab-vs-GKE seam, or the in-cluster-Gitea GitOps model that differs from "push to GitHub." Index + stack narrative; defers to component skills for operational depth.
+description: Use when working anywhere in the SiliconSaga ecosystem and needing the navigation map — which component owns which capability (alerting, GitOps, Compositions, observability, notifications, secrets), how the pipelines fit together (PrometheusRule → AlertManager → ntfy → phone; OpenBao → ESO → Kubernetes Secret), what to clone in a bare workspace to access a specific deep skill, the homelab-vs-GKE seam, or the in-cluster-Gitea GitOps model that differs from "push to GitHub." Index + stack narrative; defers to component skills for operational depth.
 ---
 
 # siliconsaga-stack
@@ -26,7 +26,7 @@ NOT for the operational details of any single capability — those live in the o
 | Tier | Component | Role |
 |---|---|---|
 | 1 (substrate) | **nordri** | Cluster substrate: Traefik (ingress), Crossplane (platform API), Velero (backup), Longhorn (block storage, homelab), Garage S3 (object storage, homelab), in-cluster seed-Gitea (GitOps source-of-truth), ArgoCD (deployment controller in ns `argo`). |
-| 2 (platform app-of-apps) | **nidavellir** | Owns platform Application manifests — `ntfy/`, `tailscale-operator/`, `keycloak/`, `vegvisir/`, `mimir/`. Where you add a new platform Application. |
+| 2 (platform app-of-apps) | **nidavellir** | Owns platform Application manifests — `ntfy/`, `tailscale-operator/`, `openbao/` (secrets), `external-secrets/` (ESO), `keycloak/`, `vegvisir/`, `mimir/`. Where you add a new platform Application. |
 | 2 (component) | **heimdall** | Observability — kube-prometheus-stack (Prometheus + AlertManager + Grafana), Loki, Tempo. Owns the AM config that routes alerts. |
 | 2 (component) | **mimir** | Data services via Crossplane Compositions — Kafka, Valkey, Percona PG/MySQL/MongoDB. |
 | 2 (component) | **vordu** | BDD roadmap visualization. |
@@ -43,6 +43,7 @@ Source-of-truth: `ecosystem.yaml` at workspace root. `ws list` summarizes curren
 | ArgoCD GitOps (CRD chicken-and-egg, test-through-Git, app-of-apps prune, SSA for large CRDs, hard-refresh) | `argocd-gitops` | `components/nordri/.agent/skills/` | `ws clone nordri` |
 | AlertManager config (routing trees, Watchdog dead-man's-switch, webhook payload templating, amtool) | `alertmanager-config` | `components/heimdall/.agent/skills/` | `ws clone heimdall` |
 | kube-prometheus-stack (chart wiring, `release:` label requirement, RWO+Recreate, GKE dual-stack-cost) | `kube-prometheus-stack` | `components/heimdall/.agent/skills/` | `ws clone heimdall` |
+| Secrets (OpenBao sealing/unseal + init runbooks, ESO ClusterSecretStore, KV v2 `data/` path gotcha, key custody) | doc, not skill yet: `docs/secrets-management.md` | `components/nidavellir/docs/` | `ws clone nidavellir` |
 | Kuttl end-to-end testing (Claim→Ready, AM config-reload assertions) | `kuttl-testing` | workspace-root `.agent/skills/` | always available |
 | Terasology engine + MTE integration tests | `terasology-testing` | `realms/realm-siliconsaga/.agent/skills/` | always available |
 | Nordri bootstrap (Layer 2 Gitea, Layer 2.5–2.8 CRDs, Layer 3 ArgoCD adoption, Layer 5 Garage init) | `nordri` | `components/nordri/.agent/skills/` | `ws clone nordri` |
@@ -97,7 +98,7 @@ Working with only `yggdrasil` + `realms/realm-siliconsaga/` cloned? This skill I
 |---|---|---|
 | Alerts / metrics / dashboards / Grafana / Loki | `ws clone heimdall` | `alertmanager-config`, `kube-prometheus-stack` |
 | GitOps deploy / Compositions / Crossplane providers | `ws clone nordri` | `argocd-gitops`, `crossplane-compositions` |
-| ntfy receiver / Keycloak / Tailscale operator / platform Application manifests | `ws clone nidavellir` | (Phase 4) `nidavellir` |
+| ntfy receiver / secrets (OpenBao + ESO) / Keycloak / Tailscale operator / platform Application manifests | `ws clone nidavellir` | `docs/secrets-management.md`; component skill is future Phase-4 work |
 | Database claim (Postgres, Mongo, Kafka, etc.) | `ws clone mimir` | (Phase 4) `mimir` |
 
 `ws list` shows current clone state.
@@ -109,6 +110,7 @@ Working with only `yggdrasil` + `realms/realm-siliconsaga/` cloned? This skill I
 - **Pushing to GitHub to test on the cluster.** GitHub isn't the cluster's source. `update-embedded-git.sh <env>` hydrates the in-cluster seed-Gitea — that's the actual source. Push to GitHub is for code review + remote backup, not deployment.
 - **`kubectl apply` against a `selfHeal: true` Application.** Controller reverts within ~3 minutes. Test through Git (re-hydrate seed-Gitea + hard-refresh). Covered in Nordri's `argocd-gitops` skill.
 - **Forgetting `release: <chart-release>` label** on `ServiceMonitor` / `PrometheusRule`. Operator selector silently ignores them — alert never fires. Covered in Heimdall's `kube-prometheus-stack` skill.
+- **Treating a sealed OpenBao as broken.** `openbao-0` at `0/1 Running` after any restart is by design — it's waiting for a manual unseal (2 of 3 key shares), and readiness deliberately gates on seal status. Runbook: `components/nidavellir/docs/secrets-management.md`.
 - **Treating tier as ordering only.** Tier 1/2/3 reflects dependency direction (substrate → platform → end-user), not deploy order. Real deploy order in Nordri's bootstrap is layered Crossplane providers + ProviderConfigs + ArgoCD adoption, documented separately.
 
 ## Sources
