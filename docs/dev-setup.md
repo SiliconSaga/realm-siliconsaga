@@ -81,12 +81,23 @@ If you need _additional_ k3s clusters beyond the one provided by Rancher Desktop
 
 The `crossplane` CLI lets you render a Composition offline — no cluster needed — which catches go-templating errors and verifies env-aware values (storageClass, domains) before anything deploys. Compositions in this stack are exercised this way; nidavellir ships ready-made fixtures under `tests/render/` (heimdall's composition renders the same way but has no committed fixtures yet).
 
-**Install — build from source (recommended):** the published release checksums are currently unreliable (observed 2026-06-10: the `.sha256` files in the release bucket did not match the actual v2.3.1/v2.3.2 binaries, and the Windows exes are not Authenticode-signed). Until upstream fixes that, build the CLI from source — Go makes this a one-liner and the provenance is the source repo itself:
+**Install — build from source (recommended):** the published release checksums are currently unreliable (observed 2026-06-10: the `.sha256` files in the release bucket did not match the actual v2.3.1/v2.3.2 binaries, and the Windows exes are not Authenticode-signed). Until upstream fixes that, build the CLI from source — Go makes this a one-liner and the provenance is the source repo itself. Prerequisite: a Go toolchain (`choco install golang` on Windows, `brew install go` on macOS).
 
 ```bash
 go install github.com/crossplane/crossplane/cmd/crank@v2.3.2
-# then rename/copy ~/go/bin/crank(.exe) → crossplane(.exe) somewhere on PATH
 ```
+
+`go install` drops the binary in `$GOBIN` (default `~/go/bin` — `C:\Users\<you>\go\bin` on Windows). It builds as `crank`, the CLI's internal name, so rename a copy to `crossplane` somewhere on your PATH:
+
+```bash
+# Linux / macOS (~/go/bin is on PATH if your profile exports it)
+cp ~/go/bin/crank ~/go/bin/crossplane
+
+# Windows (Git Bash) — or copy to any tools dir already on PATH
+cp ~/go/bin/crank.exe ~/go/bin/crossplane.exe
+```
+
+If the target directory isn't on PATH yet: add `export PATH="$HOME/go/bin:$PATH"` to your shell profile (Linux/macOS/Git Bash), or on Windows add it under *Settings → System → About → Advanced system settings → Environment Variables*. Verify with `crossplane version --client`.
 
 **Install — direct download (fallback):** binaries per OS/arch at https://cli.crossplane.io/stable/current/bin (e.g. `windows_amd64/crossplane.exe`); place on PATH (e.g. `D:\Dev\MiscTools`). Treat this as a last resort while the checksum mismatch stands — do not run a downloaded binary whose published `.sha256` doesn't verify unless you've made a deliberate, informed exception (HTTPS + official domain narrows but does not eliminate the risk). macOS can use `brew install crossplane` instead (Homebrew builds carry their own checksums).
 
@@ -104,7 +115,7 @@ crossplane render tests/render/openbao-xr.yaml openbao/composition.yaml \
 Notes:
 
 - `render` takes an **XR**, not a claim (`tests/render/openbao-xr.yaml` is the bare-XR fixture).
-- `function-environment-configs` gets its EnvironmentConfig via `--extra-resources` — swap in a gke-flavored identity file to check the other environment.
+- `function-environment-configs` gets its EnvironmentConfig via `--extra-resources` — swap in `tests/render/cluster-identity-gke.yaml` to check the other environment (expect `storageClass: standard-rwo` and hostname `openbao.cmdbee.org`).
 - Pin function versions in `functions.yaml` to what the cluster runs (`kubectl get functions.pkg.crossplane.io`).
 
 ### WSL2 inotify Limits

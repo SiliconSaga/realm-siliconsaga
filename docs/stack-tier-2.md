@@ -37,7 +37,7 @@ Like the alert pipeline below, the secrets path crosses ownership lines, so here
    workload — which never knows OpenBao exists
 ```
 
-The beginner-trap to know up front: **a restarted OpenBao pod always comes back sealed** (`0/1 Running`) and waits for a manual unseal — that's the design, not a failure. The full explainer ("sealing from zero", put/consume how-to, unseal + init runbooks, the KV v2 `data/` path gotcha, test-vs-live key custody) lives in nidavellir: [`components/nidavellir/docs/secrets-management.md`](../../../components/nidavellir/docs/secrets-management.md). Decision records: [`adrs/`](adrs/) 0001–0003.
+The beginner-trap to know up front: **a restarted OpenBao pod always comes back sealed** (`0/1 Running`) and waits for a manual unseal — that's the design, not a failure. The full explainer ("sealing from zero", put/consume how-to, unseal + init runbooks, the KV v2 `data/` path gotcha, test-vs-live key custody) lives in nidavellir: [`docs/secrets-management.md`](https://github.com/SiliconSaga/nidavellir/blob/main/docs/secrets-management.md) (workspace path: `components/nidavellir/docs/secrets-management.md`). Decision records: [`adrs/`](adrs/) 0001–0003.
 
 ---
 
