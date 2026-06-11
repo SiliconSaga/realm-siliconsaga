@@ -79,32 +79,33 @@ If you need _additional_ k3s clusters beyond the one provided by Rancher Desktop
 
 ### Crossplane CLI (offline composition rendering)
 
-The `crossplane` CLI lets you render a Composition offline — no cluster needed — which catches go-templating errors and verifies env-aware values (storageClass, domains) before anything deploys. Compositions in this stack (nidavellir, heimdall) are exercised this way; nidavellir ships ready-made fixtures under `tests/render/`.
+The `crossplane` CLI lets you render a Composition offline — no cluster needed — which catches go-templating errors and verifies env-aware values (storageClass, domains) before anything deploys. Compositions in this stack are exercised this way; nidavellir ships ready-made fixtures under `tests/render/` (heimdall's composition renders the same way but has no committed fixtures yet).
 
-**Install (Windows):**
+**Install — build from source (recommended):** the published release checksums are currently unreliable (observed 2026-06-10: the `.sha256` files in the release bucket did not match the actual v2.3.1/v2.3.2 binaries, and the Windows exes are not Authenticode-signed). Until upstream fixes that, build the CLI from source — Go makes this a one-liner and the provenance is the source repo itself:
 
-1. Download the binary for your OS/arch from https://cli.crossplane.io/stable/current/bin (e.g. `windows_amd64/crossplane.exe`).
-2. Place it in a tools directory on your PATH (e.g. `D:\Dev\MiscTools`).
+```bash
+go install github.com/crossplane/crossplane/cmd/crank@v2.3.2
+# then rename/copy ~/go/bin/crank(.exe) → crossplane(.exe) somewhere on PATH
+```
 
-> **Checksum caveat (observed 2026-06-10):** the published `.sha256` files in the release bucket did not match the actual binaries for v2.3.1/v2.3.2 (and the exes are not Authenticode-signed). Verify provenance by downloading over HTTPS from the official domain and make your own trust call — or build from source with Go: `go install github.com/crossplane/crossplane/cmd/crank@<version>`, then rename `crank.exe` → `crossplane.exe`.
-
-**Install (macOS):** `brew install crossplane` (or the same download page).
+**Install — direct download (fallback):** binaries per OS/arch at https://cli.crossplane.io/stable/current/bin (e.g. `windows_amd64/crossplane.exe`); place on PATH (e.g. `D:\Dev\MiscTools`). Treat this as a last resort while the checksum mismatch stands — do not run a downloaded binary whose published `.sha256` doesn't verify unless you've made a deliberate, informed exception (HTTPS + official domain narrows but does not eliminate the risk). macOS can use `brew install crossplane` instead (Homebrew builds carry their own checksums).
 
 **Config:** none. `crossplane render` runs the pipeline functions as local Docker containers, so Docker (Rancher Desktop / Docker Desktop) must be running. First render pulls the function images.
 
-**Usage** — render the OpenBao composition offline (from the nidavellir repo root):
+**Usage** — render the OpenBao composition offline. Prerequisite: nidavellir cloned (`ws clone nidavellir`); run from its repo root and confirm the fixtures are present (`ls tests/render/`):
 
 ```bash
 crossplane render tests/render/openbao-xr.yaml openbao/composition.yaml \
   tests/render/functions.yaml --extra-resources tests/render/cluster-identity-homelab.yaml
 ```
 
+**Expected output:** three YAML docs and no template errors — the `XOpenBao` XR, a Helm `Release` whose values carry the env-aware fields (`storageClass: local-path` for the homelab fixture), and an `Object` wrapping an HTTPRoute with hostname `openbao.homelab.local`. Wrong/missing storageClass or hostname means the EnvironmentConfig didn't reach the template — that's the failure mode this check exists to catch.
+
 Notes:
 
 - `render` takes an **XR**, not a claim (`tests/render/openbao-xr.yaml` is the bare-XR fixture).
 - `function-environment-configs` gets its EnvironmentConfig via `--extra-resources` — swap in a gke-flavored identity file to check the other environment.
 - Pin function versions in `functions.yaml` to what the cluster runs (`kubectl get functions.pkg.crossplane.io`).
-- Inspect the output for the env-aware seams: `storageClass`, hostnames, replica counts. That is the whole point of the offline check.
 
 ### WSL2 inotify Limits
 
@@ -201,8 +202,10 @@ We recommend using **Homebrew** to manage tools and **pyenv** for Python version
 ### Install Core Tools
 
 ```bash
-brew install git pyenv k3d kubectl helm kuttl
+brew install git pyenv k3d kubectl helm kuttl crossplane
 ```
+
+(`crossplane` is the CLI for offline composition rendering — see the Crossplane CLI section under Windows Setup for what it's for and how to use it; the Homebrew formula sidesteps the upstream checksum caveat described there.)
 
 ### Configure Python (via pyenv)
 

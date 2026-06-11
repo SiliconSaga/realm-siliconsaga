@@ -39,6 +39,24 @@ Chosen option: "OpenBao", because it keeps the Vault-compatible API and ecosyste
 
 `openbao/` composition exists in nidavellir; `bao` API serves at `openbao.openbao.svc:8200`; ESO reads through it (see ADR 0003 and the `tests/platform/` kuttl smokes).
 
+## Pros and Cons of the Options
+
+### OpenBao
+
+* Good, because open-source (MPL) under Linux Foundation governance — no license-flip risk.
+* Good, because Vault-compatible API keeps the whole ecosystem (ESO, clients, docs) usable.
+* Bad, because younger project — smaller community, rougher release hygiene.
+
+### HashiCorp Vault
+
+* Good, because most mature and best documented.
+* Bad, because BUSL-licensed — a governance risk a community stack shouldn't anchor on.
+
+### Kubernetes Secrets only
+
+* Good, because zero extra moving parts.
+* Bad, because no central policy, versioning, audit, or cross-cluster story — exactly what later phases need.
+
 ## More Information
 
 * Source design: realm-siliconsaga `docs/plans/2026-06-09-leidangr-design.md` §7 (realm PR #10)

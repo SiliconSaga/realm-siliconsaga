@@ -40,6 +40,24 @@ Chosen option: "Minimal", because it ships the substrate in one phase with zero 
 
 `openbao-init` Secret exists in the `openbao` namespace with `init.json` + `root_token` keys; the OpenBao pod readiness gates on unseal (StatefulSet kuttl assert proves the flow ran).
 
+## Pros and Cons of the Options
+
+### Minimal (manual init/unseal, in-cluster key custody)
+
+* Good, because zero cloud coupling — identical flow on homelab and GKE.
+* Good, because shippable now; custody rules scale by environment (password manager on live envs).
+* Bad, because manual unseal after every restart, and cluster admins can read the parked keys.
+
+### KMS auto-unseal from day one
+
+* Good, because no manual unseal and no parked shares.
+* Bad, because couples the substrate to GCP KMS immediately and complicates the homelab story.
+
+### HA Raft + auto-unseal
+
+* Good, because production-grade availability.
+* Bad, because triples the operational surface before any consumer exists to need it.
+
 ## More Information
 
 * Source implementation plan: `docs/plans/2026-06-09-leidangr-phase1a-openbao-eso-plan.md` (Assumptions #4, Task A1.5)

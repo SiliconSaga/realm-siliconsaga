@@ -39,6 +39,23 @@ Chosen option: "ESO + vault provider + Kubernetes auth", because ESO's `ClusterS
 
 `ClusterSecretStore/openbao-kv` reports Ready; the `tests/platform/external-secrets` kuttl case round-trips a KV write into a materialized Secret in an ephemeral namespace.
 
+## Pros and Cons of the Options
+
+### ESO + vault provider + Kubernetes auth
+
+* Good, because declarative CRDs, cluster-wide store, zero app-side coupling, no static bridge credential.
+* Bad, because values land in etcd-backed Secrets (cluster-level encryption is a separate concern).
+
+### OpenBao Agent injector sidecars
+
+* Good, because secrets can stay out of Kubernetes Secrets entirely.
+* Bad, because every consuming pod spec grows a sidecar + annotations — heavy coupling for no current need.
+
+### App-side SDK integration
+
+* Good, because maximum flexibility (dynamic secrets, leases) for apps that truly need it.
+* Bad, because every app re-implements auth/retry/caching and knows the backend exists.
+
 ## More Information
 
 * Source implementation plan: `docs/plans/2026-06-09-leidangr-phase1a-openbao-eso-plan.md` (Parts A2, A3)
