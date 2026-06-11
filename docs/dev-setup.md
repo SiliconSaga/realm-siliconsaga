@@ -81,7 +81,7 @@ If you need _additional_ k3s clusters beyond the one provided by Rancher Desktop
 
 The `crossplane` CLI lets you render a Composition offline — no cluster needed — which catches go-templating errors and verifies env-aware values (storageClass, domains) before anything deploys. Compositions in this stack are exercised this way; nidavellir ships ready-made fixtures under `tests/render/` (heimdall's composition renders the same way but has no committed fixtures yet).
 
-**Install — build from source (recommended):** the published release checksums are currently unreliable (observed 2026-06-10: the `.sha256` files in the release bucket did not match the actual v2.3.1/v2.3.2 binaries, and the Windows exes are not Authenticode-signed). Until upstream fixes that, build the CLI from source — Go makes this a one-liner and the provenance is the source repo itself. Prerequisite: a Go toolchain (`choco install golang` on Windows, `brew install go` on macOS).
+**Install — build from source (recommended):** the published release checksums are currently unreliable (observed 2026-06-10: the `.sha256` files in the release bucket did not match the actual v2.3.1/v2.3.2 binaries, and the Windows exes are not Authenticode-signed). Until upstream fixes that, build the CLI from source — Go makes this a one-liner and the provenance is the source repo itself. Prerequisite: a Go toolchain — check with `go version`; any Go ≥ 1.21 works because it auto-fetches the toolchain crossplane's `go.mod` actually requires (`GOTOOLCHAIN=auto` is the default). Missing or ancient: `choco install golang` (Windows), `brew install go` (macOS), https://go.dev/doc/install (Linux).
 
 ```bash
 go install github.com/crossplane/crossplane/cmd/crank@v2.3.2
