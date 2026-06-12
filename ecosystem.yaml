@@ -123,6 +123,21 @@ components:
     chartVersion: "0.0.0"
     namespace: mtl-site
 
+  # -- Vendored upstream mirrors --------------------------------------------
+  # Read-only mirrors of third-party repos the stack deploys from. Kept as
+  # individual, intact mirrors (full history + tags) under the SiliconSaga
+  # org so: (1) third-party bytes never inflate the repos we maintain or
+  # their stats/review surface, (2) `ws clone` fetches them naturally with
+  # everything else, (3) the hydration script pushes them — history and
+  # tags — into the seed Gitea so ArgoCD can pin exact upstream tags
+  # in-cluster. Never commit local changes to a vendor mirror; re-sync from
+  # upstream instead (forgejo-day2 will make these self-maintaining
+  # pull-mirrors). See docs/plans/2026-06-11-sso-demo-design.md context.
+  keycloak-k8s-resources:
+    tier: vendor
+    chartVersion: "0.0.0"
+    namespace: keycloak
+
   # -- Test chart (validates chart-mode resolution) ------------------------
   echo-test:
     tier: test
