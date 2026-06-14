@@ -3,6 +3,16 @@
 # Shared configuration for the Sweet Home 3D git-svn mirror tooling.
 # Sourced by clone.sh and sync.sh — the single source of truth for URL, exclusions, authors.
 
+# Raise (never lower) the open-file SOFT limit, leaving the hard limit alone. git-svn
+# exhausts macOS's low default soft limit (256) in background/detached contexts and dies
+# with "Too many open files" (Git/SVN/Ra.pm); interactive shells often sit far higher, so
+# only bump when below our target. `-Sn` touches the soft limit only (raises up to hard).
+_cur_nofile="$(ulimit -Sn)"
+if [ "$_cur_nofile" != "unlimited" ] && [ "$_cur_nofile" -lt 8192 ] 2>/dev/null; then
+  ulimit -Sn 8192 2>/dev/null || ulimit -Sn 4096 2>/dev/null || true
+fi
+unset _cur_nofile
+
 # --- git binary (must support git-svn) ---
 # Apple's stock git lacks git-svn; Homebrew's separate `git-svn` formula provides it.
 # Prefer whichever git actually has git-svn; override with GIT_BIN.
