@@ -22,7 +22,12 @@ fi
 
 # Strip volatile lines: editor-state properties + the two default view cameras.
 before=$(wc -l < "$xml")
-grep -Ev "<property name='com\.eteks\.sweethome3d\.(SweetHome3D|swing)\.|<(observerCamera|camera) attribute='(observerCamera|topCamera)'" "$xml" > "$xml.norm"
+# Use sed, not `grep -Ev`: grep exits 1 when it filters out *every* line, which under
+# `set -e` would abort the script before the mv (and a bare `|| true` would instead mask a
+# real read error and clobber Home.xml with an empty file). sed deletes matches and exits 0.
+sed -E "/<property name='com\.eteks\.sweethome3d\.(SweetHome3D|swing)\.|<(observerCamera|camera) attribute='(observerCamera|topCamera)'/d" "$xml" > "$xml.norm"
+# Never replace Home.xml with nothing — guard against a future pattern that empties the file.
+[ -s "$xml.norm" ] || { echo "error: normalization produced an empty Home.xml — aborting" >&2; rm -f "$xml.norm"; exit 1; }
 mv "$xml.norm" "$xml"
 after=$(wc -l < "$xml")
 echo "normalized Home.xml: stripped $(( before - after )) volatile line(s) (UI state + default cameras)"

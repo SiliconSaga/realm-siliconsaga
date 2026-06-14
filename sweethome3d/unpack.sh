@@ -19,10 +19,25 @@ if [ -e "$dest/.git" ]; then
   echo "error: '$dest' is a repo root (.git present). Explode into a subdir, e.g. '$dest/<name>'." >&2
   exit 1
 fi
+# Guard: the clear below (find -delete) is destructive — refuse a symlink so we can't be
+# redirected out of the intended tree.
+if [ -L "$dest" ]; then
+  echo "error: '$dest' is a symlink; point at a real directory." >&2
+  exit 1
+fi
 
 mkdir -p "$dest"
-find "$dest" -mindepth 1 -delete          # clean re-unpack: reflect deletions
-unzip -q -o "$src" -d "$dest"
+# Resolve to a physical absolute path and refuse the catastrophic targets (filesystem root,
+# $HOME) before deleting — a mistyped or externally-supplied dest must never wipe them.
+dest_abs="$(cd "$dest" && pwd -P)" || { echo "error: cannot resolve '$dest'" >&2; exit 1; }
+case "$dest_abs" in
+  / | "$HOME")
+    echo "error: refusing to clear '$dest_abs' — explode into a dedicated subdir." >&2
+    exit 1
+    ;;
+esac
+find "$dest_abs" -mindepth 1 -delete      # clean re-unpack: reflect deletions
+unzip -q -o "$src" -d "$dest_abs"
 echo "unpacked '$src' -> '$dest/' ($(find "$dest" -type f | wc -l | tr -d ' ') files)"
 
 if [ "$mode" = "--raw" ]; then
