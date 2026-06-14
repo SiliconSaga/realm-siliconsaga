@@ -31,7 +31,7 @@ mkdir -p "$dest"
 # $HOME) before deleting — a mistyped or externally-supplied dest must never wipe them.
 dest_abs="$(cd "$dest" && pwd -P)" || { echo "error: cannot resolve '$dest'" >&2; exit 1; }
 case "$dest_abs" in
-  / | "$HOME")
+  / | "${HOME:-}")
     echo "error: refusing to clear '$dest_abs' — explode into a dedicated subdir." >&2
     exit 1
     ;;

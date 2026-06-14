@@ -6,7 +6,7 @@ Two script families for the SiliconSaga Sweet Home 3D work — both **live** her
 - **Mirror maintenance** — the git-svn mirror at `components/sweethome3d`. Agent skill: `sweethome3d-mirror`.
 - **House-file workflow** — explode / normalize / repack a `.sh3d` so a house diffs like code (used by `hoards/refrhus`). Agent skill: `sweethome3d`.
 
-Design notes: `docs/plans/2026-05-25-sh3d-mirror-design.md` and `…-modernization-and-assets.md`.
+Design notes: `docs/plans/2026-05-25-sh3d-mirror-design.md` and `docs/plans/2026-05-25-sh3d-modernization-and-assets.md`.
 
 ## Upstream status (awareness — mirror)
 
