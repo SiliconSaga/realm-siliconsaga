@@ -306,6 +306,144 @@ Spotify Skill Exchange is commercial, but the idea is straightforward enough to 
 
 This should be a second-phase plugin, not part of the first bootstrap. Start with GitHub issue labels and a Backstage page/card that indexes them.
 
+## Facility, Reservable Resources, and Community-Org Modeling
+
+Backstage's catalog has to model more than software here — physical facilities (the Mountaintop League house) and human organizations (the soccer league). These only get confusing when two distinct graphs are conflated:
+
+- **Asset / operational graph** — `Domain → System → Component → Resource` (plus `dependsOn`). Models things you *own and operate*.
+- **Org / people graph** — the `Group` tree (`parent`/`children`) plus `User`s and ownership. Models *who*.
+
+Rule of thumb: **Components and Resources for things you operate or book; Groups for the people-org; a `Resource` is a `Resource` whether it is a meeting room or a soccer field.**
+
+### The league house (asset graph)
+
+- `Domain: mtl` — Mountaintop League, one of the volunteering domains from the taxonomy note in [First Implementation Slice](#first-implementation-slice).
+- `System: mtl-house` (`spec.domain: mtl`) — the facility.
+- `Component`s (`spec.system: mtl-house`): functional sub-areas such as `room-space`, `inventory`, `backyard`. A postal address is a *fact*, not a Component — put it in a `siliconsaga.org/postal-address` annotation on the System, not a node.
+- `Resource`s (`spec.system: mtl-house`, `spec.type: bookable-space`): the specific rooms (e.g. `main-room` as an event space, plus meeting rooms). Backstage has no direct "Component owns Resource" parentage, so the `room-space` Component and the room Resources co-locate in the System and are linked with `dependsOn`/`dependencyOf`.
+
+### The soccer league (org graph + bookable assets)
+
+The competitive structure is people, so it is a **typed `Group` hierarchy**, not Components:
+
+- `Group` (type `league`) — owns the divisions.
+- `Group` (type `division`, `spec.parent: <league>`) — each division.
+- `Group` (type `team`, `spec.parent: <division>`) — each team.
+
+Groups need no enumerated members: the players/parents are unlikely to be Backstage `User`s, and that is fine — the hierarchy and ownership still work with memberless or coordinator-only Groups.
+
+Bookable assets hang off the org in the asset graph: a **site** (a `System`, e.g. `mtl-fields`) whose field `Resource`s (`spec.type: bookable-space`) a **division** reserves and assigns teams to play on — the same reservable-Resource shape and reservation mechanism as the house's rooms. Operable software-ish assets (a registration system, a season scheduler) become their own `System` + `Component`s owned by the appropriate Group. The teams themselves never need to be Components.
+
+This is why an early instinct to model divisions/teams as Components sitting above Groups felt awkward — it expresses a people-hierarchy in the asset graph. Keeping people in the Group tree and booking-targets in the Resource graph removes the inversion.
+
+### Reservable-Resource convention
+
+A `Resource` is reservable when it carries:
+
+```yaml
+metadata:
+  annotations:
+    siliconsaga.org/reservable: "true"
+    siliconsaga.org/calendar-provider: "caldav"   # or "google"
+    siliconsaga.org/calendar-ref: "<resource-or-calendar-id>"
+spec:
+  type: bookable-space   # rooms, fields, any time-sliced space
+  owner: <group>
+```
+
+Rooms and fields share this convention, so a single reservation feature (next section) serves both.
+
+## Calendaring and Resource Reservation
+
+Backstage has **no native booking concept** (verified June 2026: the only calendar plugins — `@backstage-community/plugin-gcalendar` and `@backstage-community/plugin-microsoft-calendar` — are read-only personal-agenda homepage widgets; no reservation plugin exists in community-plugins, Roadie, or the old Spotify marketplace). So reservation is a **custom plugin pair**: a frontend "Reserve / Availability" entity card plus a backend reservation service.
+
+### Substrate vs. workflow — the decision that shapes everything
+
+Separate the calendar **substrate** (live, conflict-checked slots) from the reservation **workflow** (request → approve → confirm, quotas, recurrence). Off-the-shelf booking apps conflate the two, which is precisely why none drop in cleanly:
+
+- **Substrate = CalDAV.** A live, two-way protocol (RFC 4791 + scheduling RFC 6638): query free/busy, create/cancel, server-side conflict prevention. **Nextcloud** — already planned in the stack — with the `calendar_resource_management` app is the reference backend, where rooms/fields are first-class bookable CalDAV resources. CalDAV is the common denominator, so the backend is a *deployment choice*: self-hosted Nextcloud (or Radicale/Baïkal/SOGo) **or** Google Calendar. Google deprecated CalDAV for new apps and steers integrations to its REST API, so Google is a **separate provider behind the same interface**, not a CalDAV peer.
+- **Workflow = ours.** Approval, quotas, and recurrence live in **our reservation backend, above the provider interface**, so they behave identically regardless of which substrate backs them. Reuse the platform we already run: **ntfy** to notify approvers, **Keycloak / Backstage ownership** to decide who may approve.
+
+Lifecycle (and why it is *not* two-master sync): a request creates a *pending* record in the reservation service's own store (workflow state only); on approval the service writes a **confirmed** event to the CalDAV substrate — and that write is the authoritative conflict gate (if two pending requests race for a slot, the first approval wins and the second gets a clean rejection). Our store holds approval state, CalDAV holds confirmed bookings, no data duplicated.
+
+### Two calendar roles: booking substrate vs. publishing front (bring-your-own)
+
+A crucial scoping decision: **our calendar service is point-in-time orchestration, not the system of record for a group's live calendar.** Most existing groups already run a fault-tolerant calendar they trust — very often Google Calendar — and they are set in their ways for understandable reasons. We do not ask them to migrate; we **automate around their existing tools** and convert a willing few into power users over time. That splits "calendar" into two distinct roles:
+
+- **Booking substrate** — the live, conflict-checked store for *our* reservable Resources (the rooms and fields we operate). This is the CalDAV substrate above: Nextcloud reference backend, or a provider. It exists only where we actually own and arbitrate a bookable asset.
+- **Publishing front** — a **read-only** calendar in whatever the group already uses, into which we **publish one-way**: a named/secondary Google calendar (or a Nextcloud calendar for self-hosting groups) carrying the public "what's happening" entries, with links back to the deeper event detail. We **never let an organizer reschedule through the front** (e.g. dragging an event in Google Calendar); the front is a projection authored by our middleware, not an input.
+
+This one-way, write-to-read-only shape is what makes the middleware's job *easy* rather than a sync nightmare. The hard problem everyone hits — two-master live sync between independently-versioned calendars — is avoided by construction: publishing needs only idempotent create/update-by-UID (and delete) against the target, never conflict negotiation. The same provider interface that abstracts CalDAV-vs-Google for the substrate serves the publishing front, so "negotiate between Nextcloud CalDAV and a more static Google calendar" reduces to "implement the publish verbs for each target."
+
+Offering a **self-hosted calendar** (Nextcloud) as a first-class option is an honorable goal in its own right: it gives data-sensitive groups, or those deliberately reducing big-tech dependence, a path that does not route their schedule through Google. It is an *option behind the same interface*, not a requirement.
+
+### Why not LibreBooking, and why not extend Nextcloud
+
+- **LibreBooking** is a purpose-built booking app with exactly the workflow features we want (approval, quotas, recurring, check-in) — but its calendar interop is read-only ICS feeds / email attachments, with its own REST API as the only write path. ICS is a *file snapshot*, not a live protocol; you cannot reserve through it. Bridging LibreBooking to CalDAV would mean two-master sync between two independently-versioned apps, and "pending approval" has no clean CalDAV representation. We **adopt its lessons (the workflow feature set), not the app** — it stays a reference, not a runtime dependency.
+- **Extending Nextcloud** with the approval workflow would couple that logic to Nextcloud internals (a PHP app), split it from the Backstage plugin, and lock approval to that one backend. Keeping the workflow in our own backend leaves Nextcloud vanilla (just the CalDAV substrate) and makes approval portable across providers (including Google).
+
+### Phasing
+
+1. **Read-only availability** — the card shows a room/field's upcoming events from the substrate (a CalDAV read, or even an ICS feed). No write path; cheap and immediately useful.
+2. **Direct confirmed booking** over CalDAV for low-ceremony resources (auto-confirm if the slot is free).
+3. **Approval workflow** for resources that need it (e.g. ad-hoc field requests): pending → ntfy the approver → approve in Backstage → confirmed CalDAV write. Quotas/recurrence as needed.
+
+### Decisions to record (ADRs)
+
+- Reservation is a custom Backstage plugin pair over a **provider interface** — CalDAV-primary (Nextcloud reference backend) plus a Google-REST provider; the backend is a deployment choice.
+- The **approval/quota workflow is owned in our reservation backend**, above the provider interface — not pushed into Nextcloud and not built as a LibreBooking↔CalDAV bridge.
+- Calendar is treated as **two roles**: a booking **substrate** for Resources we operate, and a **read-only publishing front** we write **one-way** into the group's existing calendar (Google or self-hosted Nextcloud). No organizer reschedules through the front; self-hosted Nextcloud is a first-class option for data-sensitive / big-tech-avoidant groups. Our calendar service is point-in-time orchestration, not the group's calendar of record.
+
+## Event Templates and the Public-Facing Edge
+
+The calendaring substrate (previous section) answers "is this room/field free", but a community *event* is more than a booking: it has a name, a place, the volunteer roles it needs, supporting assets (a flyer image, a sign-up spreadsheet, a run-of-show doc), and a public page people can be pointed at. Backstage's **Software Templates (Scaffolder)** are the natural origin point — Scaffolder is a parameterized form plus a sequence of actions, and those actions are not limited to scaffolding code; they can register catalog entities, write CalDAV events, seed records in our own backends, and publish files to other repositories. An "event template" repurposes that machinery to mint an event and wire it to everything it touches in one act.
+
+### One template per recurring event (not one generic event template)
+
+For the PTA the right grain is **one template per named annual event** (Fall Festival, Book Fair, Teacher Appreciation Week), not a single generic "create an event" template. Each of these events carries its own durable assets — a flyer, a volunteer-shift spreadsheet, a checklist — and a one-template-each model lets those assets live *in the template's own directory*:
+
+- A single directory represents the event **template**; running it produces a single directory representing this year's event **instance**. Keeping each event's material in one self-contained folder is what makes it approachable.
+- **Less-technical volunteers can web-edit in place.** GitHub's web editor (or the eventual mini-frontend) lets a parent update next year's flyer or tweak the shift list directly in that one directory without learning the wider repo. The cognitive surface is one folder, not a monorepo.
+- **Power users do the housekeeping.** Occasionally a maintainer folds the lessons of this year's run back into the template — and, where a pattern generalizes, spreads it to other suitable event templates. This is the same "attach a learning loop" habit the upgrade workflow uses, applied to event playbooks; the annual cadence is the natural checkpoint.
+
+A single parameterized template with an event-type dropdown would collapse all of this into form fields and lose the per-event asset folder, so we accept the mild duplication of one-template-each in exchange for editability and self-containment. MTL reuses the same shape later (pot lucks, the commercial-kitchen fundraiser) with its own templates, facility, and volunteer types.
+
+### Prefilled pickers from catalog + reservation search
+
+The easy, high-value integration is **prefilling the template's form from live data** so an organizer chooses rather than types:
+
+- Backstage's `EntityPicker` already filters the catalog by kind/type/spec, so "which field?" becomes a dropdown of reservable `Resource`s (the `bookable-space` type from the [reservable-Resource convention](#reservable-resource-convention)) owned by the relevant Group — no free text, no typos, and the correct relations captured automatically.
+- "Which fields are *free on Saturday*?" is the next step up: availability is not catalog data, so this is a small **custom scaffolder field extension** that asks our reservation backend for free/busy on the chosen date and narrows the picker to open slots. The picker pattern is off-the-shelf; the date-aware filter is the thin custom piece, and it reuses the provider interface from the calendaring section.
+- Volunteer-type and owning-Group fields prefill from the Group tree the same way, so the generated event arrives already related to the right people-org nodes.
+
+### From draft to published: the pending lifecycle and its failure boundary
+
+A created event is **transactional**, and a Scaffolder run touches several independent systems — the booking substrate, the `Opportunity`/pledging records, the publishing-front calendar, and a static-site repo. Writing to all of them in one shot invites partial failure (the booking succeeds, Opportunity seeding fails, and now there is a held slot with no volunteer asks — or a public page for an event that never got its volunteers). The design avoids this with an explicit **pending → finalize → publish** lifecycle owned by the middleware:
+
+- **Draft (pending).** The Scaffolder run creates a *pending* event: a record in the middleware's own store plus draft, unpublished material. Nothing public exists yet — no read-only-calendar entry, no live page, no open volunteer asks. The catalog's durable citizen remains the event **template/series**; individual occurrences are *queried* from the calendar, never minted as per-occurrence catalog entities (which would churn the catalog and duplicate calendar state).
+- **Finalize gate.** The event stays pending until its real-world preconditions are met: location confirmed, enough volunteers committed, approval granted where required. This gate is the middleware's, and it is where a human-in-the-loop naturally sits.
+- **Publish.** On finalize the middleware performs the external writes **sequentially and idempotently**, each keyed by the stable pending-event ID: confirm the booking on the substrate (the authoritative conflict gate), upsert the entry on the read-only publishing front by calendar UID, bring the `Opportunity` records (from [Community and Skill Exchange Lite](#community-and-skill-exchange-lite)) online, and open/merge a PR against the org's static-site repo to make the page live.
+
+**Failure boundary (idempotency + compensation).** This is a saga, deliberately **not** a distributed transaction. Until publish completes the event stays *pending*, so a partial failure is never something the public sees. Every external write is an idempotent upsert keyed by the event ID/UID, so re-running finalize resumes rather than duplicates — no double bookings, no orphaned volunteer records, no second page PR. Ordering puts the authoritative conflict gate (the booking) first, so if a later step fails the slot is held but nothing downstream is half-live. The durable artifacts are chosen to make recovery cheap: a static-site **PR is reviewable and revertible**, and a calendar entry is an idempotent upsert by UID — partial state is recoverable, not corrupting. Backing an event out is then just a calendar delete plus a page-PR revert, both ordinary operations in tools the group already runs.
+
+The PR step is the nicest illustration of the whole stance: our system powers the *organizing* as a burst of point-in-time processing, then **stages durable artifacts that survive and can be worked independently** — a volunteer can keep tweaking the event page in the PR via GitHub's web editor long after the Scaffolder run finished, and if the middleware is down the PR and the calendar entry persist untouched.
+
+### The public one-pager — Backstage points at things, it does not hold them
+
+People interested in an event need a **public one-page landing**, and Backstage is the wrong host for it: it is the internal admin/control-plane, too heavy and too access-controlled to be a public marketing surface, and it must not sit in the critical path of a public event. Two complementary edges serve the page instead:
+
+- **The calendar service** can expose a public, read-only listing of upcoming events (a queryable view over the substrate) with a link per event — the lightest path for "what's coming up".
+- **A static site per organization** hosts the richer page. The finalize step that publishes the event also opens/merges an event-page file into an **existing static-site repo the organization owns** — the PTA's site repo, the league's site repo — *not* Backstage's own repo. That site repo carries a single standard catalog entity — a `Component` with `spec.type: website` (the Backstage well-known type), owned by the org's `Group` — so Backstage *indexes* it and shows the relation, while the page itself is built and served by the org's own static host (GitHub Pages or similar). Ting can carry some of the event's metadata for cross-surface lookups.
+
+The governing principle, which generalizes well beyond events: **Backstage points at all the things, but does not hold all the things.** The catalog is the index and the control-plane; the artifacts of record — the reservation, the public page, the volunteer opportunities — live in systems that keep running if Backstage is down. The show must go on without the portal. And it generalizes one step further into a **no-lock-in** stance: **each organization owns its own edge** — its GitHub Pages site, its calendar — which we *update* but which never *depends* on us. If the middleware disappeared tomorrow a group could go back to hand-adding calendar events and editing its site directly, with no migration; we automate the busywork without becoming a single point of failure between a group and its own audience. This is the same hybrid stance the [Community appendix](#appendix-community-resource-and-volunteer-coordination) takes for high-churn data, stated here as an availability requirement.
+
+### Decisions to record (ADRs)
+
+- Community events originate from **per-event Scaffolder templates** (one template per recurring event, self-contained asset directory) rather than a single generic event template — trading mild duplication for web-editability and per-event assets.
+- A created event's record of truth is the **calendar substrate plus a published static page**, not a per-occurrence catalog entity; Backstage indexes and relates these but does not host them ("points at, does not hold").
+- Events follow a **pending → finalize → publish** lifecycle owned by the middleware; external writes (booking, publishing-front upsert, Opportunity seeding, static-site PR) happen only on finalize, **sequentially and idempotently keyed by event ID** — a saga with a pending hold, not a distributed transaction, so partial failure leaves the event pending and recoverable rather than half-public.
+- Each organization **owns its own public edge** (static site + calendar) that we update but it never depends on us; a group can revert to manual operation without migration (no-lock-in).
+
 ## Documentation Set
 
 Create docs early. The mature sample proves that operational docs are part of the product.
@@ -340,6 +478,10 @@ docs/
     0003-secrets-management.md
     0004-multi-tenant-plugin-config.md
     0005-scorecards.md
+    0006-resource-reservation.md
+    0007-event-templates-and-public-edge.md
+    0008-byo-calendar-publishing-front.md
+    0009-event-pending-lifecycle.md
 ```
 
 Keep user-facing docs separate from operator/developer docs if the audience grows. For a small instance, one `docs/` tree is enough.
@@ -372,7 +514,7 @@ Third slice:
 2. Add custom plugin packaging standards.
 3. Add richer scorecard rollups by team/system.
 4. Add production deployment automation.
-5. Work out the catalog `Domain` taxonomy. The instance will serve several distinct audiences, each a candidate Domain (Domains can nest): a meta-domain for the infrastructure stack itself; The Terasology Foundation as a top-level domain with child domains for Terasology and Destination Sol; volunteering likely fans out into several groupings of its own. Sketch this early enough that systems and components land under the right roofs.
+5. Work out the catalog `Domain` taxonomy. The instance will serve several distinct audiences, each a candidate Domain (Domains can nest): a meta-domain for the infrastructure stack itself; The Terasology Foundation as a top-level domain with child domains for Terasology and Destination Sol; volunteering likely fans out into several groupings of its own. Sketch this early enough that systems and components land under the right roofs. See [Facility, Reservable Resources, and Community-Org Modeling](#facility-reservable-resources-and-community-org-modeling) for how the Mountaintop League house (asset graph) and the soccer league (Group hierarchy) sit under the `mtl` domain.
 
 ## Risks
 
@@ -382,6 +524,9 @@ Third slice:
 - **Catalog distrust:** If ownership and metadata are wrong, every plugin becomes less useful. Prioritize catalog hygiene and validation.
 - **Scorecard backlash:** If checks are opaque or punitive, teams will ignore them or game them. Start transparent and advisory.
 - **GitHub API throttling:** Use GitHub Apps, webhooks/events, schedules, and page-size tuning. Avoid naive org-wide polling.
+- **Reservation as owned product surface:** the reservation plugin + workflow is custom code (auth, notify, provider adapters, approval state). Keep the substrate vanilla (CalDAV) and the workflow thin; resist re-implementing a full booking suite. Adopt LibreBooking's *feature lessons*, not the app, and avoid a two-master bridge between booking systems.
+- **Event-template sprawl and the public edge:** one-template-per-event keeps assets editable but multiplies templates to keep green — lean on the existing template-validation pattern so event templates do not rot, and keep the public-page publish path (the static-site write) narrow and owned. The "Backstage points at, does not hold" principle is also a hard availability requirement: a public event must not depend on the internal portal being up.
+- **Multi-system publish is a saga, and idempotency is load-bearing:** finalize writes to the booking substrate, the publishing-front calendar, the pledging records, and a static-site PR. If those writes are not genuinely idempotent (stable event-ID/UID keys, upserts not inserts), retries will double-book or orphan records. Keep the middleware's pending store the single source of truth, keep external writes replayable, and prefer revertible artifacts (a PR, a UID-keyed calendar entry) over fire-and-forget side effects.
 
 ## Appendix: Extracted Sample Patterns
 
