@@ -306,6 +306,82 @@ Spotify Skill Exchange is commercial, but the idea is straightforward enough to 
 
 This should be a second-phase plugin, not part of the first bootstrap. Start with GitHub issue labels and a Backstage page/card that indexes them.
 
+## Facility, Reservable Resources, and Community-Org Modeling
+
+Backstage's catalog has to model more than software here — physical facilities (the Mountaintop League house) and human organizations (the soccer league). These only get confusing when two distinct graphs are conflated:
+
+- **Asset / operational graph** — `Domain → System → Component → Resource` (plus `dependsOn`). Models things you *own and operate*.
+- **Org / people graph** — the `Group` tree (`parent`/`children`) plus `User`s and ownership. Models *who*.
+
+Rule of thumb: **Components and Resources for things you operate or book; Groups for the people-org; a `Resource` is a `Resource` whether it is a meeting room or a soccer field.**
+
+### The league house (asset graph)
+
+- `Domain: mtl` — Mountaintop League, one of the volunteering domains from the taxonomy note in [First Implementation Slice](#first-implementation-slice).
+- `System: mtl-house` (`spec.domain: mtl`) — the facility.
+- `Component`s (`spec.system: mtl-house`): functional sub-areas such as `room-space`, `inventory`, `backyard`. A postal address is a *fact*, not a Component — put it in a `siliconsaga.org/postal-address` annotation on the System, not a node.
+- `Resource`s (`spec.system: mtl-house`, `spec.type: bookable-space`): the specific rooms (e.g. `main-room` as an event space, plus meeting rooms). Backstage has no direct "Component owns Resource" parentage, so the `room-space` Component and the room Resources co-locate in the System and are linked with `dependsOn`/`dependencyOf`.
+
+### The soccer league (org graph + bookable assets)
+
+The competitive structure is people, so it is a **typed `Group` hierarchy**, not Components:
+
+- `Group` (type `league`) — owns the divisions.
+- `Group` (type `division`, `spec.parent: <league>`) — each division.
+- `Group` (type `team`, `spec.parent: <division>`) — each team.
+
+Groups need no enumerated members: the players/parents are unlikely to be Backstage `User`s, and that is fine — the hierarchy and ownership still work with memberless or coordinator-only Groups.
+
+Bookable assets hang off the org in the asset graph: a **site** (a `System`, e.g. `mtl-fields`) whose field `Resource`s (`spec.type: bookable-space`) a **division** reserves and assigns teams to play on — the same reservable-Resource shape and reservation mechanism as the house's rooms. Operable software-ish assets (a registration system, a season scheduler) become their own `System` + `Component`s owned by the appropriate Group. The teams themselves never need to be Components.
+
+This is why an early instinct to model divisions/teams as Components sitting above Groups felt awkward — it expresses a people-hierarchy in the asset graph. Keeping people in the Group tree and booking-targets in the Resource graph removes the inversion.
+
+### Reservable-Resource convention
+
+A `Resource` is reservable when it carries:
+
+```yaml
+metadata:
+  annotations:
+    siliconsaga.org/reservable: "true"
+    siliconsaga.org/calendar-provider: "caldav"   # or "google"
+    siliconsaga.org/calendar-ref: "<resource-or-calendar-id>"
+spec:
+  type: bookable-space   # rooms, fields, any time-sliced space
+  owner: <group>
+```
+
+Rooms and fields share this convention, so a single reservation feature (next section) serves both.
+
+## Calendaring and Resource Reservation
+
+Backstage has **no native booking concept** (verified June 2026: the only calendar plugins — `@backstage-community/plugin-gcalendar` and `@backstage-community/plugin-microsoft-calendar` — are read-only personal-agenda homepage widgets; no reservation plugin exists in community-plugins, Roadie, or the old Spotify marketplace). So reservation is a **custom plugin pair**: a frontend "Reserve / Availability" entity card plus a backend reservation service.
+
+### Substrate vs. workflow — the decision that shapes everything
+
+Separate the calendar **substrate** (live, conflict-checked slots) from the reservation **workflow** (request → approve → confirm, quotas, recurrence). Off-the-shelf booking apps conflate the two, which is precisely why none drop in cleanly:
+
+- **Substrate = CalDAV.** A live, two-way protocol (RFC 4791 + scheduling RFC 6638): query free/busy, create/cancel, server-side conflict prevention. **Nextcloud** — already planned in the stack — with the `calendar_resource_management` app is the reference backend, where rooms/fields are first-class bookable CalDAV resources. CalDAV is the common denominator, so the backend is a *deployment choice*: self-hosted Nextcloud (or Radicale/Baïkal/SOGo) **or** Google Calendar. Google deprecated CalDAV for new apps and steers integrations to its REST API, so Google is a **separate provider behind the same interface**, not a CalDAV peer.
+- **Workflow = ours.** Approval, quotas, and recurrence live in **our reservation backend, above the provider interface**, so they behave identically regardless of which substrate backs them. Reuse the platform we already run: **ntfy** to notify approvers, **Keycloak / Backstage ownership** to decide who may approve.
+
+Lifecycle (and why it is *not* two-master sync): a request creates a *pending* record in the reservation service's own store (workflow state only); on approval the service writes a **confirmed** event to the CalDAV substrate — and that write is the authoritative conflict gate (if two pending requests race for a slot, the first approval wins and the second gets a clean rejection). Our store holds approval state, CalDAV holds confirmed bookings, no data duplicated.
+
+### Why not LibreBooking, and why not extend Nextcloud
+
+- **LibreBooking** is a purpose-built booking app with exactly the workflow features we want (approval, quotas, recurring, check-in) — but its calendar interop is read-only ICS feeds / email attachments, with its own REST API as the only write path. ICS is a *file snapshot*, not a live protocol; you cannot reserve through it. Bridging LibreBooking to CalDAV would mean two-master sync between two independently-versioned apps, and "pending approval" has no clean CalDAV representation. We **adopt its lessons (the workflow feature set), not the app** — it stays a reference, not a runtime dependency.
+- **Extending Nextcloud** with the approval workflow would couple that logic to Nextcloud internals (a PHP app), split it from the Backstage plugin, and lock approval to that one backend. Keeping the workflow in our own backend leaves Nextcloud vanilla (just the CalDAV substrate) and makes approval portable across providers (including Google).
+
+### Phasing
+
+1. **Read-only availability** — the card shows a room/field's upcoming events from the substrate (a CalDAV read, or even an ICS feed). No write path; cheap and immediately useful.
+2. **Direct confirmed booking** over CalDAV for low-ceremony resources (auto-confirm if the slot is free).
+3. **Approval workflow** for resources that need it (e.g. ad-hoc field requests): pending → ntfy the approver → approve in Backstage → confirmed CalDAV write. Quotas/recurrence as needed.
+
+### Decisions to record (ADRs)
+
+- Reservation is a custom Backstage plugin pair over a **provider interface** — CalDAV-primary (Nextcloud reference backend) plus a Google-REST provider; the backend is a deployment choice.
+- The **approval/quota workflow is owned in our reservation backend**, above the provider interface — not pushed into Nextcloud and not built as a LibreBooking↔CalDAV bridge.
+
 ## Documentation Set
 
 Create docs early. The mature sample proves that operational docs are part of the product.
@@ -340,6 +416,7 @@ docs/
     0003-secrets-management.md
     0004-multi-tenant-plugin-config.md
     0005-scorecards.md
+    0006-resource-reservation.md
 ```
 
 Keep user-facing docs separate from operator/developer docs if the audience grows. For a small instance, one `docs/` tree is enough.
@@ -372,7 +449,7 @@ Third slice:
 2. Add custom plugin packaging standards.
 3. Add richer scorecard rollups by team/system.
 4. Add production deployment automation.
-5. Work out the catalog `Domain` taxonomy. The instance will serve several distinct audiences, each a candidate Domain (Domains can nest): a meta-domain for the infrastructure stack itself; The Terasology Foundation as a top-level domain with child domains for Terasology and Destination Sol; volunteering likely fans out into several groupings of its own. Sketch this early enough that systems and components land under the right roofs.
+5. Work out the catalog `Domain` taxonomy. The instance will serve several distinct audiences, each a candidate Domain (Domains can nest): a meta-domain for the infrastructure stack itself; The Terasology Foundation as a top-level domain with child domains for Terasology and Destination Sol; volunteering likely fans out into several groupings of its own. Sketch this early enough that systems and components land under the right roofs. See [Facility, Reservable Resources, and Community-Org Modeling](#facility-reservable-resources-and-community-org-modeling) for how the Mountaintop League house (asset graph) and the soccer league (Group hierarchy) sit under the `mtl` domain.
 
 ## Risks
 
@@ -382,6 +459,7 @@ Third slice:
 - **Catalog distrust:** If ownership and metadata are wrong, every plugin becomes less useful. Prioritize catalog hygiene and validation.
 - **Scorecard backlash:** If checks are opaque or punitive, teams will ignore them or game them. Start transparent and advisory.
 - **GitHub API throttling:** Use GitHub Apps, webhooks/events, schedules, and page-size tuning. Avoid naive org-wide polling.
+- **Reservation as owned product surface:** the reservation plugin + workflow is custom code (auth, notify, provider adapters, approval state). Keep the substrate vanilla (CalDAV) and the workflow thin; resist re-implementing a full booking suite. Adopt LibreBooking's *feature lessons*, not the app, and avoid a two-master bridge between booking systems.
 
 ## Appendix: Extracted Sample Patterns
 
