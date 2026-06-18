@@ -382,6 +382,49 @@ Lifecycle (and why it is *not* two-master sync): a request creates a *pending* r
 - Reservation is a custom Backstage plugin pair over a **provider interface** — CalDAV-primary (Nextcloud reference backend) plus a Google-REST provider; the backend is a deployment choice.
 - The **approval/quota workflow is owned in our reservation backend**, above the provider interface — not pushed into Nextcloud and not built as a LibreBooking↔CalDAV bridge.
 
+## Event Templates and the Public-Facing Edge
+
+The calendaring substrate (previous section) answers "is this room/field free", but a community *event* is more than a booking: it has a name, a place, the volunteer roles it needs, supporting assets (a flyer image, a sign-up spreadsheet, a run-of-show doc), and a public page people can be pointed at. Backstage's **Software Templates (Scaffolder)** are the natural origin point — Scaffolder is a parameterized form plus a sequence of actions, and those actions are not limited to scaffolding code; they can register catalog entities, write CalDAV events, seed records in our own backends, and publish files to other repositories. An "event template" repurposes that machinery to mint an event and wire it to everything it touches in one act.
+
+### One template per recurring event (not one generic event template)
+
+For the PTA the right grain is **one template per named annual event** (Fall Festival, Book Fair, Teacher Appreciation Week), not a single generic "create an event" template. Each of these events carries its own durable assets — a flyer, a volunteer-shift spreadsheet, a checklist — and a one-template-each model lets those assets live *in the template's own directory*:
+
+- A single directory represents the event **template**; running it produces a single directory representing this year's event **instance**. Keeping each event's material in one self-contained folder is what makes it approachable.
+- **Less-technical volunteers can web-edit in place.** GitHub's web editor (or the eventual mini-frontend) lets a parent update next year's flyer or tweak the shift list directly in that one directory without learning the wider repo. The cognitive surface is one folder, not a monorepo.
+- **Power users do the housekeeping.** Occasionally a maintainer folds the lessons of this year's run back into the template — and, where a pattern generalizes, spreads it to other suitable event templates. This is the same "attach a learning loop" habit the upgrade workflow uses, applied to event playbooks; the annual cadence is the natural checkpoint.
+
+A single parameterized template with an event-type dropdown would collapse all of this into form fields and lose the per-event asset folder, so we accept the mild duplication of one-template-each in exchange for editability and self-containment. MTL reuses the same shape later (pot lucks, the commercial-kitchen fundraiser) with its own templates, facility, and volunteer types.
+
+### Prefilled pickers from catalog + reservation search
+
+The easy, high-value integration is **prefilling the template's form from live data** so an organizer chooses rather than types:
+
+- Backstage's `EntityPicker` already filters the catalog by kind/type/spec, so "which field?" becomes a dropdown of reservable `Resource`s (the `bookable-space` type from the [reservable-Resource convention](#reservable-resource-convention)) owned by the relevant Group — no free text, no typos, and the correct relations captured automatically.
+- "Which fields are *free on Saturday*?" is the next step up: availability is not catalog data, so this is a small **custom scaffolder field extension** that asks our reservation backend for free/busy on the chosen date and narrows the picker to open slots. The picker pattern is off-the-shelf; the date-aware filter is the thin custom piece, and it reuses the provider interface from the calendaring section.
+- Volunteer-type and owning-Group fields prefill from the Group tree the same way, so the generated event arrives already related to the right people-org nodes.
+
+### Events live in the calendar, not as catalog entities
+
+A created event is **transactional**, so its authoritative home is the **calendar substrate (a confirmed CalDAV event/reservation), not a per-occurrence catalog entity**. The catalog is for relatively stable descriptors; minting a new YAML entity for every occurrence would churn the catalog and duplicate state the calendar already holds. Instead:
+
+- The durable catalog citizen is the event **template/series** (and the facility, Groups, and any owned software it relates to). Individual occurrences are *queried* from the calendar, not stored as nodes.
+- The Scaffolder run, on submit, writes the confirmed reservation to CalDAV and (where the event needs volunteers) seeds `Opportunity` records in the pledging system from [Community and Skill Exchange Lite](#community-and-skill-exchange-lite) — so the event, its calendar slot, and its volunteer asks are created together and stay linked by reference rather than by copy.
+
+### The public one-pager — Backstage points at things, it does not hold them
+
+People interested in an event need a **public one-page landing**, and Backstage is the wrong host for it: it is the internal admin/control-plane, too heavy and too access-controlled to be a public marketing surface, and it must not sit in the critical path of a public event. Two complementary edges serve the page instead:
+
+- **The calendar service** can expose a public, read-only listing of upcoming events (a queryable view over the substrate) with a link per event — the lightest path for "what's coming up".
+- **A static site per organization** hosts the richer page. The same Scaffolder run that mints the event also **publishes an event-page file into an existing static-site repo** — the PTA's site repo, the league's site repo — *not* into Backstage's own repo. That site repo carries a single normal catalog entity (a `Component`/`Website` "this is the PTA website") so Backstage still *indexes* it and shows the relation, while the page itself is served by the static host. Ting can carry some of the event's metadata for cross-surface lookups.
+
+The governing principle, which generalizes well beyond events: **Backstage points at all the things, but does not hold all the things.** The catalog is the index and the control-plane; the artifacts of record — the reservation, the public page, the volunteer opportunities — live in systems that keep running if Backstage is down. The show must go on without the portal. This is the same hybrid stance the [Community appendix](#appendix-community-resource-and-volunteer-coordination) takes for high-churn data, stated here as an availability requirement.
+
+### Decisions to record (ADRs)
+
+- Community events originate from **per-event Scaffolder templates** (one template per recurring event, self-contained asset directory) rather than a single generic event template — trading mild duplication for web-editability and per-event assets.
+- A created event's record of truth is the **calendar substrate plus a published static page**, not a per-occurrence catalog entity; Backstage indexes and relates these but does not host them ("points at, does not hold").
+
 ## Documentation Set
 
 Create docs early. The mature sample proves that operational docs are part of the product.
@@ -417,6 +460,7 @@ docs/
     0004-multi-tenant-plugin-config.md
     0005-scorecards.md
     0006-resource-reservation.md
+    0007-event-templates-and-public-edge.md
 ```
 
 Keep user-facing docs separate from operator/developer docs if the audience grows. For a small instance, one `docs/` tree is enough.
@@ -460,6 +504,7 @@ Third slice:
 - **Scorecard backlash:** If checks are opaque or punitive, teams will ignore them or game them. Start transparent and advisory.
 - **GitHub API throttling:** Use GitHub Apps, webhooks/events, schedules, and page-size tuning. Avoid naive org-wide polling.
 - **Reservation as owned product surface:** the reservation plugin + workflow is custom code (auth, notify, provider adapters, approval state). Keep the substrate vanilla (CalDAV) and the workflow thin; resist re-implementing a full booking suite. Adopt LibreBooking's *feature lessons*, not the app, and avoid a two-master bridge between booking systems.
+- **Event-template sprawl and the public edge:** one-template-per-event keeps assets editable but multiplies templates to keep green — lean on the existing template-validation pattern so event templates do not rot, and keep the public-page publish path (the static-site write) narrow and owned. The "Backstage points at, does not hold" principle is also a hard availability requirement: a public event must not depend on the internal portal being up.
 
 ## Appendix: Extracted Sample Patterns
 
