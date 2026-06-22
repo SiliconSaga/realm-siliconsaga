@@ -43,6 +43,8 @@ Root command envelope (`Makefile` — boring and explicit, one command per workf
 3. **Read this app's dev-scope KV path** from the shared, multi-consumer OpenBao — `secret/leidangr/dev`. OpenBao is central platform infrastructure used by many consumers; this script reads only the leidangr dev-scope keys.
 4. **Validate required keys, then render** the gitignored `.env.local`, printing key *presence/status* but never values.
 
+**Reachability — two paths, one script.** `bao login -method=oidc` needs the *browser* to reach Keycloak's authorize endpoint **and** the `bao` CLI (plus its localhost callback) to reach the **OpenBao API** — that is where both the login exchange and the KV read happen. So OpenBao itself, not only Keycloak, must be reachable by the developer's machine. For the cluster owner that is a **port-forward** (the skeleton's default). For a contributor without port-forward rights it must be a **direct URL** (`BAO_ADDR=https://openbao.<domain>`). `scripts/dev-secrets` supports both and selects by config — port-forward when it can, direct URL when told — so the same script and the same agnostic app serve both audiences.
+
 **Non-secret** local overrides live in `app-config.local.yaml` (gitignored, with a committed `.example`); secrets never go there.
 
 **Portability is a hard rule:** the `Makefile` and `scripts/dev-secrets` use only `kubectl`, `bao`, and standard tools, and live *inside* the Backstage repo. They run identically whether someone cloned just `leidangr` or is working in the GDD workspace. GDD's `ws` may *wrap* them (e.g. `ws run leidangr secrets`) but is never a dependency. There is no GKE dependency: local k3s OpenBao is a first-class target.
@@ -54,6 +56,17 @@ Three first-class modes, not a single linear path:
 - **Stub / mock (default, zero secrets):** the create-app default **SQLite** dev database (so the first boot needs nothing external — important given uncertain Docker availability under Rancher Desktop over remote access), guest auth, generated example entities / mocked external data. This is what a standalone-repo developer with no cluster gets, what CI runs against, and what BDD scenarios exercise. "Accept the limitations" is a supported, deliberate mode.
 - **Local-secrets:** `make secrets` → OpenBao-via-OIDC → `.env.local` → real Gitea integration. An optional `docker-compose` Postgres (`make db`) is provided as the prod-like database path but is not required.
 - **Deployed (future slice):** in-cluster Backstage consuming ESO-projected Kubernetes Secrets — out of scope here, noted so the secret model stays forward-compatible.
+
+### Contributor access (live/GKE phase — out of scope for this slice)
+
+When Backstage development opens to external contributors on GKE, port-forward stops being viable — most contributors will not have `kubectl` port-forward rights into the cluster. The browser-OIDC model then *requires* OpenBao to be exposed at a contributor-reachable URL, since that is where both the OIDC login exchange and the KV read happen (exposing only Keycloak is insufficient). This is a normal OpenBao posture — the API, guarded by auth methods + ACL policies + audit, is the security boundary, not network isolation — but it is more sensitive than exposing Keycloak, so it is recorded here as a deliberate later decision with its security shape:
+
+- **TLS** via the already-shipped `*.cmdbee.org` wildcard (an `openbao.cmdbee.org` ingress is cheap).
+- **OIDC → Keycloak → policy:** a contributor Keycloak group maps to an OpenBao role/policy granting **read-only** access to `secret/leidangr/dev` and nothing else, with short-lived tokens.
+- **Audit logging** enabled, rate limiting / WAF as appropriate.
+- **Lower-exposure option:** expose OpenBao through the **already-running Tailscale operator** (contributors join the tailnet) instead of the public internet — defense-in-depth for a smaller trusted contributor set, upgradeable to fully public later.
+
+This slice changes nothing here — it stays port-forward on the owner's own cluster — but the `dev-secrets` direct-URL branch is built now so the live transition is config-only, not a rewrite.
 
 ## 5. Catalog Source — Gitea
 
@@ -101,6 +114,7 @@ Keycloak OIDC *sign-in to Backstage* (separate from OpenBao's OIDC auth, which w
 - jest-cucumber wiring into the create-app Jest config (or a parallel config) so `.feature` files run under `make test`.
 - Where the 2–3 sample catalog entities live (a dedicated tiny Gitea repo vs. reuse of an existing one).
 - Whether Rancher Desktop exposes a docker-compatible socket for the optional `make db` Postgres path (SQLite default sidesteps this).
+- (Live phase, not this slice) Decide OpenBao contributor exposure — public `openbao.cmdbee.org` ingress vs Tailscale-only — and author the read-only contributor policy/role mapped from a Keycloak group.
 
 ## 11. References
 
