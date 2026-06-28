@@ -1,7 +1,7 @@
 # Leiðangr Phase 2 — Backstage Skeleton + DevEx (first slice)
 
 **Date:** 2026-06-21
-**Status:** Draft (brainstormed, pending implementation plan)
+**Status:** Implemented — component PR [SiliconSaga/leidangr#1](https://github.com/SiliconSaga/leidangr/pull/1); realm registration in this PR.
 **Scope:** The first concrete slice of Leiðangr Phase 2 — a fresh, modern Backstage instance with a strong DevEx envelope that runs **locally**, can boot with **zero secrets**, and can pull a real secret from **OpenBao** to authenticate a **Gitea** catalog source. Deployment, Keycloak SSO sign-in, GitHub, CI, custom plugins, and the realm #15 facility/calendaring/event-template modeling are explicitly out of this slice.
 **Parent:** [`2026-06-09-leidangr-design.md`](2026-06-09-leidangr-design.md) (§6 Phase Roadmap — Phase 2; §7 Phase 1 prerequisites, now complete).
 **Reference:** [`2026-06-09-backstage-devex-workspace-design.md`](2026-06-09-backstage-devex-workspace-design.md) (the DevEx envelope reference this slice draws from).
@@ -12,7 +12,7 @@
 
 Phase 1 stood up OpenBao + ESO and Keycloak as reusable platform services (both deployed, SSO manually verified 2026-06-19). This slice begins Phase 2 by creating the Backstage control-plane as a SiliconSaga component — but deliberately as a **local-first skeleton**, not a deployed instance. The aim is a complete, testable inner-loop: clone the repo, run one command, get a working Backstage; run one more command to log into OpenBao and have a real Gitea-backed catalog appear.
 
-The component is codenamed **`leidangr`** for now (the umbrella name, used as the working name for this first component; trivially renamed later). It lives at `components/leidangr/` as its own standalone git repo, registered in the realm/ecosystem only **after** it boots green.
+The component is codenamed **`leidangr`** for now (the umbrella name, used as the working name for this first component; trivially renamed later). It lives at `components/leidangr/` as its own standalone git repo ([SiliconSaga/leidangr](https://github.com/SiliconSaga/leidangr)), registered in the realm ecosystem as a tier-3 component once it booted green.
 
 ### Done signals (the two checkpoints)
 

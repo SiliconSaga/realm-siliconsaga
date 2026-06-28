@@ -502,7 +502,7 @@ With OpenBao unsealed: `make secrets` (complete browser login) â†’ `make dev` â†
 
 - [ ] **Step 4: Register the component in the realm**
 
-Add `leidangr` to the realm ecosystem (tier 2/3 as appropriate) now that it boots green, following the pattern of existing component declarations.
+Add `leidangr` to the realm ecosystem as a **tier-3** component now that it boots green, following the pattern of existing component declarations.
 
 - [ ] **Step 5: Commit (realm) via ws**
 
