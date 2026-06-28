@@ -1,0 +1,19 @@
+# leidangr adapter — Backstage app (Yarn 4 via Corepack; no global yarn).
+# Component cwd is components/leidangr/ when ws test / ws lint run.
+#
+# test: the DevEx envelope + BDD acceptance suite (jest-cucumber) — the suite we
+# iterate on (doctor + dev-secrets units, checkpoint feature specs). The generated
+# app/backend unit tests run separately via
+# `ws exec leidangr corepack yarn backstage-cli repo test` (or `make test-app`).
+# Adapter commands are whitespace-tokenized, so no extra jest args/selectors here.
+#
+# lint: backstage-cli repo lint across the app/plugin workspaces.
+commands:
+  test: "corepack yarn jest --config jest.envelope.config.cjs"
+  lint: "corepack yarn backstage-cli repo lint"
+
+ai_context:
+  - path: "README.md"
+    description: "Backstage app overview"
+  - path: "Makefile"
+    description: "DevEx envelope targets (doctor/deps/dev/test/secrets/ci)"
