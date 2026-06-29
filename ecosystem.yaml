@@ -123,6 +123,16 @@ components:
     chartVersion: "0.0.0"
     namespace: mtl-site
 
+  # leidangr — Backstage control-plane for the Leiðangr community-coordination
+  # stack. Local-first skeleton today (not cluster-deployed); declared here so the
+  # workspace can clone/exec/commit/test it. See
+  # docs/plans/2026-06-21-leidangr-phase2-backstage-skeleton-design.md and
+  # adapters/leidangr.yaml.
+  leidangr:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: leidangr
+
   # -- Vendored upstream mirrors --------------------------------------------
   # Read-only mirrors of third-party repos the stack deploys from. Kept as
   # individual, intact mirrors (full history + tags) under the SiliconSaga
