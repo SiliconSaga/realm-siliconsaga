@@ -115,6 +115,14 @@ components:
     chartVersion: "0.0.0"
     namespace: schools
 
+  # skipta — AI-backed field amendment & signing demo (voice → Gemini →
+  # Sheets pricing → signed PDF in Drive). Design doc lives in yggdrasil
+  # docs/plans/2026-07-01-skipta-field-amendments-design.md.
+  skipta:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: skipta
+
   # mtl-site — Mountain Top League youth sports site. Static Jekyll on
   # GitHub Pages today (not cluster-deployed); declared here so the workspace
   # can clone/exec/commit it. See docs/plans/2026-04-08-mtl-site-design.md.
