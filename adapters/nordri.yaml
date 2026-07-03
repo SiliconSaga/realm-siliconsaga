@@ -1,7 +1,9 @@
 # nordri adapter — build/test commands and AI context pointers
 commands:
-  test: "make test"
-  lint: "make lint"
+  # Portable bash runner (no `make` dependency — this stack runs on Windows +
+  # macOS). Cluster-free: syntax-check + lib unit tests. kuttl e2e is separate.
+  test: "bash tests/run.sh test"
+  lint: "bash tests/run.sh lint"
 
 ai_context:
   - path: "AGENTS.md"
