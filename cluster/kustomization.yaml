@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Realm-owned in-cluster config. nordri's generic realm root-app syncs this path
+# (bootstrap hydrates cluster/'s contents into seed-Gitea as repo
+# "realm-siliconsaga"). Add realm-owned ApplicationSets here as more Tier-3/4
+# apps are wired (e.g. tafl game-hosting, one per wired game type) — the platform
+# (nidavellir) stays unaware of any realm, app, or game.
+resources:
+  - keycloak
