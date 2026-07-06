@@ -71,9 +71,10 @@ No custom kinds for these; conventions only.
   (optional) → `team`. Ownership and `parent`/`children` come free. Small sports skip the
   `division` level with no special-casing.
 - **Facilities → `System` + `Resource`.** A facility is a `System` (`spec.domain: mtl`); its
-  bookable spaces are `Resource`s (`spec.type: bookable-space`, or `field`). Reservable resources
-  carry `siliconsaga.org/reservable`, `/calendar-provider`, `/calendar-ref` annotations (the
-  reservable-Resource convention from the devex design).
+  bookable spaces are `Resource`s with `spec.type: bookable-space` — rooms *and* fields share the
+  one type so a single reservation UX serves both (per the devex reservable-Resource convention).
+  Reservable resources carry the fully-qualified `siliconsaga.org/reservable`,
+  `siliconsaga.org/calendar-provider`, and `siliconsaga.org/calendar-ref` annotations.
 - **Environments / clusters → `Resource`** (`spec.type: environment`|`cluster`), the software-side
   peer of a field; other entities `dependsOn` them. Established Backstage practice, no custom kind.
 - **"Real" software → `System` + `Component`** (e.g. a registration app), owned by the right Group.
@@ -92,7 +93,7 @@ kind: Cycle
 metadata:
   name: soccer-2026-spring
 spec:
-  type: season                 # release | season | program | event | drive
+  type: season                 # open vocab: season | release | series | production | drive | tournament | …
   timeframe: { start: 2026-03-01, end: 2026-06-15 }
   of: group:default/mtl-soccer # durable parent — a Group (league) or a Component (app)
   happensAt:                   # optional; the Resource(s) occurrences use
@@ -101,19 +102,25 @@ spec:
 ```
 
 - **Backend module** (`components/leidangr` catalog backend module): validates the `Cycle` spec
-  (required `type`, `timeframe`, `of`) and **emits its relations** — `ownedBy` (from `owner`),
-  `cycleOf`/`hasCycle` (from `of`), and `happensAt`/`hosts` (from `happensAt`). Emitting relations
-  is the module's real work, since custom-kind fields get no built-in relation processing.
+  (required `type`, `timeframe`, `of`) and **emits its relations** — `ownedBy` (from `owner`), and
+  the *provisional* `cycleOf`/`hasCycle` (from `of`) and `happensAt`/`hosts` (from `happensAt`);
+  the final relation vocabulary is decided at plan time (§14). Emitting relations is the module's
+  real work, since custom-kind fields get no built-in relation processing.
 - **Entity page:** the default page (About + Relations) is acceptable to start; a curated
   "timeframe + what this Cycle spans + occurrences" content extension (filtered to `kind: Cycle`)
   is a follow-up, not a Phase-3 blocker.
-- **Naming:** `Cycle` (evoking a *Ring Cycle* / mythos) is domain-neutral and reusable; a software
-  release is simply `spec.type: release`.
+- **Naming & types:** `Cycle` (evoking a *Ring Cycle* / mythos) is domain-neutral and reusable;
+  `spec.type` is an **open, org-extensible vocabulary** (`season`, `release`, `series`,
+  `production`, `drive`, `tournament`, …), not a fixed enum. A *simple, one-time* event is **not**
+  a Cycle — it's an occurrence (§6).
 
 ## 5. `Saga` — the Narrated Custom Kind (designed; build deferred)
 
-A `Saga` is an authored After-Action-Report — it cannot be scraped, only written. It maps to a
-software **retrospective**. Design captured now; **implementation deferred** (§12).
+A `Saga` is an authored **After-Action-Report for any effort or community event** — a season, a
+talent show, a fundraiser, a software project — narrating what happened, who was involved, where,
+and what was learned. It cannot be scraped, only written. (In the software domain it maps neatly to
+a **retrospective**, but that's one instance of the general pattern, not the definition.) Design
+captured now; **implementation deferred** (§12).
 
 ```yaml
 apiVersion: siliconsaga.org/v1alpha1
@@ -146,13 +153,20 @@ spec:
 
 ## 6. Occurrences — Queried, Not Minted
 
-Matches, deployments, and single event-instances are **occurrences**: high-churn and numerous.
-They are **not catalog entities** — minting each churns the catalog for no gain. They live in the
-source (calendar, TeamSnap, CI/CD) and are **queried** onto a `Cycle`'s page by a plugin (the same
-stance the calendaring design takes: "occurrences are queried, never minted as per-occurrence
-entities"). This is where the earlier `Activity` concept **dissolves**: an Activity is either an
-occurrence (a single match/deployment) or, if it is a recurring bounded effort, a
-`Cycle{type:event}`.
+Matches, deployments, and single event-instances are **occurrences**: a single point-in-time
+happening, high-churn and numerous. They are **not catalog entities** — minting each churns the
+catalog for no gain. They live in the source (calendar, TeamSnap, CI/CD) and are **queried** onto a
+`Cycle`'s page by a plugin (the same stance the calendaring design takes: "occurrences are queried,
+never minted as per-occurrence entities").
+
+The line between an occurrence and a `Cycle` is **grouping, not calendar-vs-not**: a *simple,
+one-time* event (one game, one meeting) is an occurrence; a bounded effort that *groups* several
+occurrences under one theme — a multi-day talent show with rehearsals and two show-nights — is a
+`Cycle` (`spec.type: production`) even though it is singular. "Singular vs recurring" is a nuance of
+the Cycle's `spec.type`, not a separate kind.
+
+This is where the earlier `Activity` concept **dissolves**: an Activity is either an occurrence (a
+single match/deployment) or, if it groups occurrences, a `Cycle`.
 
 ## 7. MTL Seed — Representative Shape
 
@@ -171,7 +185,7 @@ Group: mtl                              (spec.type: organization)
 
 Domain: mtl
  ├─ System: mtl-house        (facility)  ─ Resource: main-room (bookable-space)
- ├─ System: mtl-fields       (facility)  ─ Resource: field-1  (type: field, bookable)
+ ├─ System: mtl-fields       (facility)  ─ Resource: field-1  (bookable-space)
  └─ System: mtl-registration ("real" SW) ─ Component: reg-web, Component: reg-api
 
 External (referenced, not held):  System: teamsnap (spec.type: external / system-of-record)
@@ -224,13 +238,14 @@ Per the realm plan→ADR convention, distill these into MADR-v3 ADRs in
 
 1. **Two-family model** — structured/ingestable (`Cycle`) vs. narrated/authored (`Saga`), split by
    data origin.
-2. **`Cycle` as a general custom kind** — one kind for release≡season≡program≡event≡drive;
-   occurrences are queried, not minted.
+2. **`Cycle` as a general custom kind** — one kind for the whole bounded-grouping family via an
+   open `spec.type` vocabulary (season, release, series, production, drive, tournament, …);
+   occurrences (single happenings) are queried, not minted.
 3. **`Saga` is Git-backed** — narrative + entity in Git, Backstage DB is a cache; Skald authorship.
 4. **Built-in mapping** — people-org = typed `Group` tree; facilities/fields/environments =
    `System` + typed `Resource`; real software = `System` + `Component`.
 5. **Dropped/dissolved** — `ResourceType` (Resource is already typed; a Phase-4 vocabulary) and
-   `Activity` (an occurrence or a `Cycle{event}`).
+   `Activity` (an occurrence, or a `Cycle` if it groups occurrences).
 6. **TeamSnap via middleware + entity provider** — points-not-holds; preserves archived seasons.
 
 ## 12. Phase 3 Build vs. Defer
