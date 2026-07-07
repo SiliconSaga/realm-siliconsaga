@@ -1,15 +1,16 @@
 # leidangr adapter — Backstage app (Yarn 4 via Corepack; no global yarn).
 # Component cwd is components/leidangr/ when ws test / ws lint run.
 #
-# test: the DevEx envelope + BDD acceptance suite (jest-cucumber) — the suite we
-# iterate on (doctor + dev-secrets units, checkpoint feature specs). The generated
-# app/backend unit tests run separately via
-# `ws exec leidangr corepack yarn backstage-cli repo test` (or `make test-app`).
-# Adapter commands are whitespace-tokenized, so no extra jest args/selectors here.
+# test: the full local gate via `make ci` — config-check, lint, tsc, the DevEx
+# envelope + BDD acceptance suite (jest-cucumber), AND the app/backend unit tests
+# (backstage-cli). The Makefile's test-app recipe forces CI=true so backstage-cli
+# runs once instead of watching. Adapter commands are whitespace-tokenized (no
+# shell), so the run-once handling lives in the Makefile, not here.
 #
-# lint: backstage-cli repo lint across the app/plugin workspaces.
+# lint: backstage-cli repo lint across the app/plugin workspaces (the same lint
+# `make ci` runs; kept as a standalone action for a quick lint-only pass).
 commands:
-  test: "corepack yarn jest --config jest.envelope.config.cjs"
+  test: "make ci"
   lint: "corepack yarn backstage-cli repo lint"
 
 ai_context:
