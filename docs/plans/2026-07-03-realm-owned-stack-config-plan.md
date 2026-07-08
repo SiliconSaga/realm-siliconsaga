@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **Spec:** `realms/realm-siliconsaga/docs/plans/2026-07-03-realm-owned-stack-config-design.md` — every task serves it.
+- **Spec:** `docs/plans/2026-07-03-realm-owned-stack-config-design.md` — every task serves it.
 - **No behavior change in Phase 1** (the refactor): the hydrated seed content and script behavior must be identical before/after. Prove it, don't assume it.
 - **nidavellir stays generic:** no task adds a realm/app/game/Tier-3-4 reference to nidavellir. It only *loses* files.
 - **nordri stays realm-agnostic in its committed tree:** the realm name/URL enters only at runtime (the arg) or via a templated placeholder; no committed nordri file names `siliconsaga`.

@@ -58,13 +58,13 @@ realm cluster/ (realm-owned app-of-apps)
 
 ### Commit 1 — Hydration refactor foundation (nordri#21 dedup)
 
-Extract the copy-pasted hydration logic into a sourced `nordri/lib/`, consumed by both `bootstrap.sh` and `update-embedded-git.sh`. No behavior change — this commit is a pure dedup, validated by confirming the hydrated seed output is byte-identical before/after.
+Extract the copy-pasted hydration logic into a sourced `nordri/lib/`, consumed by both `bootstrap.sh` and `update-embedded-git.sh`. The dedup itself is behavior-neutral — the hydrated seed output is byte-identical before/after — with one deliberate, explicitly-flagged exception (see Bonus below).
 
 - `lib/gitea.sh` — unify the Gitea plumbing: one `ensure_gitea_repo` (201/409-as-success + retry), `urlencode`, `probe_gitea`, and the URL-base builders. Resolves the `create_gitea_repo`/`ensure_gitea_repo` naming divergence.
 - `lib/hydrate.sh` — a `hydrate_working_tree_repo <src_dir> <gitea_repo> [patch_fn]` helper (copy checkout → strip `.git` → `git init`/commit → force-push to seed, with an optional per-tree patch hook), the nordri-platform hydration variant (platform copy + envs + overlay `sed` + root-app), and the vendor-mirror loop (`hydrate_vendor_mirrors <list>`).
 - `lib/patch-nidavellir.sh` — the per-target nidavellir patch (vegvisir overlay path + tailscale-operator hostname), guard + post-`sed` verification intact. This is the block CodeRabbit named.
 
-**Bonus outcome:** `bootstrap.sh` calls `hydrate_vendor_mirrors` too, closing the `bootstrap-vendor-mirror-hydration` gap for free (a fresh bootstrap becomes reproducible without the manual `update-embedded-git.sh` step). This design assumes `keycloak-k8s-resources` is cloned/declared; if absent the loop warn-skips as it does today.
+**Deliberate behavior addition (the one exception to byte-identical):** `bootstrap.sh` also gains the `hydrate_vendor_mirrors` call — previously only in `update-embedded-git.sh` — closing the `bootstrap-vendor-mirror-hydration` gap so a fresh bootstrap is reproducible without the manual day-2 step. This is an intentional, called-out change, not a silent one. It assumes `keycloak-k8s-resources` is cloned/declared; if absent the loop warn-skips as it does today.
 
 ### Commit 2 — Realm as a hydrated source
 
@@ -82,7 +82,7 @@ The realm owns its app-of-apps. `realms/realm-siliconsaga/cluster/` carries a re
 
 nordri does the generic wiring. Given `[realm]`, bootstrap generates and applies a generic ArgoCD **realm root-app** Application whose `repoURL` is the hydrated `<realm>` seed-Gitea repo and whose path is `cluster/`. nordri templates this from the realm arg at hydrate time (as it already applies `nordri/root-app.yaml`); it commits no realm-named file, so the substrate tree stays realm-agnostic. No realm arg → no realm root-app.
 
-**Ordering:** the realm root-app and the Applications it fans out sync after nidavellir's generic Keycloak + ESO are Healthy (ArgoCD sync-wave), so the relocated realm-import's ESO `${...}` placeholders resolve against a running platform. Until the OpenBao path that backs `secret/leidangr/oidc` is seeded, the import waits on unresolved placeholders — the same designed resting state as today.
+**Ordering:** the realm root-app is a *separate* ArgoCD Application, so cross-app sync-waves don't order it — instead it retries until the platform's Keycloak-operator + ESO CRDs and controllers exist (`SkipDryRunOnMissingResource` avoids a hard dry-run failure meanwhile). Once those are present, the relocated realm-import's ESO `${...}` placeholders resolve against the running platform. Until the OpenBao path that backs `secret/leidangr/oidc` is seeded, the import waits on unresolved placeholders — the same designed resting state as today.
 
 ## Sub-Decisions
 
