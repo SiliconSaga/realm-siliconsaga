@@ -172,7 +172,7 @@ def test_load_sidecar_rejects_bad_values(tmp_path):
     with pytest.raises(ValueError, match="indoor_heating_f"):
         sidecar.load_sidecar(_write(tmp_path, base.format(outdoor=70, rise=50, ach=0.5, u=0.09)))
     # negative ACH
-    with pytest.raises(ValueError, match="ach"):
+    with pytest.raises(ValueError, match=r"infiltration\.ach"):
         sidecar.load_sidecar(_write(tmp_path, base.format(outdoor=15, rise=50, ach=-0.1, u=0.09)))
     # negative U-value (names the offending assembly)
     with pytest.raises(ValueError, match="exterior_wall"):
@@ -309,7 +309,7 @@ git commit -m "feat(eldr): side-car schema + loader"
 **Notes for the implementer (MVP geometry model, single-zone):**
 - Categories emitted: `exterior_wall`, `window`, `door`, `ceiling`, `floor`, `basement_wall`.
 - **Walls:** a wall is treated as **exterior** when it lies on its level's outer perimeter — i.e. its midpoint x is within 1 cm of the level's min or max wall-x, OR its midpoint y is within 1 cm of the level's min/max wall-y. (This is the same perimeter idea as `sh3d-scripts/sh3d_walls.py`; good enough for the whole-house skeleton, and refined later.) Wall gross area = `length × height`. Basement-level exterior walls emit `basement_wall`; other levels emit `exterior_wall`.
-- **Windows/doors:** an opening counts toward the envelope **only if it sits on exactly one exterior/basement wall** — its perpendicular distance to that wall segment is within the wall's half-thickness plus a small tolerance. Such an opening emits a `window` (catalogId or name containing "window") or `door` surface of `width × height`, and its area is **subtracted from that host wall** so walls are net-of-openings. An opening matching **no** envelope wall (interior door/window) **or more than one** (an ambiguous corner) is **rejected rather than assigned to a guessed facade** — it neither adds openings nor shrinks exterior walls. SH3D stores no explicit host-wall reference, so this geometric unique-match is the resolution.
+- **Windows/doors:** an opening counts toward the envelope **only if it sits on exactly one exterior/basement wall** — within that wall's half-thickness plus a small tolerance of the segment, **projecting within the segment's span**, and **aligned with the wall's direction** (its `angle` parallel to the wall). Such an opening emits a `window` (catalogId or name containing "window") or `door` surface of `width × height`, and its area is **subtracted from that host wall** so walls are net-of-openings. An opening matching **no** envelope wall (interior door/window) **or more than one** (ambiguous) is **rejected rather than assigned to a guessed facade**. SH3D stores no explicit host-wall reference, so this geometric match is the best available; the residual case — an interior wall parallel-and-adjacent to an exterior wall — is what the re-measure/scan pass resolves.
 - **Ceiling / floor:** MVP uses the **footprint** of the highest and lowest levels — approximate the level footprint as the bounding rectangle of that level's walls (`(max_x−min_x) × (max_y−min_y)`). Highest level → one `ceiling`; lowest level → one `floor`.
 - **Volume:** Σ over levels of `level_footprint × level_height`.
 - Ignore furniture entirely.
@@ -321,9 +321,10 @@ git commit -m "feat(eldr): side-car schema + loader"
 import textwrap
 from eldr import geometry
 
-# A one-level box: 4 exterior walls forming a 1000cm x 500cm room, height 300cm;
-# one 100cm x 100cm window on the south (exterior) wall; plus an interior partition
-# wall carrying an interior door that must NOT count toward the envelope.
+# A one-level box: 4 exterior walls (1000cm x 500cm room, height 300cm) with one
+# 100cm x 100cm window on the south wall; an interior partition wall + door; and a
+# second interior door placed near an exterior wall but oriented across it. Only the
+# window counts toward the envelope -- both interior doors are rejected.
 FIXTURE = textwrap.dedent("""\
 <?xml version='1.0'?>
 <home version='7400' name='t' wallHeight='300'>
@@ -335,6 +336,7 @@ FIXTURE = textwrap.dedent("""\
   <wall id='w-int' level='L1' xStart='500' yStart='0' xEnd='500' yEnd='500' height='300' thickness='10'/>
   <doorOrWindow id='win1' level='L1' catalogId='eTeks#window' name='Window' x='500' y='500' width='100' height='100'/>
   <doorOrWindow id='door-int' level='L1' catalogId='eTeks#doorFrame' name='Door frame' x='500' y='250' width='90' height='200'/>
+  <doorOrWindow id='perp-int' level='L1' catalogId='eTeks#doorFrame' name='Door frame' x='50' y='20' angle='1.5707964' width='80' height='200'/>
 </home>
 """)
 
@@ -380,6 +382,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'eldr.geometry'`.
 """Parse a Home.xml (read-only) into a single-zone envelope of Surfaces."""
 from __future__ import annotations
 from dataclasses import dataclass
+import math
 import xml.etree.ElementTree as ET
 from eldr import units
 
@@ -424,6 +427,25 @@ def _point_seg_dist_cm(px, py, w):
     return ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5
 
 
+def _projects_within_segment(px, py, w, margin=0.05):
+    """True if the point's foot falls within the wall segment's span (overlap)."""
+    ax, ay = _f(w, "xStart"), _f(w, "yStart")
+    bx, by = _f(w, "xEnd"), _f(w, "yEnd")
+    dx, dy = bx - ax, by - ay
+    seg2 = dx * dx + dy * dy
+    if seg2 == 0.0:
+        return True
+    t = ((px - ax) * dx + (py - ay) * dy) / seg2
+    return -margin <= t <= 1.0 + margin
+
+
+def _aligned_with_wall(opening_angle, w, tol=0.26):
+    """True if the opening's angle is parallel to the wall direction (mod pi)."""
+    wall_angle = math.atan2(_f(w, "yEnd") - _f(w, "yStart"),
+                            _f(w, "xEnd") - _f(w, "xStart"))
+    return abs(math.sin(opening_angle - wall_angle)) <= math.sin(tol)
+
+
 def extract_envelope(home_xml_path: str) -> Envelope:
     root = ET.parse(home_xml_path).getroot()
 
@@ -461,22 +483,31 @@ def extract_envelope(home_xml_path: str) -> Envelope:
                        * units.cm_to_ft(_f(lv, "height")))
 
     # An opening belongs to the envelope only if it sits on EXACTLY ONE exterior/
-    # basement wall (perp distance within that wall's half-thickness + tolerance).
-    # Zero matches = interior opening; >1 = ambiguous corner. Either way reject it
-    # rather than guess a facade (SH3D stores no explicit host-wall reference).
+    # basement wall: within half-thickness + tolerance of the segment, projecting
+    # within the segment's span, AND aligned with the wall's direction. Zero matches
+    # = interior opening; >1 = ambiguous. Either way reject rather than guess a facade.
+    # (SH3D stores no explicit host-wall reference, so this geometric match is the
+    # best available; an interior wall parallel-and-adjacent to an exterior wall is
+    # the residual case the re-measure/scan pass resolves.)
     OPENING_TOL_CM = 20.0
 
     def host_envelope_wall(dw):
         lid = dw.get("level")
         dx, dy = _f(dw, "x"), _f(dw, "y")
+        ang = float(dw.get("angle", "0") or "0")
         hosts = []
         for w in walls_by_level.get(lid, []):
             wid = w.get("id")
             if wid not in wall_area_cm2:            # only envelope walls are candidates
                 continue
-            if _point_seg_dist_cm(dx, dy, w) <= _f(w, "thickness") / 2.0 + OPENING_TOL_CM:
-                hosts.append(wid)                   # opening sits on this envelope wall
-        # unique host -> assign; zero (interior) or >1 (ambiguous corner) -> reject
+            if _point_seg_dist_cm(dx, dy, w) > _f(w, "thickness") / 2.0 + OPENING_TOL_CM:
+                continue                            # not on this wall's plane
+            if not _projects_within_segment(dx, dy, w):
+                continue                            # foot lies beyond the wall's span
+            if not _aligned_with_wall(ang, w):
+                continue                            # opening not parallel to the wall
+            hosts.append(wid)
+        # unique host -> assign; zero (interior) or >1 (ambiguous) -> reject
         return hosts[0] if len(hosts) == 1 else None
 
     for dw in root.findall("doorOrWindow"):
