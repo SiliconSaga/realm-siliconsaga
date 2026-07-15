@@ -166,17 +166,20 @@ def test_load_sidecar_rejects_bad_values(tmp_path):
           exterior_wall: {u}
     """
     # zero supply-air rise would divide by zero when sizing CFM
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="supply_air_rise_f"):
         sidecar.load_sidecar(_write(tmp_path, base.format(outdoor=15, rise=0, ach=0.5, u=0.09)))
     # non-positive heating delta (outdoor >= indoor)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="indoor_heating_f"):
         sidecar.load_sidecar(_write(tmp_path, base.format(outdoor=70, rise=50, ach=0.5, u=0.09)))
     # negative ACH
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="ach"):
         sidecar.load_sidecar(_write(tmp_path, base.format(outdoor=15, rise=50, ach=-0.1, u=0.09)))
-    # negative U-value
-    with pytest.raises(ValueError):
+    # negative U-value (names the offending assembly)
+    with pytest.raises(ValueError, match="exterior_wall"):
         sidecar.load_sidecar(_write(tmp_path, base.format(outdoor=15, rise=50, ach=0.5, u=-0.09)))
+    # non-finite value (NaN/inf) rejected before the sign checks
+    with pytest.raises(ValueError, match="finite"):
+        sidecar.load_sidecar(_write(tmp_path, base.format(outdoor=15, rise=".nan", ach=0.5, u=0.09)))
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -191,6 +194,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'eldr.sidecar'`.
 """The thermal layer SH3D can't hold: assemblies, design conditions, infiltration."""
 from __future__ import annotations
 from dataclasses import dataclass
+import math
 import yaml
 
 
@@ -237,6 +241,16 @@ def load_sidecar(path: str) -> SideCar:
 
 
 def _validate(sc: SideCar) -> None:
+    numeric = {
+        "design.indoor_heating_f": sc.design.indoor_heating_f,
+        "design.outdoor_heating_99_f": sc.design.outdoor_heating_99_f,
+        "design.supply_air_rise_f": sc.design.supply_air_rise_f,
+        "infiltration.ach": sc.infiltration_ach,
+    }
+    numeric.update({f"assemblies.{k}": v for k, v in sc.assemblies.items()})
+    for name, val in numeric.items():
+        if not math.isfinite(val):
+            raise ValueError(f"{name} must be a finite number (got {val!r})")
     if sc.design.supply_air_rise_f <= 0:
         raise ValueError("design.supply_air_rise_f must be > 0 (it sizes CFM)")
     if sc.design.heating_delta_t <= 0:
@@ -295,7 +309,7 @@ git commit -m "feat(eldr): side-car schema + loader"
 **Notes for the implementer (MVP geometry model, single-zone):**
 - Categories emitted: `exterior_wall`, `window`, `door`, `ceiling`, `floor`, `basement_wall`.
 - **Walls:** a wall is treated as **exterior** when it lies on its level's outer perimeter — i.e. its midpoint x is within 1 cm of the level's min or max wall-x, OR its midpoint y is within 1 cm of the level's min/max wall-y. (This is the same perimeter idea as `sh3d-scripts/sh3d_walls.py`; good enough for the whole-house skeleton, and refined later.) Wall gross area = `length × height`. Basement-level exterior walls emit `basement_wall`; other levels emit `exterior_wall`.
-- **Windows/doors:** an opening counts toward the envelope **only if it sits on an exterior/basement wall** — its perpendicular distance to that wall segment is within the wall's half-thickness plus a small tolerance. Such an opening emits a `window` (catalogId or name containing "window") or `door` surface of `width × height`, and its area is **subtracted from that host wall** so walls are net-of-openings. **Interior doors/windows sit on interior walls, find no envelope host, and are ignored** — they neither add openings nor shrink exterior walls.
+- **Windows/doors:** an opening counts toward the envelope **only if it sits on exactly one exterior/basement wall** — its perpendicular distance to that wall segment is within the wall's half-thickness plus a small tolerance. Such an opening emits a `window` (catalogId or name containing "window") or `door` surface of `width × height`, and its area is **subtracted from that host wall** so walls are net-of-openings. An opening matching **no** envelope wall (interior door/window) **or more than one** (an ambiguous corner) is **rejected rather than assigned to a guessed facade** — it neither adds openings nor shrinks exterior walls. SH3D stores no explicit host-wall reference, so this geometric unique-match is the resolution.
 - **Ceiling / floor:** MVP uses the **footprint** of the highest and lowest levels — approximate the level footprint as the bounding rectangle of that level's walls (`(max_x−min_x) × (max_y−min_y)`). Highest level → one `ceiling`; lowest level → one `floor`.
 - **Volume:** Σ over levels of `level_footprint × level_height`.
 - Ignore furniture entirely.
@@ -446,25 +460,24 @@ def extract_envelope(home_xml_path: str) -> Envelope:
         volume_ft3 += (units.cm_to_ft(maxx - minx) * units.cm_to_ft(maxy - miny)
                        * units.cm_to_ft(_f(lv, "height")))
 
-    # An opening belongs to the envelope only if it actually sits on an exterior/
+    # An opening belongs to the envelope only if it sits on EXACTLY ONE exterior/
     # basement wall (perp distance within that wall's half-thickness + tolerance).
-    # Interior doors/windows sit on interior walls -> no envelope host -> ignored.
+    # Zero matches = interior opening; >1 = ambiguous corner. Either way reject it
+    # rather than guess a facade (SH3D stores no explicit host-wall reference).
     OPENING_TOL_CM = 20.0
 
     def host_envelope_wall(dw):
         lid = dw.get("level")
         dx, dy = _f(dw, "x"), _f(dw, "y")
-        best, best_d = None, None
+        hosts = []
         for w in walls_by_level.get(lid, []):
             wid = w.get("id")
             if wid not in wall_area_cm2:            # only envelope walls are candidates
                 continue
-            d = _point_seg_dist_cm(dx, dy, w)
-            if d > _f(w, "thickness") / 2.0 + OPENING_TOL_CM:
-                continue                            # opening isn't on this wall
-            if best_d is None or d < best_d:
-                best, best_d = wid, d
-        return best
+            if _point_seg_dist_cm(dx, dy, w) <= _f(w, "thickness") / 2.0 + OPENING_TOL_CM:
+                hosts.append(wid)                   # opening sits on this envelope wall
+        # unique host -> assign; zero (interior) or >1 (ambiguous corner) -> reject
+        return hosts[0] if len(hosts) == 1 else None
 
     for dw in root.findall("doorOrWindow"):
         host = host_envelope_wall(dw)
