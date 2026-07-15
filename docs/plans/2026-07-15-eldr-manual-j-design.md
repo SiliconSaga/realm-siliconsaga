@@ -1,6 +1,6 @@
 # Eldr — Manual J heat-load engine for Sweet Home 3D
 
-**Status:** Design, parked (2026-07-15). Brainstormed with the owner; not yet planned or implemented. Companion to the Refrhus house-modeling work and the `refrhus-ducting` arc.
+**Status:** Design + Phase-1a implementation plan written (2026-07-15); code parked pending house measurements. Companion to the Refrhus house-modeling work and the `refrhus-ducting` arc. Implementation plan: `2026-07-15-eldr-manual-j-phase1-plan.md`.
 
 **Name:** *Eldr* — Old Norse "fire." Also reads as "Elder": a quiet, helpful support tool. Framing for the intro — Manual J reckons heat crossing the inside↔outside temperature difference: heat flowing from **Muspelheim** (fire) toward **Niflheim** (ice). Eldr measures that flow.
 
@@ -10,7 +10,7 @@ Eldr turns a Sweet Home 3D house model into HVAC load numbers. Origin: the owner
 
 Phasing:
 
-- **Phase 1 (this design):** whole-house + room-by-room **heating and cooling loads** (BTU/hr) via a transparent engineering method (`Σ U·A·ΔT` + infiltration + solar/internal/latent) — good-enough now, structured so ACCA Manual J 8th-edition tables slot in without a rewrite. Emits per-room **CFM targets** (`load ÷ 1.08·ΔT`), the bridge to duct design.
+- **Phase 1 (this design):** whole-house + room-by-room **heating and cooling loads** (BTU/hr) via a transparent engineering method (`Σ U·A·ΔT` + infiltration + solar/internal/latent) — good-enough now, structured so ACCA Manual J 8th-edition tables slot in without a rewrite. Emits per-room **CFM targets** (`load ÷ 1.08·ΔT`), the bridge to duct design. **Phase 1 ships in slices, each testable on its own:** **1a** = the whole-house *heating* walking skeleton (the current implementation plan); **1b** = cooling (solar-by-orientation + latent); **1c** = per-room zoning + per-room CFM. This design describes the full Phase-1 target; the plan builds 1a first.
 - **Phase 2:** **Manual D** — size the ducts the owner is already modeling in SH3D (the "squid," the trunk, the wall-stack risers) against the Phase-1 CFM within a static-pressure / friction budget.
 - **Later:** ACCA-certifiable output; before/after insulation scenarios (especially the knee-wall/attic insulation redo); scan-data ingestion.
 
@@ -79,4 +79,4 @@ The engine is designed to be wrapped as a `.sh3p` plugin: assign assemblies to w
 
 ## 9. Dependency — the schematic true-up
 
-Eldr's accuracy tracks the model's accuracy. The parallel **schematic true-up** (a Thalamus checklist, not its own doc) feeds it: re-measured joists / basement posts, the two main-floor void walls, window sizing, the compass `northDirection`, and — highest Manual-J leverage — the **2nd-floor knee walls + sloped ceilings + top attic ("devil's triangle")**, which are both incomplete in the model and exactly where the insulation money goes. Roof angles can be measured from the 2nd-floor door onto the garage roof (including the original-house vs kitchen-extension slope change, which milds the pitch toward the backyard). Until modeled, those areas ride in Eldr's side-car — Eldr is never blocked on wrestling SH3D into perfect slopes.
+Eldr's accuracy tracks the model's accuracy. The parallel **schematic true-up** (a Thalamus checklist, not its own doc) feeds it: re-measured joists / basement posts, the two main-floor void walls, window sizing, the compass `northDirection`, and — highest Manual-J leverage — the **2nd-floor knee walls + sloped ceilings + top attic ("devil's triangle")**, which are both incomplete in the model and exactly where the insulation money goes. Roof angles can be measured from the 2nd-floor door onto the garage roof (including the original-house vs kitchen-extension slope change, which softens the pitch toward the backyard). Until modeled, those areas ride in Eldr's side-car — Eldr is never blocked on wrestling SH3D into perfect slopes.

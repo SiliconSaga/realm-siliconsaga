@@ -1,8 +1,8 @@
-# Eldr Manual J — Phase 1 (heating walking skeleton) Implementation Plan
+# Eldr Manual J — Phase 1a (heating walking skeleton) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the Eldr engine's walking skeleton — read a Sweet Home 3D `Home.xml` (read-only) plus a YAML side-car, and produce a whole-house **heating load** (BTU/hr) and the corresponding supply-air **CFM**, rendered as a readable Markdown report.
+**Goal:** Build the Eldr engine's walking skeleton — read a Sweet Home 3D `Home.xml` (read-only) plus a YAML side-car, and produce a whole-house **heating load** (BTU/hr) and the corresponding supply-air **CFM**, rendered as a readable Markdown report. This is **Phase 1a** — the first slice of the design doc's Phase 1; cooling (solar/latent) is **1b** and per-room zoning is **1c**, each its own follow-up plan.
 
 **Architecture:** A small, UI-agnostic Python package (`eldr/`) with focused modules: `units` (conversions), `sidecar` (thermal inputs), `geometry` (parse the model into envelope surfaces), `loads` (the heating math), `report` (render), `cli` (glue). Each module is independently testable; the engine never mutates the model. Cooling, per-room zoning, lat/long climate lookup, the interview skill, and the `.sh3p` plugin are deliberately out of scope here — see the design doc's phasing.
 
@@ -17,8 +17,8 @@
 - **Units:** SH3D stores lengths in **centimetres**. Manual J is imperial. Convert at the geometry boundary; the engine works in **feet, ft², ft³, °F, BTU/hr** internally. U-values are **BTU/(hr·ft²·°F)**.
 - **The 1.08 factor:** sensible heat `Q = 1.08 × CFM × ΔT` (BTU/hr), where `1.08 = 0.24 × 60 × 0.075`. Used for both infiltration load and supply-air CFM (with the appropriate ΔT each).
 - **Determinism:** no randomness, no network. Design temperatures come from the side-car in Phase 1 (a lat/long → design-station lookup is a later task).
-- **Prose in docs is not hard-wrapped** (one paragraph per line), per the workspace `gdd-doc-writing` convention.
-- **Location:** the package lives at `realms/realm-siliconsaga/sweethome3d/eldr/`; tests under `eldr/tests/`; run with `python -m pytest` from the `eldr/` directory.
+- **Prose in docs is not hard-wrapped** — one paragraph per line.
+- **Location:** the package lives at `realms/realm-siliconsaga/sweethome3d/eldr/`; tests under `eldr/tests/`. **Run pytest from `realms/realm-siliconsaga/sweethome3d/`** (the parent of `eldr/`) so the top-level `eldr` package imports cleanly — e.g. `python -m pytest eldr/tests`. Every task's commands already use this working directory.
 
 ---
 
@@ -113,7 +113,7 @@ git commit -m "feat(eldr): package scaffold + unit conversions"
 - Produces:
   - `sidecar.DesignConditions` dataclass: `indoor_heating_f: float`, `outdoor_heating_99_f: float`, `supply_air_rise_f: float`; property `heating_delta_t -> float` (= indoor − outdoor).
   - `sidecar.SideCar` dataclass: `assemblies: dict[str, float]` (category → U-value), `design: DesignConditions`, `infiltration_ach: float`.
-  - `sidecar.load_sidecar(path: str) -> SideCar` — raises `ValueError` on a missing required key.
+  - `sidecar.load_sidecar(path: str) -> SideCar` — raises `ValueError` on a missing required key **or an unphysical value** (non-positive ΔT or supply-air rise, negative ACH or U-value), naming the offending field.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -152,6 +152,31 @@ def test_load_sidecar_missing_key(tmp_path):
     path = _write(tmp_path, "design:\n  indoor_heating_f: 70\n")
     with pytest.raises(ValueError):
         sidecar.load_sidecar(path)
+
+
+def test_load_sidecar_rejects_bad_values(tmp_path):
+    base = """
+        design:
+          indoor_heating_f: 70
+          outdoor_heating_99_f: {outdoor}
+          supply_air_rise_f: {rise}
+        infiltration:
+          ach: {ach}
+        assemblies:
+          exterior_wall: {u}
+    """
+    # zero supply-air rise would divide by zero when sizing CFM
+    with pytest.raises(ValueError):
+        sidecar.load_sidecar(_write(tmp_path, base.format(outdoor=15, rise=0, ach=0.5, u=0.09)))
+    # non-positive heating delta (outdoor >= indoor)
+    with pytest.raises(ValueError):
+        sidecar.load_sidecar(_write(tmp_path, base.format(outdoor=70, rise=50, ach=0.5, u=0.09)))
+    # negative ACH
+    with pytest.raises(ValueError):
+        sidecar.load_sidecar(_write(tmp_path, base.format(outdoor=15, rise=50, ach=-0.1, u=0.09)))
+    # negative U-value
+    with pytest.raises(ValueError):
+        sidecar.load_sidecar(_write(tmp_path, base.format(outdoor=15, rise=50, ach=0.5, u=-0.09)))
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -198,8 +223,8 @@ def load_sidecar(path: str) -> SideCar:
         raw = yaml.safe_load(f) or {}
     design = _require(raw, "design", "root")
     infil = _require(raw, "infiltration", "root")
-    return SideCar(
-        assemblies=dict(_require(raw, "assemblies", "root")),
+    sc = SideCar(
+        assemblies={k: float(v) for k, v in _require(raw, "assemblies", "root").items()},
         design=DesignConditions(
             indoor_heating_f=float(_require(design, "indoor_heating_f", "design")),
             outdoor_heating_99_f=float(_require(design, "outdoor_heating_99_f", "design")),
@@ -207,6 +232,20 @@ def load_sidecar(path: str) -> SideCar:
         ),
         infiltration_ach=float(_require(infil, "ach", "infiltration")),
     )
+    _validate(sc)
+    return sc
+
+
+def _validate(sc: SideCar) -> None:
+    if sc.design.supply_air_rise_f <= 0:
+        raise ValueError("design.supply_air_rise_f must be > 0 (it sizes CFM)")
+    if sc.design.heating_delta_t <= 0:
+        raise ValueError("design: indoor_heating_f must exceed outdoor_heating_99_f")
+    if sc.infiltration_ach < 0:
+        raise ValueError("infiltration.ach must be >= 0")
+    for name, u in sc.assemblies.items():
+        if u < 0:
+            raise ValueError(f"assemblies.{name}: U-value must be >= 0")
 ```
 
 ```yaml
@@ -256,7 +295,7 @@ git commit -m "feat(eldr): side-car schema + loader"
 **Notes for the implementer (MVP geometry model, single-zone):**
 - Categories emitted: `exterior_wall`, `window`, `door`, `ceiling`, `floor`, `basement_wall`.
 - **Walls:** a wall is treated as **exterior** when it lies on its level's outer perimeter — i.e. its midpoint x is within 1 cm of the level's min or max wall-x, OR its midpoint y is within 1 cm of the level's min/max wall-y. (This is the same perimeter idea as `sh3d-scripts/sh3d_walls.py`; good enough for the whole-house skeleton, and refined later.) Wall gross area = `length × height`. Basement-level exterior walls emit `basement_wall`; other levels emit `exterior_wall`.
-- **Windows/doors:** each `doorOrWindow` emits a `window` (catalogId or name containing "window") or `door` surface of `width × height`; its area is **subtracted** from its host wall's category area (nearest exterior wall on the same level, by midpoint distance) so walls are net-of-openings.
+- **Windows/doors:** an opening counts toward the envelope **only if it sits on an exterior/basement wall** — its perpendicular distance to that wall segment is within the wall's half-thickness plus a small tolerance. Such an opening emits a `window` (catalogId or name containing "window") or `door` surface of `width × height`, and its area is **subtracted from that host wall** so walls are net-of-openings. **Interior doors/windows sit on interior walls, find no envelope host, and are ignored** — they neither add openings nor shrink exterior walls.
 - **Ceiling / floor:** MVP uses the **footprint** of the highest and lowest levels — approximate the level footprint as the bounding rectangle of that level's walls (`(max_x−min_x) × (max_y−min_y)`). Highest level → one `ceiling`; lowest level → one `floor`.
 - **Volume:** Σ over levels of `level_footprint × level_height`.
 - Ignore furniture entirely.
@@ -268,8 +307,9 @@ git commit -m "feat(eldr): side-car schema + loader"
 import textwrap
 from eldr import geometry
 
-# A trivial one-level box: 4 walls forming a 1000cm x 500cm room, height 300cm,
-# one 100cm x 100cm window on the south wall.
+# A one-level box: 4 exterior walls forming a 1000cm x 500cm room, height 300cm;
+# one 100cm x 100cm window on the south (exterior) wall; plus an interior partition
+# wall carrying an interior door that must NOT count toward the envelope.
 FIXTURE = textwrap.dedent("""\
 <?xml version='1.0'?>
 <home version='7400' name='t' wallHeight='300'>
@@ -278,7 +318,9 @@ FIXTURE = textwrap.dedent("""\
   <wall id='w-s' level='L1' xStart='0' yStart='500' xEnd='1000' yEnd='500' height='300' thickness='10'/>
   <wall id='w-w' level='L1' xStart='0' yStart='0' xEnd='0' yEnd='500' height='300' thickness='10'/>
   <wall id='w-e' level='L1' xStart='1000' yStart='0' xEnd='1000' yEnd='500' height='300' thickness='10'/>
+  <wall id='w-int' level='L1' xStart='500' yStart='0' xEnd='500' yEnd='500' height='300' thickness='10'/>
   <doorOrWindow id='win1' level='L1' catalogId='eTeks#window' name='Window' x='500' y='500' width='100' height='100'/>
+  <doorOrWindow id='door-int' level='L1' catalogId='eTeks#doorFrame' name='Door frame' x='500' y='250' width='90' height='200'/>
 </home>
 """)
 
@@ -308,6 +350,8 @@ def test_extract_envelope_areas(tmp_path):
     assert abs(cats["floor"] - foot) < 1e-6
     # volume = 1000 x 500 x 300 cm^3 -> ft^3
     assert abs(env.volume_ft3 - (units.cm_to_ft(1000) * units.cm_to_ft(500) * units.cm_to_ft(300))) < 1e-6
+    # the interior door is ignored (no envelope door surface, exterior walls unchanged)
+    assert "door" not in cats
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -353,6 +397,19 @@ def _wall_length_cm(w):
     return (dx * dx + dy * dy) ** 0.5
 
 
+def _point_seg_dist_cm(px, py, w):
+    """Perpendicular distance (cm) from a point to a wall segment."""
+    ax, ay = _f(w, "xStart"), _f(w, "yStart")
+    bx, by = _f(w, "xEnd"), _f(w, "yEnd")
+    dx, dy = bx - ax, by - ay
+    seg2 = dx * dx + dy * dy
+    if seg2 == 0.0:
+        return ((px - ax) ** 2 + (py - ay) ** 2) ** 0.5
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg2))
+    cx, cy = ax + t * dx, ay + t * dy
+    return ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5
+
+
 def extract_envelope(home_xml_path: str) -> Envelope:
     root = ET.parse(home_xml_path).getroot()
 
@@ -389,28 +446,35 @@ def extract_envelope(home_xml_path: str) -> Envelope:
         volume_ft3 += (units.cm_to_ft(maxx - minx) * units.cm_to_ft(maxy - miny)
                        * units.cm_to_ft(_f(lv, "height")))
 
-    # Openings: emit window/door and subtract from nearest exterior wall on same level.
-    def nearest_exterior_wall(dw):
+    # An opening belongs to the envelope only if it actually sits on an exterior/
+    # basement wall (perp distance within that wall's half-thickness + tolerance).
+    # Interior doors/windows sit on interior walls -> no envelope host -> ignored.
+    OPENING_TOL_CM = 20.0
+
+    def host_envelope_wall(dw):
         lid = dw.get("level")
         dx, dy = _f(dw, "x"), _f(dw, "y")
         best, best_d = None, None
         for w in walls_by_level.get(lid, []):
-            if w.get("id") not in wall_area_cm2:
+            wid = w.get("id")
+            if wid not in wall_area_cm2:            # only envelope walls are candidates
                 continue
-            mx, my = _wall_midpoint(w)
-            d = (mx - dx) ** 2 + (my - dy) ** 2
+            d = _point_seg_dist_cm(dx, dy, w)
+            if d > _f(w, "thickness") / 2.0 + OPENING_TOL_CM:
+                continue                            # opening isn't on this wall
             if best_d is None or d < best_d:
-                best, best_d = w.get("id"), d
+                best, best_d = wid, d
         return best
 
     for dw in root.findall("doorOrWindow"):
+        host = host_envelope_wall(dw)
+        if host is None:
+            continue                                # interior opening -> not an envelope surface
         area_cm2 = _f(dw, "width") * _f(dw, "height")
         label = (dw.get("catalogId", "") + " " + (dw.get("name") or "")).lower()
         category = "window" if "window" in label else "door"
         surfaces.append(Surface(category, units.sqcm_to_sqft(area_cm2)))
-        host = nearest_exterior_wall(dw)
-        if host is not None:
-            wall_area_cm2[host] = max(0.0, wall_area_cm2[host] - area_cm2)
+        wall_area_cm2[host] = max(0.0, wall_area_cm2[host] - area_cm2)
 
     for wid, area_cm2 in wall_area_cm2.items():
         surfaces.append(Surface(wall_category[wid], units.sqcm_to_sqft(area_cm2)))
