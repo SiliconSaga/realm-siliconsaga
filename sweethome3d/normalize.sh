@@ -8,9 +8,11 @@
 #       * the default view cameras <observerCamera> and <camera attribute='topCamera'> —
 #         their coords move as you navigate. Matched by attribute= so any NAMED/stored
 #         viewpoints (<camera name='...'>) are preserved. SH3D recreates defaults on open.
-#       * the <home ... selectedLevel='...'> attribute — the last-edited level, pure editor
-#         churn. An inline attribute (not its own line), so stripped via sed s/// below;
-#         SH3D just defaults to a level on open.
+#   - PRESERVE the <home ... selectedLevel='...'> attribute. Without it SH3D picks a level on
+#     open and can land on a hidden/empty one (e.g. the 2nd floor is visible='false') → the
+#     plan opens blank while 3D still renders. It's small, stable state (changes only when you
+#     switch levels), so we keep it pinned instead of stripping it. The viewport <property>
+#     churn above is the noisy part; selectedLevel is cheap signal worth keeping.
 # Usage: normalize.sh <exploded-dir>
 set -euo pipefail
 dir="${1:?usage: normalize.sh <exploded-dir>}"
@@ -28,9 +30,9 @@ before=$(wc -l < "$xml")
 # Use sed, not `grep -Ev`: grep exits 1 when it filters out *every* line, which under
 # `set -e` would abort the script before the mv (and a bare `|| true` would instead mask a
 # real read error and clobber Home.xml with an empty file). sed deletes matches and exits 0.
-sed -E -e "/<property name='com\.eteks\.sweethome3d\.(SweetHome3D|swing)\.|<(observerCamera|camera) attribute='(observerCamera|topCamera)'/d" -e "s/ selectedLevel='[^']*'//" "$xml" > "$xml.norm"
+sed -E -e "/<property name='com\.eteks\.sweethome3d\.(SweetHome3D|swing)\.|<(observerCamera|camera) attribute='(observerCamera|topCamera)'/d" "$xml" > "$xml.norm"
 # Never replace Home.xml with nothing — guard against a future pattern that empties the file.
 [ -s "$xml.norm" ] || { echo "error: normalization produced an empty Home.xml — aborting" >&2; rm -f "$xml.norm"; exit 1; }
 mv "$xml.norm" "$xml"
 after=$(wc -l < "$xml")
-echo "normalized Home.xml: stripped $(( before - after )) volatile line(s) (UI state + cameras) + selectedLevel attribute"
+echo "normalized Home.xml: stripped $(( before - after )) volatile line(s) (UI state + cameras); selectedLevel preserved"
