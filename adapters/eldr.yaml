@@ -1,0 +1,9 @@
+# eldr adapter — pytest via venv-pinned python.
+# Component cwd is components/eldr/ when ws-test runs; .venv lives there and the
+# top-level `eldr` package imports cleanly from that directory.
+commands:
+  test: ".venv/bin/python -m pytest eldr/tests -v"
+
+ai_context:
+  - path: "eldr/README.md"
+    description: "Quickstart + scope for the Manual J heating engine"

@@ -143,6 +143,13 @@ components:
     chartVersion: "0.0.0"
     namespace: ting
 
+  # eldr — Manual J heat-load engine for Sweet Home 3D. Python CLI/library (not
+  # k8s-deployed); the realm adapter adapters/eldr.yaml runs its tests/lint via a
+  # local .venv. Repo: SiliconSaga/eldr.
+  eldr:
+    tier: 3
+    namespace: eldr
+
   # schools — overarching volunteer pitch for the local school system,
   # a custom site akin to ting. Forward-looking framing lives in the component
   # repo itself: https://github.com/SiliconSaga/schools/blob/main/next-year.md
