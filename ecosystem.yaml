@@ -102,6 +102,36 @@ components:
     chartName: "ds-game"
     namespace: destinationsol
 
+  # -- Legacy Kubic game-server wrappers ------------------------------------
+  # Plain-Kubernetes game-server wrappers predating tafl. Being dusted off as
+  # reference + the first real game workloads (Valheim is the phase-1 target).
+  # tafl (Agones-based) is the intended modern successor. Explicit repo URLs
+  # because the upstream repo names are CamelCase. KubicGameHosting is the
+  # parent/framework repo for the per-game wrappers.
+  kubicgamehosting:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: kubicgamehosting
+    repo: https://github.com/SiliconSaga/KubicGameHosting.git
+
+  kubicvalheim:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: kubicvalheim
+    repo: https://github.com/SiliconSaga/KubicValheim.git
+
+  kubicark:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: kubicark
+    repo: https://github.com/SiliconSaga/KubicArk.git
+
+  kubicterasology:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: kubicterasology
+    repo: https://github.com/SiliconSaga/KubicTerasology.git
+
   ting:
     tier: 3
     chartVersion: "0.0.0"
