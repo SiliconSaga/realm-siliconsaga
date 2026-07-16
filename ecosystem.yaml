@@ -132,6 +132,12 @@ components:
     namespace: kubicterasology
     repo: https://github.com/SiliconSaga/KubicTerasology.git
 
+  kubicrend:
+    tier: 3
+    chartVersion: "0.0.0"
+    chartName: "kubicrend"
+    namespace: kubicrend
+
   ting:
     tier: 3
     chartVersion: "0.0.0"
