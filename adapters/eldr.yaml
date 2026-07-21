@@ -5,5 +5,7 @@ commands:
   test: ".venv/bin/python -m pytest eldr/tests -v"
 
 ai_context:
-  - path: "eldr/README.md"
-    description: "Quickstart + scope for the Manual J heating engine"
+  - path: "README.md"
+    description: "Eldr overview, usage, side-car format, and roadmap"
+  - path: "eldr/example-sidecar.yaml"
+    description: "Documented side-car template (assemblies, design, cooling, equipment)"
