@@ -1,17 +1,20 @@
 # leidangr adapter — Backstage app (Yarn 4 via Corepack; no global yarn).
 # Component cwd is components/leidangr/ when ws test / ws lint run.
 #
-# test: the full local gate via `make ci` — config-check, lint, tsc, the DevEx
-# envelope + BDD acceptance suite (jest-cucumber), AND the app/backend unit tests
-# (backstage-cli). The Makefile's test-app recipe forces CI=true so backstage-cli
-# runs once instead of watching. Adapter commands are whitespace-tokenized (no
-# shell), so the run-once handling lives in the Makefile, not here.
+# test: the test suites only — the DevEx envelope + BDD acceptance (jest-cucumber,
+# `make test`) AND the app/plugin/backend unit tests (`make test-app`,
+# backstage-cli; CI=true in the Makefile so it runs once instead of watching).
+# lint: the static checks — repo ESLint across all workspaces (`make lint`) PLUS
+# the whole-repo typecheck (`make tsc`), which catches wiring/import errors ESLint
+# misses. (tsc is a static check, not a test, so it lives under lint.)
 #
-# lint: backstage-cli repo lint across the app/plugin workspaces (the same lint
-# `make ci` runs; kept as a standalone action for a quick lint-only pass).
+# The full local gate (config-check + lint + tsc + both test suites) remains
+# `make ci`; run it via `ws exec leidangr make ci` until a dedicated `ws ci` verb
+# lands. Adapter commands are whitespace-tokenized (no shell), so multi-target
+# make invocations (`make test test-app`) work, but shell operators do not.
 commands:
-  test: "make ci"
-  lint: "corepack yarn backstage-cli repo lint"
+  test: "make test test-app"
+  lint: "make lint tsc"
 
 ai_context:
   - path: "README.md"
