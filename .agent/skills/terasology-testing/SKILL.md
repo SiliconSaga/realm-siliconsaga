@@ -48,6 +48,30 @@ It covers:
 - **Inner-class `@BroadcastEvent`/`@OwnerEvent`/`@ServerEvent` don't network-replicate** — use existing engine events or `TestEventReceiver` for local tests
 - **Always `cleanTest` for targeted Gradle runs** — stale cache serves old failures
 - **Register post-init probes with both** `ComponentSystemManager` and `EventSystem`
+- **Read the test XML, not the exit code.** A Gradle run under `-q` has reported
+  exit 0 with failing tests, and a task reporting `UP-TO-DATE` silently serves
+  the previous run's results. Check
+  `build/test-results/**/TEST-*.xml` and use `--rerun`.
+
+> ### ⚠ MTE exists twice — keep both in sync
+>
+> There are two copies of ModuleTestingEnvironment:
+>
+> | Variant | Package |
+> |---|---|
+> | engine-tests | `org.terasology.engine.integrationenvironment` |
+> | module | `org.terasology.moduletestingenvironment` |
+>
+> **When reviewing or changing anything MTE-related, check both** and carry
+> discoveries across. They have already drifted — e.g. the engine variant
+> replaces the global `CoreRegistry` context with a wrapper on setup while the
+> module variant mutates the existing one, so only the engine variant
+> accumulates contexts from shut-down engines across a test class.
+>
+> This is temporary. The intent is a single unified MTE — plausibly as a
+> `gestalt-engine` component if Gestalt grows one — but until that lands, the
+> duplication has to be maintained by hand. Note any divergence you find rather
+> than fixing only the copy in front of you.
 
 ### Running tests
 
