@@ -42,6 +42,31 @@ It covers:
 | Entity/event behavior | MTE `@IntegrationEnvironment` |
 | Client-server interaction | MTE with `NetworkMode.LISTEN_SERVER` |
 
+### Share one engine per test class
+
+Building an MTE engine costs ~20s. By default JUnit creates a new test instance
+per method, and `MTEExtension` keys its engine on that instance — so each test
+method builds its own engine. Add:
+
+```java
+@IntegrationEnvironment(dependencies = {"MyModule"})
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+public class MyModuleTest { ... }
+```
+
+and the whole class shares one. `MTEExtensionTestWithPerClassLifecycle` in
+engine-tests is the reference. The module-side MTE defaulted to this and had
+`IsolatedMTEExtension` to opt out; the engine variant deliberately replaced that
+machinery with JUnit's own annotation (#5039), so the capability is the same but
+you have to ask for it.
+
+**It also dodges a live bug.** Chunk generation stops working once a JVM has
+built enough engines — later engines get partway through a relevance region and
+then stall, failing as `UncheckedTimeoutException` out of `MainLoop.runUntil`.
+Sharing one engine per class avoids building the extra engines. This is a
+workaround, not a fix; raising timeouts does not help, because delivery stops
+rather than slows.
+
 ### Key gotchas
 
 - **Use `@In`, not `@Inject`** in MTE test classes — the harness uses `InjectionHelper`
