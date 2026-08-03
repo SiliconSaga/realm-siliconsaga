@@ -1,7 +1,17 @@
 # terasology adapter — build/test commands and AI context pointers
+#
+# Every command here is scoped to a subproject on purpose. Task names
+# left unqualified (`test`, `checkstyleMain`) match across the whole
+# multi-project build, which in an Omega workspace means all ~144
+# module subprojects. That sweep is slow, and a broad red result from
+# it usually means "the module set is too big", not "the change is
+# broken". `ws test terasology <ClassName>` still resolves a class on
+# disk and scopes to its owning subproject; this only fixes the bare
+# form.
 commands:
   build: "./gradlew :facades:PC:build"
-  test: "./gradlew test"
+  test: "./gradlew :engine-tests:test"
+  lint: "./gradlew :engine:checkstyleMain :engine:pmdMain"
   run: "./gradlew :facades:PC:run"
   clean: "./gradlew clean"
 
@@ -13,9 +23,9 @@ nested:
   - "libs/*"
 
 ai_context:
-  - path: "CONTRIBUTING.md"
-    description: "Contribution guidelines and PR conventions"
-  - path: "docs/architecture.md"
-    description: "Module architecture overview"
   - path: "docs/Engine-Testing-Patterns.md"
     description: "Engine test patterns: MTE, network events, context isolation, Gradle execution"
+  - path: "docs/Codebase-Structure.md"
+    description: "Repo layout: engine, facades, modules, libs"
+  - path: "docs/Contributor-Quick-Start.md"
+    description: "Clone, fetch modules, first run; the only doc stating the Java version correctly"
