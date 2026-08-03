@@ -52,7 +52,7 @@ This is a case the taxonomy does not yet cover: knowledge owned by a component t
 | Index skill | `realm-siliconsaga/.agent/skills/terasology/SKILL.md` | Task-axis routing, loads on trigger |
 | Triage doc | `realm-siliconsaga/docs/terasology-doc-status.md` | Per-doc currency and dated corrections; the upstream backlog |
 | Convention | `realm-siliconsaga/docs/agent-doc-layering.md` | The four rules, for reuse beyond Terasology |
-| Adapter | `realm-siliconsaga/adapters/terasology.yaml` | Fix dead pointers, add skill pointer, correct `test:` |
+| Adapter | `realm-siliconsaga/adapters/terasology.yaml` | Fix dead pointers, scope every command |
 | Orient rendering | `yggdrasil/scripts/ws-orient.sh` | Print `ai_context` rows — the always-on tier |
 | Link test | `yggdrasil/tests/` (bats) | Assert every pointer resolves on disk |
 
@@ -104,9 +104,16 @@ The adapter's `test:` is also wrong for this workspace: it wires `ws test teraso
 
 ## Testing and anti-rot
 
-A bats test in yggdrasil asserts that every path in any adapter's `ai_context` and every workspace-relative target in the index skill resolves on disk. It would have caught both dead pointers the day they broke.
+**What was actually built is weaker than this section originally claimed, and the gap is deferred rather than closed.**
 
-**Its limit is explicit: it checks paths, not truth.** A document that goes stale in its content passes the test. That is what the triage doc's survey date is for, and why currency is a periodic human-and-agent review rather than a build gate.
+A companion yggdrasil change renders each adapter `ai_context` pointer in `ws orient` and appends `(MISSING)` when the path does not resolve under the component root. Its bats coverage exercises that rendering against synthetic fixtures — it proves the marker logic works, not that any real pointer resolves. The index skill's own doc paths were verified once, by hand, at authoring time.
+
+So there are **two** limits, not one:
+
+- **Nothing fails.** A rotted pointer produces a marker in output a human has to read, not a non-zero exit. Neither CI nor any `ws` verb blocks on it.
+- **Paths, not truth.** Even a fully enforced check would only prove a file exists. A doc that is present and wrong passes. That is what the triage doc's survey date is for.
+
+The first limit is a real gap and is **deferred deliberately**: the enforcing test — walk the live `realms/*/adapters/*.yaml`, fail on any `ai_context` path that does not resolve under a cloned component, skip components that are not cloned — belongs with the yggdrasil rendering change, not in this realm-only PR. Tracked as a high-priority follow-up. Until it lands, treat pointer currency as advisory.
 
 No subagent scenario testing for this skill. `superpowers:writing-skills` exempts pure reference — "don't test skills without rules to violate" — and the nine baselines recorded above are the evidence that the rule-shaped version was not warranted.
 
@@ -115,7 +122,7 @@ No subagent scenario testing for this skill. `superpowers:writing-skills` exempt
 1. **Triage doc** — transcribe the survey into `terasology-doc-status.md`. Everything else references it, and it is pure data entry from work already done.
 2. **Convention doc** — `agent-doc-layering.md`, the four rules. Short. Written before the skill so the skill can be checked against it.
 3. **Index skill** — `terasology/SKILL.md`, built against the triage doc so every row's target and every `⚠` is grounded.
-4. **Adapter fix** — dead pointers out, skill pointer in, `test:` corrected.
+4. **Adapter fix** — dead pointers out, every command scoped. No skill pointer: `ai_context` entries are documentation paths resolved under the component root, and a realm skill is neither. Step 5 is where the skill gets registered.
 5. **Realm `AGENTS.md`** — add the skill index row, and cross-reference from `siliconsaga-stack` so the realm index points at this one.
 6. **Yggdrasil: orient rendering plus bats test** — separate repository, separate CR, no dependency from steps 1-5.
 

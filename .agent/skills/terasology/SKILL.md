@@ -5,7 +5,7 @@ description: Use when working on the Terasology engine, its facades, or any modu
 
 # Terasology
 
-Terasology is a mega-workspace: an engine, facades, `libs/`, and ~144 independent module git repositories nested under `modules/`. This skill routes; it does not explain. Every row points at documentation that lives upstream, and corrections live in [`terasology-doc-status.md`](../../../docs/terasology-doc-status.md) rather than here — see [`agent-doc-layering.md`](../../../docs/agent-doc-layering.md) rules 2 and 3.
+Terasology is a mega-workspace: an engine, facades, `libs/`, and ~144 independent module git repositories nested under `modules/`. This skill routes; it does not explain. Rows point at upstream documentation where it exists; where none exists, the gap is tracked in [`terasology-doc-status.md`](../../../docs/terasology-doc-status.md), which also carries the corrections for docs that are wrong — see [`agent-doc-layering.md`](../../../docs/agent-doc-layering.md) rules 2 and 3.
 
 ## When to Use
 
@@ -16,7 +16,7 @@ Terasology is a mega-workspace: an engine, facades, `libs/`, and ~144 independen
 
 ## Orient first
 
-- `./groovyw usage` — the workspace CLI's own reference; fetches modules, libs, facades. Syntax is `groovyw <type> <sub-command>`
+- `./groovyw usage` — prints the workspace CLI's own reference. Most verbs take a type first (`groovyw module get <Name>`, types being `module`/`meta`/`lib`/`facade`); `usage` is one of the few that stands alone
 - `ws test terasology --help` — what the adapter actually runs, before you run it
 
 ## Routing
@@ -28,10 +28,11 @@ A ⚠ means the doc is wrong in a specific, recorded way — read the row, then 
 | Orient in the multi-repo workspace | `docs/Multi-Repo-Workspace.md` ⚠ | `./groovyw usage` |
 | Fetch modules | `docs/Contributor-Quick-Start.md` | `./groovyw module init omega` |
 | Write or debug a test | `docs/Engine-Testing-Patterns.md` + skill `terasology-testing` | `ws test terasology <ClassName>` |
-| Raise log level in a test | *no doc* — see [gaps](../../../docs/terasology-doc-status.md#gaps) | `-DlogOverrideLevel=debug`, then read `build/reports/tests/` |
+| Raise log level in a test | *no doc* — see [gaps](../../../docs/terasology-doc-status.md#gaps) | `./gradlew :engine-tests:test -DlogOverrideLevel=debug`, then read `build/reports/tests/` |
 | Run the game | `docs/Playing.md` ⚠, `facades/PC/README.md` | `./gradlew :facades:PC:run` |
 | Run headless as a pre-flight | `docs/Setup-a-headless-server.md` ⚠ | `./gradlew :facades:PC:server` |
 | Write an event handler or system | `docs/Events-and-Systems.md` ⚠⚠ | — |
+| Name and shape a new event type | `docs/Event-Types.md` | — |
 | Understand the ECS model | `docs/Entity-System-Architecture.md` ⚠ | — |
 | Replicate state over the network | `docs/Entities-Components-and-Events-on-the-Network.md` | — |
 | Declare module dependencies | `docs/Module-Dependencies.md`, `docs/Module.txt.md` ⚠ | `./groovyw module createDependencyDotFile <Module>` |
@@ -50,7 +51,7 @@ A ⚠ means the doc is wrong in a specific, recorded way — read the row, then 
 Each of these is a pending upstream doc PR, tracked in [gaps](../../../docs/terasology-doc-status.md#gaps).
 
 - **`gradlew game` writes into the repo root.** `RunTerasology.initConfig()` unconditionally adds `--homedir=.`. `:facades:PC:run` is a stock `application`-plugin task and does not.
-- **Gradle is 9.6.1, Java is 17.** Only `Contributor-Quick-Start.md` states the Java version; nothing states Gradle.
+- **Gradle is 9.6.1** (`gradle/wrapper/gradle-wrapper.properties`) **and Java is 17** (asserted in `build.gradle.kts`). Only `Contributor-Quick-Start.md` states the Java version; nothing states Gradle. Read the two files rather than trusting these numbers — that is the point of naming them.
 - **`engine-tests` has more than `test`** — also `unitTest`, `integrationTest`, `integrationTestFlaky`, `integrationTestDiagnostic`, `filesystemSideEffectTest`. `test` excludes the `filesystemSideEffects` and `diagnostic` tags.
 - **`modules/` is gitignored.** Gitignore-aware search finds nothing there; use plain `grep -r`.
 - **Module repos are nested gits `ws` cannot address.** Module-level commits need raw git or `ws hook-bypass`.

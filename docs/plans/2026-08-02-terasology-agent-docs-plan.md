@@ -268,7 +268,7 @@ description: Use when working on the Terasology engine, its facades, or any modu
 
 # Terasology
 
-Terasology is a mega-workspace: an engine, facades, `libs/`, and ~144 independent module git repositories nested under `modules/`. This skill routes; it does not explain. Every row points at documentation that lives upstream, and corrections live in [`terasology-doc-status.md`](../../../docs/terasology-doc-status.md) rather than here — see [`agent-doc-layering.md`](../../../docs/agent-doc-layering.md) rules 2 and 3.
+Terasology is a mega-workspace: an engine, facades, `libs/`, and ~144 independent module git repositories nested under `modules/`. This skill routes; it does not explain. Rows point at upstream documentation where it exists; where none exists, the gap is tracked in [`terasology-doc-status.md`](../../../docs/terasology-doc-status.md), which also carries the corrections for docs that are wrong — see [`agent-doc-layering.md`](../../../docs/agent-doc-layering.md) rules 2 and 3.
 
 ## When to Use
 
@@ -291,10 +291,11 @@ A ⚠ means the doc is wrong in a specific, recorded way — read the row, then 
 | Orient in the multi-repo workspace | `docs/Multi-Repo-Workspace.md` ⚠ | `./groovyw` |
 | Fetch modules | `docs/Contributor-Quick-Start.md` | `./groovyw module init omega` |
 | Write or debug a test | `docs/Engine-Testing-Patterns.md` + skill `terasology-testing` | `ws test terasology <ClassName>` |
-| Raise log level in a test | *no doc* — see [gaps](../../../docs/terasology-doc-status.md#gaps) | `-DlogOverrideLevel=debug`, then read `build/reports/tests/` |
+| Raise log level in a test | *no doc* — see [gaps](../../../docs/terasology-doc-status.md#gaps) | `./gradlew :engine-tests:test -DlogOverrideLevel=debug`, then read `build/reports/tests/` |
 | Run the game | `docs/Playing.md` ⚠, `facades/PC/README.md` | `./gradlew :facades:PC:run` |
 | Run headless as a pre-flight | `docs/Setup-a-headless-server.md` ⚠ | `./gradlew :facades:PC:server` |
 | Write an event handler or system | `docs/Events-and-Systems.md` ⚠⚠ | — |
+| Name and shape a new event type | `docs/Event-Types.md` | — |
 | Understand the ECS model | `docs/Entity-System-Architecture.md` ⚠ | — |
 | Replicate state over the network | `docs/Entities-Components-and-Events-on-the-Network.md` | — |
 | Declare module dependencies | `docs/Module-Dependencies.md`, `docs/Module.txt.md` ⚠ | `./groovyw module createDependencyDotFile` |
@@ -313,7 +314,7 @@ A ⚠ means the doc is wrong in a specific, recorded way — read the row, then 
 Each of these is a pending upstream doc PR, tracked in [gaps](../../../docs/terasology-doc-status.md#gaps).
 
 - **`gradlew game` writes into the repo root.** `RunTerasology.initConfig()` unconditionally adds `--homedir=.`. `:facades:PC:run` is a stock `application`-plugin task and does not.
-- **Gradle is 9.6.1, Java is 17.** Only `Contributor-Quick-Start.md` states the Java version; nothing states Gradle.
+- **Gradle is 9.6.1** (`gradle/wrapper/gradle-wrapper.properties`) **and Java is 17** (asserted in `build.gradle.kts`). Only `Contributor-Quick-Start.md` states the Java version; nothing states Gradle. Read the two files rather than trusting these numbers — that is the point of naming them.
 - **`engine-tests` has more than `test`** — also `unitTest`, `integrationTest`, `integrationTestFlaky`, `integrationTestDiagnostic`, `filesystemSideEffectTest`. `test` excludes the `filesystemSideEffects` and `diagnostic` tags.
 - **`modules/` is gitignored.** Gitignore-aware search finds nothing there; use plain `grep -r`.
 - **Module repos are nested gits `ws` cannot address.** Module-level commits need raw git or `ws hook-bypass`.
@@ -364,7 +365,7 @@ Run: `ws commit realm-siliconsaga .commits/terasology-index-skill.md`
 - Modify: `realms/realm-siliconsaga/adapters/terasology.yaml`
 
 **Interfaces:**
-- Consumes: the skill path from Task 3.
+- Consumes: nothing. The adapter gets no skill pointer — `ai_context` entries are documentation paths resolved under the component root, and a realm skill is neither. Task 5 registers the skill in the two indexes that exist for that.
 - Produces: `ai_context` entries that Task 6's `ws orient` rendering will display.
 
 - [ ] **Step 1: Confirm the two pointers are actually dead**
@@ -382,9 +383,9 @@ Expected: both report "No such file or directory". This is the justification for
 commands:
   build: "./gradlew :facades:PC:build"
   test: "./gradlew :engine-tests:test"
-  lint: "./gradlew checkstyleMain pmdMain"
+  lint: "./gradlew :engine:checkstyleMain :engine:pmdMain"
   run: "./gradlew :facades:PC:run"
-  clean: "./gradlew clean"
+  clean: "./gradlew :engine:clean :engine-tests:clean :facades:PC:clean"
 
 ai_context:
   - path: "docs/Engine-Testing-Patterns.md"
@@ -395,18 +396,20 @@ ai_context:
     description: "Clone, fetch modules, first run; the only doc stating the Java version correctly"
 ```
 
-Rationale for `test:` — the previous value was `./gradlew test`, the bare root sweep across all 144 module test tasks. `Phoenix-thalamus.md` preferences forbid that on this machine for two independently-established reasons. `ws test terasology <ClassName>` still resolves and scopes per-class; this only changes the bare form.
+Rationale for scoping — the previous `test:` was `./gradlew test`, the bare root sweep across all 144 module test tasks, which `Phoenix-thalamus.md` preferences forbid on this machine for two independently-established reasons. The same reasoning applies to any unqualified task name: `checkstyleMain`, `pmdMain` and `clean` all match across every subproject in the build. `ws test terasology <ClassName>` still resolves and scopes per-class; this only changes the bare forms.
+
+Only `test` and `lint` are executed by a `ws` verb — `ws-test.sh` reads `.commands.test`, `ws-lint.sh` reads `.commands.lint`. `build`, `run` and `clean` are documentation. They are still hashed into the realm trust fingerprint and printed in the trust summary, so an unscoped value there is a footgun someone can copy even though nothing runs it.
 
 - [ ] **Step 3: Verify the new commands exist**
 
 ```bash
 ws exec terasology ./gradlew :engine-tests:test --dry-run
-ws exec terasology ./gradlew checkstyleMain pmdMain --dry-run
+ws exec terasology ./gradlew :engine:checkstyleMain :engine:pmdMain --dry-run
 ```
 
-Expected: both print a task execution plan and exit 0. `--dry-run` runs nothing.
+Expected: both print a task execution plan and exit 0, planning ~20 tasks each with no module subprojects pulled in. `--dry-run` runs nothing.
 
-**If `checkstyleMain`/`pmdMain` do not resolve at the root project**, drop the `lint:` key entirely rather than wiring a command that fails — an adapter that lies is worse than an adapter with a gap.
+**If the scoped lint tasks do not resolve**, drop the `lint:` key entirely rather than wiring a command that fails — an adapter that lies is worse than an adapter with a gap.
 
 - [ ] **Step 4: Verify orient still parses the adapter**
 
