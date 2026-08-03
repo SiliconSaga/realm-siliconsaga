@@ -124,7 +124,7 @@ Steps 1-5 are one realm CR. Step 6 is one yggdrasil CR.
 ## Open questions
 
 - **Does the triage doc belong in the realm long-term?** It is metadata about another project's documentation. It works here while the realm is the interim host, but when the Terasology realm splits out it should move with the skill rather than stay with SiliconSaga.
-- **How is currency re-established?** The survey cost six subagents. Re-running it wholesale on a schedule is expensive; re-running it per-cluster when that area is touched is cheaper but ad hoc. Unresolved.
+- **How is currency re-established?** Subagent cost is explicitly not the binding constraint (owner, 2026-08-02), so a wholesale re-survey is affordable and the per-cluster ad-hoc alternative can be dropped. What remains open is the *trigger*: a fixed interval, or an event such as a major engine version or a large documentation merge. Lean toward re-surveying whenever the triage doc is next consulted and its survey date is more than a release old.
 - **Should `⚠` rows carry severity?** "Says Java 11, actually 17" and "documents an annotation that no longer compiles" are not the same hazard. Lean: no, keep the skill flat and let the triage doc carry severity, and revisit if the skill's table becomes hard to read.
 
 ## Out of scope
