@@ -38,6 +38,7 @@ Structurally sound, factually wrong in specific ways. Ordered by how badly the e
 | `Setup-a-headless-server.md` | States Java 11; `build.gradle.kts` asserts 17 (2026-08-02) | One-line version fix |
 | `Testing-Modules.md` | Claims Logback 1.2; modules pin `ch.qos.logback:logback-classic:1.6.0`. Omits the JUnit5 `integrationenvironment.jupiter` extension API (2026-08-02) | Version fix plus a pointer to the extension |
 | `Multi-Repo-Workspace.md` | Calls the directory `libraries`; on disk and in `settings.gradle.kts` it is `libs` (2026-08-02) | Rename throughout |
+| `Playing.md` | Documents trailing `-PworldGen` / `-PextraModules` gradle properties that do not exist. Otherwise the best CLI reference in the corpus — `--homedir`, `--headless`, `--override-default-config` are all accurate (2026-08-02) | Drop the two dead properties |
 | `Module.txt.md` | Example depends on the long-gone `Core` module; omits `author`; `isAsset` bullet is mangled into the `isAugmentation` line (2026-08-02) | Fix example and bullets |
 | `Serialization-Overview.md` | Code moved to `subsystems/TypeHandlerLibrary`; `AbstractSerializer`/`GsonSerializer`/`ProtobufSerializer` are now `persistence.serializers.Serializer<D>`; all three GitHub deep links point at removed paths (2026-08-02) | Repath links, rename classes |
 | `Textures.md`, `Translation-Guide.md` | Asset paths predate the move to `org/terasology/engine/assets/`; block tiles now in CoreAssets (2026-08-02) | Path updates only |
