@@ -6,7 +6,7 @@ This file is metadata about upstream documentation, not a replacement for any of
 
 **This is also the upstream remediation backlog.** Rows leave this file as fixes land in `MovingBlocks/Terasology`. The file shrinking is the progress metric.
 
-**Currency limit:** the `ws orient` pointer check verifies that paths resolve. It cannot verify that a doc's *content* is still true. That is what the survey date above is for.
+**Currency limit:** nothing here is checked mechanically today. A companion yggdrasil change renders each adapter `ai_context` pointer in `ws orient` and marks unresolvable ones `(MISSING)`, but it has not merged yet, and even once it does it only flags paths — never whether a doc's *content* is still true. That is what the survey date above is for.
 
 ## Keep and index
 
