@@ -45,6 +45,7 @@ Source-of-truth: `ecosystem.yaml` at workspace root. `ws list` summarizes curren
 | kube-prometheus-stack (chart wiring, `release:` label requirement, RWO+Recreate, GKE dual-stack-cost) | `kube-prometheus-stack` | `components/heimdall/.agent/skills/` | `ws clone heimdall` |
 | Secrets (OpenBao sealing/unseal + init runbooks, ESO ClusterSecretStore, KV v2 `data/` path gotcha, key custody) | doc, not skill yet: `docs/secrets-management.md` | `components/nidavellir/docs/` | `ws clone nidavellir` |
 | Kuttl end-to-end testing (Claim→Ready, AM config-reload assertions) | `kuttl-testing` | workspace-root `.agent/skills/` | always available |
+| Terasology docs + tooling index (which doc/command covers what, known-wrong docs flagged) | `terasology` | `realms/realm-siliconsaga/.agent/skills/` | always available |
 | Terasology engine + MTE integration tests | `terasology-testing` | `realms/realm-siliconsaga/.agent/skills/` | always available |
 | Nordri bootstrap (Layer 2 Gitea, Layer 2.5–2.8 CRDs, Layer 3 ArgoCD adoption, Layer 5 Garage init) | `nordri` | `components/nordri/.agent/skills/` | `ws clone nordri` |
 | Heimdall composition (claim params, ntfy receiver wiring, Knarr escalation seam) | `heimdall` | `components/heimdall/.agent/skills/` | `ws clone heimdall` |

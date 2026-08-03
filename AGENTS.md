@@ -43,6 +43,7 @@ realm-internal skills (e.g. `terasology-testing`).
 | Skill Name | Description | Target Component(s) |
 | :--- | :--- | :--- |
 | siliconsaga-stack | Stack narrative + skill index — which component owns which capability, the alert pipeline end-to-end, GitOps model (`argo` ns + in-cluster seed-Gitea), homelab-vs-GKE seam, bare-workspace recipe | realm-wide |
+| terasology | Task-axis index: which doc, command, or skill covers what; known-wrong docs flagged with dated corrections | terasology |
 | terasology-testing | Engine-level and MTE integration test patterns, network event gotchas, Gradle execution | terasology |
 
 
