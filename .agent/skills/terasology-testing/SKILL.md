@@ -60,18 +60,25 @@ engine-tests is the reference. The module-side MTE defaulted to this and had
 machinery with JUnit's own annotation (#5039), so the capability is the same but
 you have to ask for it.
 
-**It also dodges a live bug.** Chunk generation stops working once a JVM has
-built enough engines — later engines get partway through a relevance region and
-then stall, failing as `UncheckedTimeoutException` out of `MainLoop.runUntil`.
-Sharing one engine per class avoids building the extra engines. This is a
-workaround, not a fix; raising timeouts does not help, because delivery stops
-rather than slows.
+**The bug this used to dodge is fixed — do not reach for it on those grounds.**
+Until #5348 landed (2026-08-01), chunk generation stalled once a JVM had built
+enough engines, and sharing one engine per class avoided building the extra
+ones. ItemPipes now runs 3/3 with the annotation removed. What remains is a
+performance tradeoff (~20s per extra engine), not a correctness requirement.
+
+**And it costs isolation.** `MTEExtension` tears its engine down when the
+extension context closes, not between test methods, so a shared engine carries
+entity, component and world state from one test into the next. Reach for
+`PER_CLASS` when a class's tests are read-only or share state deliberately.
+When a test needs a clean world, keep the default lifecycle or add explicit
+per-test cleanup — a passing suite that depends on method order is the failure
+mode here, and it surfaces later, on someone else's machine.
 
 ### Key gotchas
 
 - **Use `@In`, not `@Inject`** in MTE test classes — the harness uses `InjectionHelper`
 - **Inner-class `@BroadcastEvent`/`@OwnerEvent`/`@ServerEvent` don't network-replicate** — use existing engine events or `TestEventReceiver` for local tests
-- **Always `cleanTest` for targeted Gradle runs** — stale cache serves old failures
+- **Clean the task you are actually running.** Gradle derives one clean task per test task, so `cleanTest` clears `test` and nothing else. `engine-tests` also defines `unitTest`, `integrationTest`, `integrationTestFlaky`, `integrationTestDiagnostic` and `filesystemSideEffectTest` — pair each with its own `cleanUnitTest` / `cleanIntegrationTest` / etc., or use `--rerun`. Stale cache otherwise serves old failures
 - **Register post-init probes with both** `ComponentSystemManager` and `EventSystem`
 - **Read the test XML, not the exit code.** A Gradle run under `-q` has reported
   exit 0 with failing tests, and a task reporting `UP-TO-DATE` silently serves
