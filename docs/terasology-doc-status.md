@@ -6,7 +6,7 @@ This file is metadata about upstream documentation, not a replacement for any of
 
 **This is also the upstream remediation backlog.** Rows leave this file as fixes land in `MovingBlocks/Terasology`. The file shrinking is the progress metric.
 
-**Currency limit:** nothing here is checked mechanically today. A companion yggdrasil change renders each adapter `ai_context` pointer in `ws orient` and marks unresolvable ones `(MISSING)`, but it has not merged yet, and even once it does it only flags paths — never whether a doc's *content* is still true. That is what the survey date above is for.
+**Currency limit:** nothing here is checked mechanically today. `ws orient` now renders each adapter `ai_context` pointer and marks unresolvable ones `(MISSING)` — that yggdrasil change has merged, and it caught two dead pointers in this realm's own adapter. It is still only a display: it flags paths, never whether a doc's *content* is true, and nothing exits non-zero on a dead pointer, so it informs rather than enforces. That is what the survey date above is for.
 
 ## Keep and index
 
@@ -69,9 +69,13 @@ No document covers these at all. Each is a candidate upstream addition, and unti
 
 | Gap | Fact |
 |---|---|
-| Test log levels | `engine-tests/src/test/resources/logback-test.xml` pins `org.terasology` to `${logOverrideLevel:-info}`. Raise with `-DlogOverrideLevel=debug`. `build-logic/src/main/kotlin/terasology-metrics.gradle.kts:69` sets `showStandardStreams = false`, so test output goes to `build/reports/tests/`, not the console |
+| Test log levels | `engine-tests/src/test/resources/logback-test.xml` pins `org.terasology` to `${logOverrideLevel:-info}`. Raise with `-DlogOverrideLevel=debug`. `build-logic/src/main/kotlin/terasology-metrics.gradle.kts:69` sets `showStandardStreams = false`, so test output goes to a report directory, not the console. Reports are per-project *and* per-task: `engine-tests/build/reports/tests/test/`, `engine-tests/build/reports/tests/integrationTest/` |
 | Gradle version | Wrapper is 9.6.1. No doc states any Gradle version |
 | Home directory on gradle runs | `RunTerasology.initConfig()` unconditionally adds `--homedir=.`, so `gradlew game` writes saves and logs into the repo root. `:facades:PC:run` is a stock `application`-plugin task and does not |
 | Headless as pre-flight | No doc frames `:facades:PC:server` as a cheap GL-free smoke test before a windowed run |
 | Engine-tests task set | `engine-tests/build.gradle.kts` defines `unitTest`, `integrationTest`, `integrationTestFlaky`, `integrationTestDiagnostic`, `filesystemSideEffectTest`; `test` excludes the `filesystemSideEffects` and `diagnostic` tags |
 | Module catalogue drift | `Modules.md` lists 176 entries against ~140 on disk. Read `modules/*/module.txt` instead |
+| Case-only duplicate filenames | Some module repos track two spellings of one asset — `ManualLabor` had `CampFire.block` and `Campfire.block`; `GooeyDefence` has seven such pairs across `assets/ui/` and `assets/prefabs/`. They cannot coexist on a case-insensitive filesystem, so Windows and macOS check out one and report the other as deleted. It reads as someone's uncommitted deletion and is nothing of the kind; the fix is upstream, dropping one spelling |
+| The build harness writes into module source trees | A harness build installs `templates/module.logback-test.xml` as each module's `src/test/resources/logback-test.xml`, and `templates/build.gradle` over each module's own — so most module repos read as dirty afterwards. Mostly noise, except where a module is meant to differ: `Kallisti` carries a deliberately different `build.gradle` (it is half engine extension, supplying JNLua for `KComputers`), so there the overwrite destroys intent rather than adding noise |
+| Asset JSON is lenient, not RFC 8259 | `UIFormat` and `UISkinFormat` call `JsonReader.setLenient(true)`, and the block and prefab formats go through `Gson.fromJson`, lenient by default. Licence-header comments, inline `//` notes and trailing commas are normal in shipped assets — `CoreAssets` alone has dozens. A strict parser rejects content the engine loads happily |
+| Nothing in CI runs the game | Jenkins builds and tests; no job launches the client. MTE is headless, so `:engine-tests:test` never initializes an LWJGL display. A fully green build is therefore compatible with a game that cannot start at all — `./gradlew game` is the check that catches that, and it is a human's to run |
