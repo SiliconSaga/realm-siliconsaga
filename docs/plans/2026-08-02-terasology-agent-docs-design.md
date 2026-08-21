@@ -104,16 +104,16 @@ The adapter's `test:` is also wrong for this workspace: it wires `ws test teraso
 
 ## Testing and anti-rot
 
-**What was actually built is weaker than this section originally claimed, and the gap is deferred rather than closed.**
+**What was built at the time was weaker than this section originally claimed.** One of the two gaps has since closed; the other is inherent.
 
 A companion yggdrasil change renders each adapter `ai_context` pointer in `ws orient` and appends `(MISSING)` when the path does not resolve under the component root. Its bats coverage exercises that rendering against synthetic fixtures — it proves the marker logic works, not that any real pointer resolves. The index skill's own doc paths were verified once, by hand, at authoring time.
 
 So there are **two** limits, not one:
 
-- **Nothing fails.** A rotted pointer produces a marker in output a human has to read, not a non-zero exit. Neither CI nor any `ws` verb blocks on it.
-- **Paths, not truth.** Even a fully enforced check would only prove a file exists. A doc that is present and wrong passes. That is what the triage doc's survey date is for.
+- **~~Nothing fails.~~ Closed 2026-08-21.** `ws orient --check` gives the same computation an exit code: non-zero when any declared pointer is `MISSING` or `INVALID PATH`, so a schedule or a CI step can block on rot instead of a human having to read the output. Plain `ws orient` stays exit-zero — it is the session-start command, and doc rot should not block orientation. Shipped on the yggdrasil 1.1 branch.
+- **Paths, not truth.** Even a fully enforced check would only prove a file exists. A doc that is present and wrong passes. That is what the triage doc's survey date is for. This limit stands and is not scheduled to close — it is not mechanically checkable.
 
-The first limit is a real gap and is **deferred deliberately**: the enforcing test — walk the live `realms/*/adapters/*.yaml`, fail on any `ai_context` path that does not resolve under a cloned component, skip components that are not cloned — belongs with the yggdrasil rendering change, not in this realm-only PR. Tracked as a high-priority follow-up. Until it lands, treat pointer currency as advisory.
+The first limit closed after this design was written. The enforcing behaviour landed as a flag on the command that already did the computation, rather than as the separate walk-the-live-adapters test sketched here: the rendering path already had the containment and symlink-refusal logic, and a second implementation would have been a second thing to keep true. Until that flag is wired into a schedule, pointer currency is enforceable but not yet enforced.
 
 No subagent scenario testing for this skill. `superpowers:writing-skills` exempts pure reference — "don't test skills without rules to violate" — and the nine baselines recorded above are the evidence that the rule-shaped version was not warranted.
 
