@@ -65,7 +65,7 @@ The order matters more than any single step. Most wrong review conclusions here 
 
 ## Facts with no documentation home
 
-Each of these is a pending upstream doc PR, tracked in [gaps](../../../docs/terasology-doc-status.md#gaps).
+The facts below are the ones that change what you do next, each a pending upstream doc PR. They are a selection, not the whole set — [gaps](../../../docs/terasology-doc-status.md#gaps) is the complete list and the place a new one gets recorded.
 
 - **`gradlew game` writes into the repo root.** `RunTerasology.initConfig()` unconditionally adds `--homedir=.`. `:facades:PC:run` is a stock `application`-plugin task and does not.
 - **Gradle is 9.6.1** (`gradle/wrapper/gradle-wrapper.properties`) **and Java is 17** (asserted in `build.gradle.kts`). Only `Contributor-Quick-Start.md` states the Java version; nothing states Gradle. Read the two files rather than trusting these numbers — that is the point of naming them.
@@ -73,6 +73,9 @@ Each of these is a pending upstream doc PR, tracked in [gaps](../../../docs/tera
 - **`modules/` is gitignored.** Gitignore-aware search finds nothing there; use plain `grep -r`.
 - **Module repos are nested gits, addressable as `terasology/modules/<Name>`.** Every repo-touching verb resolves them — `ws checkout terasology/modules/Cooking fix/x -b`, `ws commit`, `ws push`, `ws cr`, and `ws clone-fork` to wire a fork in place. Work happens inside the engine tree, because a module cloned out on its own cannot build.
 - **`Modules.md` is a stale snapshot.** Read `modules/*/module.txt` for what is actually present.
+- **Some module repos track two spellings of one asset.** `GooeyDefence` had seven such pairs; `ManualLabor` had `CampFire.block` and `Campfire.block`. They cannot coexist on a case-insensitive filesystem, so Windows and macOS check out one and report the other as deleted — which reads as somebody's uncommitted deletion and is nothing of the kind. Verify the blobs are identical, then drop one spelling upstream.
+- **A harness build writes into module source trees.** It installs `templates/module.logback-test.xml` as each module's `src/test/resources/logback-test.xml` and `templates/build.gradle` over each module's own, so most module repos read as dirty afterwards. Mostly noise — except where a module is meant to differ: `Kallisti` carries a deliberately different `build.gradle` (it supplies JNLua for `KComputers`), so there the overwrite destroys intent.
+- **Asset JSON is lenient, not RFC 8259.** `UIFormat` and `UISkinFormat` call `JsonReader.setLenient(true)`, and the block and prefab formats go through `Gson.fromJson`, lenient by default. Licence-header comments, inline `//` notes and trailing commas are normal in shipped assets — `CoreAssets` alone has dozens. A strict parser rejects content the engine loads happily.
 
 ## Where examples live
 

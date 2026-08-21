@@ -6,7 +6,7 @@ This file is metadata about upstream documentation, not a replacement for any of
 
 **This is also the upstream remediation backlog.** Rows leave this file as fixes land in `MovingBlocks/Terasology`. The file shrinking is the progress metric.
 
-**Currency limit:** nothing here is checked mechanically today. `ws orient` now renders each adapter `ai_context` pointer and marks unresolvable ones `(MISSING)` — that yggdrasil change has merged, and it caught two dead pointers in this realm's own adapter. It is still only a display: it flags paths, never whether a doc's *content* is true, and nothing exits non-zero on a dead pointer, so it informs rather than enforces. That is what the survey date above is for.
+**Currency limit:** the *paths* here are checkable; the *claims* are not. `ws orient` renders each adapter `ai_context` pointer and marks unresolvable ones `(MISSING)` — that yggdrasil change has merged, and it caught two dead pointers in this realm's own adapter. `ws orient --check` turns the same computation into an exit code, so a schedule can block on a dead pointer instead of waiting for someone to read the output; that flag ships on the yggdrasil 1.1 branch, and nothing here runs it on a schedule yet. Neither form says whether a doc's *content* is true — a file that exists and is wrong passes both. That is what the survey date above is for.
 
 ## Keep and index
 

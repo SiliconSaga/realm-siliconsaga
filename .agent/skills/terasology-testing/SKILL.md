@@ -78,12 +78,12 @@ mode here, and it surfaces later, on someone else's machine.
 
 - **Use `@In`, not `@Inject`** in MTE test classes — the harness uses `InjectionHelper`
 - **Inner-class `@BroadcastEvent`/`@OwnerEvent`/`@ServerEvent` don't network-replicate** — use existing engine events or `TestEventReceiver` for local tests
-- **Clean the task you are actually running.** Gradle derives one clean task per test task, so `cleanTest` clears `test` and nothing else. `engine-tests` also defines `unitTest`, `integrationTest`, `integrationTestFlaky`, `integrationTestDiagnostic` and `filesystemSideEffectTest` — pair each with its own `cleanUnitTest` / `cleanIntegrationTest` / etc., or use `--rerun`. Stale cache otherwise serves old failures
+- **Clean the task you are actually running, and qualify it.** Gradle derives one clean task per test task, so `:engine-tests:cleanTest` clears `:engine-tests:test` and nothing else. `engine-tests` also defines `unitTest`, `integrationTest`, `integrationTestFlaky`, `integrationTestDiagnostic` and `filesystemSideEffectTest` — pair each with its own `:engine-tests:cleanUnitTest` / `:engine-tests:cleanIntegrationTest` / etc., or use `--rerun`. Stale cache otherwise serves old failures. Keep the `:engine-tests:` prefix: an unqualified `cleanTest` matches the task in every subproject, which in an Omega workspace is the same ~144-module sweep the adapter's scoped commands exist to avoid
 - **Register post-init probes with both** `ComponentSystemManager` and `EventSystem`
 - **Read the test XML, not the exit code.** A Gradle run under `-q` has reported
   exit 0 with failing tests, and a task reporting `UP-TO-DATE` silently serves
   the previous run's results. Check
-  `build/test-results/**/TEST-*.xml` and use `--rerun`.
+  `engine-tests/build/test-results/**/TEST-*.xml` and use `--rerun`.
 
 > ### ⚠ MTE exists twice — keep both in sync
 >
