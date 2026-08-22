@@ -1,0 +1,11 @@
+# terasologylauncher adapter — build/test commands and AI context pointers
+commands:
+  build: "./gradlew jar"
+  test: "./gradlew test"
+  lint: "./gradlew check -x test"
+  run: "./gradlew run"
+  clean: "./gradlew clean"
+
+ai_context:
+  - path: "README.md"
+    description: "Dev setup, the 3 dependency-locking build modes, contribution flow"
