@@ -42,12 +42,68 @@ It covers:
 | Entity/event behavior | MTE `@IntegrationEnvironment` |
 | Client-server interaction | MTE with `NetworkMode.LISTEN_SERVER` |
 
+### Share one engine per test class
+
+Building an MTE engine costs ~20s. By default JUnit creates a new test instance
+per method, and `MTEExtension` keys its engine on that instance — so each test
+method builds its own engine. Add:
+
+```java
+@IntegrationEnvironment(dependencies = {"MyModule"})
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+public class MyModuleTest { ... }
+```
+
+and the whole class shares one. `MTEExtensionTestWithPerClassLifecycle` in
+engine-tests is the reference. The module-side MTE defaulted to this and had
+`IsolatedMTEExtension` to opt out; the engine variant deliberately replaced that
+machinery with JUnit's own annotation (#5039), so the capability is the same but
+you have to ask for it.
+
+**The bug this used to dodge is fixed — do not reach for it on those grounds.**
+Until #5348 landed (2026-08-01), chunk generation stalled once a JVM had built
+enough engines, and sharing one engine per class avoided building the extra
+ones. ItemPipes now runs 3/3 with the annotation removed. What remains is a
+performance tradeoff (~20s per extra engine), not a correctness requirement.
+
+**And it costs isolation.** `MTEExtension` tears its engine down when the
+extension context closes, not between test methods, so a shared engine carries
+entity, component and world state from one test into the next. Reach for
+`PER_CLASS` when a class's tests are read-only or share state deliberately.
+When a test needs a clean world, keep the default lifecycle or add explicit
+per-test cleanup — a passing suite that depends on method order is the failure
+mode here, and it surfaces later, on someone else's machine.
+
 ### Key gotchas
 
 - **Use `@In`, not `@Inject`** in MTE test classes — the harness uses `InjectionHelper`
 - **Inner-class `@BroadcastEvent`/`@OwnerEvent`/`@ServerEvent` don't network-replicate** — use existing engine events or `TestEventReceiver` for local tests
-- **Always `cleanTest` for targeted Gradle runs** — stale cache serves old failures
+- **Clean the task you are actually running, and qualify it.** Gradle derives one clean task per test task, so `:engine-tests:cleanTest` clears `:engine-tests:test` and nothing else. `engine-tests` also defines `unitTest`, `integrationTest`, `integrationTestFlaky`, `integrationTestDiagnostic` and `filesystemSideEffectTest` — pair each with its own `:engine-tests:cleanUnitTest` / `:engine-tests:cleanIntegrationTest` / etc., or use `--rerun`. Stale cache otherwise serves old failures. Keep the `:engine-tests:` prefix: an unqualified `cleanTest` matches the task in every subproject, which in an Omega workspace is the same ~144-module sweep the adapter's scoped commands exist to avoid
 - **Register post-init probes with both** `ComponentSystemManager` and `EventSystem`
+- **Read the test XML, not the exit code.** A Gradle run under `-q` has reported
+  exit 0 with failing tests, and a task reporting `UP-TO-DATE` silently serves
+  the previous run's results. Check
+  `engine-tests/build/test-results/**/TEST-*.xml` and use `--rerun`.
+
+> ### ⚠ MTE exists twice — keep both in sync
+>
+> There are two copies of ModuleTestingEnvironment:
+>
+> | Variant | Package |
+> |---|---|
+> | engine-tests | `org.terasology.engine.integrationenvironment` |
+> | module | `org.terasology.moduletestingenvironment` |
+>
+> **When reviewing or changing anything MTE-related, check both** and carry
+> discoveries across. They have already drifted — e.g. the engine variant
+> replaces the global `CoreRegistry` context with a wrapper on setup while the
+> module variant mutates the existing one, so only the engine variant
+> accumulates contexts from shut-down engines across a test class.
+>
+> This is temporary. The intent is a single unified MTE — plausibly as a
+> `gestalt-engine` component if Gestalt grows one — but until that lands, the
+> duplication has to be maintained by hand. Note any divergence you find rather
+> than fixing only the copy in front of you.
 
 ### Running tests
 
