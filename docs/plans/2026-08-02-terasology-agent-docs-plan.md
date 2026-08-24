@@ -317,7 +317,7 @@ Each of these is a pending upstream doc PR, tracked in [gaps](../../../docs/tera
 - **Gradle is 9.6.1** (`gradle/wrapper/gradle-wrapper.properties`) **and Java is 17** (asserted in `build.gradle.kts`). Only `Contributor-Quick-Start.md` states the Java version; nothing states Gradle. Read the two files rather than trusting these numbers — that is the point of naming them.
 - **`engine-tests` has more than `test`** — also `unitTest`, `integrationTest`, `integrationTestFlaky`, `integrationTestDiagnostic`, `filesystemSideEffectTest`. `test` excludes the `filesystemSideEffects` and `diagnostic` tags.
 - **`modules/` is gitignored.** Gitignore-aware search finds nothing there; use plain `grep -r`.
-- **Module repos are nested gits `ws` cannot address.** Module-level commits need raw git or `ws hook-bypass`.
+- **Module repos are nested gits, addressable as `terasology/modules/<Name>`.** Every repo-touching verb resolves them — `ws checkout`, `ws commit`, `ws push`, `ws cr`, `ws clone-fork`. (This plan originally recorded that `ws` could not reach them and that module commits needed raw git or `ws hook-bypass`; yggdrasil #155 changed that.)
 - **`Modules.md` is a stale snapshot.** Read `modules/*/module.txt` for what is actually present.
 
 ## Where examples live

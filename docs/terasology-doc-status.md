@@ -65,7 +65,7 @@ Recommend removing from `_sidebar.md` and moving under an `archive/` prefix rath
 
 ## Gaps
 
-No document covers these at all. Each is a candidate upstream addition, and until one exists the fact lives in the `terasology` skill's "facts with no documentation home" section.
+No document covers these at all. Each is a candidate upstream addition. This table is the complete list; the `terasology` skill mirrors a selection of it — the facts that change what a reader does next — under "facts with no documentation home".
 
 | Gap | Fact |
 |---|---|

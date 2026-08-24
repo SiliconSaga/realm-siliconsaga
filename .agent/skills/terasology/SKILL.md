@@ -40,7 +40,7 @@ A ⚠ means the doc is wrong in a specific, recorded way — read the row, then 
 | Work with the sandbox / `@API` | `docs/Module-Security.md` | — |
 | Define blocks or assets | `docs/Block-Definitions.md`, `docs/Interactive-Blocks.md` ⚠ | — |
 | Add a console command | `docs/Developing-Commands.md` | — |
-| Do concurrency or scheduling | `docs/5.3-Migrating-to-Project-Reactor.md` | — |
+| Do concurrency or scheduling | `docs/5.3-Migrating-to-Project-Reactor.md` — accurate, but the migration it describes is unfinished: `TaskMaster` is still in `LocalChunkProvider` | — |
 | Serialize types | `docs/Serialization-Overview.md` ⚠ | — |
 | Match code style | `docs/Code-Conventions.md` | — |
 | Fork, branch, open a PR | `docs/Dealing-with-Forks.md`, `docs/How-to-Work-on-a-PR-Efficiently.mediawiki` | `ws cr terasology <title> <bodyfile>` |
