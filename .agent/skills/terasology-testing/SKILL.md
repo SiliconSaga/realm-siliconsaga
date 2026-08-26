@@ -88,8 +88,14 @@ mode here, and it surfaces later, on someone else's machine.
   compatible with any number of failures. Read
   `engine-tests/build/test-results/**/TEST-*.xml`, and re-run with `--rerun`
   when a task reports `UP-TO-DATE`, which silently serves the previous run's
-  results. The same setting means `ws test terasology` cannot be trusted as a
-  pass/fail gate either.
+  results.
+- **That flag is deliberate; do not "fix" it.** Jenkins reads the reports and
+  marks a build carrying analytics or test findings UNSTABLE rather than FAILED,
+  so the exit code is reserved for "the build broke" and the reports carry "the
+  build has findings". The cost falls on local runs, where nothing reads the
+  reports for you — including `ws test terasology`, whose green result means the
+  run completed. A local signal that distinguishes the two without disturbing
+  the Jenkins semantics does not exist yet.
 
 > ### ⚠ MTE exists twice — keep both in sync
 >
