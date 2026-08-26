@@ -499,6 +499,8 @@ Run: `ws commit realm-siliconsaga .commits/terasology-skill-index.md`
 
 **Why this shape:** the spec called for a separate link checker, but a checker in yggdrasil validating realm files creates a cross-repo dependency and a second thing to run. Marking unresolvable paths in the output the agent already reads surfaces rot at the moment it matters, and needs no new command.
 
+**Superseded 2026-08-21, and the reviewers were right that this was not enough.** Rendering a marker still meant nothing ever exited non-zero, so rot was only caught by whoever happened to read the output. `ws orient --check` (yggdrasil 1.1) gives the same computation an exit code — non-zero on any `MISSING` or `INVALID PATH` — so a schedule can gate on it. It landed as a flag on the command that already did the work rather than as the separate checker sketched above, which keeps the containment and symlink-refusal logic in one implementation. Plain `ws orient` stays exit-zero; blocking session start on doc rot would be a bad trade.
+
 - [ ] **Step 1: Write the failing tests**
 
 Append to `tests/ws-orient/orient.bats`:

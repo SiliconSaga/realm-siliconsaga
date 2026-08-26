@@ -53,8 +53,8 @@ This is a case the taxonomy does not yet cover: knowledge owned by a component t
 | Triage doc | `realm-siliconsaga/docs/terasology-doc-status.md` | Per-doc currency and dated corrections; the upstream backlog |
 | Convention | `realm-siliconsaga/docs/agent-doc-layering.md` | The four rules, for reuse beyond Terasology |
 | Adapter | `realm-siliconsaga/adapters/terasology.yaml` | Fix dead pointers, scope every command |
-| Orient rendering | `yggdrasil/scripts/ws-orient.sh` | Print `ai_context` rows — the always-on tier |
-| Link test | `yggdrasil/tests/` (bats) | Assert every pointer resolves on disk |
+| Orient rendering | `yggdrasil/scripts/ws-orient.sh` | Print `ai_context` rows — the always-on tier; `--check` turns the same computation into an exit code |
+| Link test | `yggdrasil/tests/` (bats) | Cover the rendering and the MISSING / INVALID PATH markers against synthetic fixtures. It does not walk the live adapters, so it proves the marker logic rather than that any real pointer resolves |
 
 Two repositories, so two code-review requests. The realm work does not depend on the yggdrasil work; only the always-on tier does.
 

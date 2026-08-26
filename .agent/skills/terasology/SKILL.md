@@ -23,6 +23,8 @@ Terasology is a mega-workspace: an engine, facades, `libs/`, and ~144 independen
 
 A ⚠ means [`terasology-doc-status.md`](../../../docs/terasology-doc-status.md) records something to read before trusting the row — usually a specific way the doc is wrong, occasionally a doc that is accurate while the code has not caught up with it. The annotation lives there and only there, so it stays in one place as it changes.
 
+Paths in the Read column, and in the facts below, are relative to the component root — `components/terasology/` from the workspace root. This matches how the adapter interprets its own `ai_context` entries.
+
 | I need to… | Read | Run |
 |---|---|---|
 | Orient in the multi-repo workspace | `docs/Multi-Repo-Workspace.md` ⚠ | `./groovyw usage` |
@@ -33,7 +35,7 @@ A ⚠ means [`terasology-doc-status.md`](../../../docs/terasology-doc-status.md)
 | Run the game | `docs/Playing.md` ⚠, `facades/PC/README.md` | `./gradlew :facades:PC:run` |
 | Run headless as a pre-flight | `docs/Setup-a-headless-server.md` ⚠ | `./gradlew :facades:PC:server` |
 | Write an event handler or system | `docs/Events-and-Systems.md` ⚠⚠ | — |
-| Name and shape a new event type | `docs/Event-Types.md` | — |
+| Name and shape a new event type | `docs/Event-Types.md` ⚠ | — |
 | Understand the ECS model | `docs/Entity-System-Architecture.md` ⚠ | — |
 | Replicate state over the network | `docs/Entities-Components-and-Events-on-the-Network.md` | — |
 | Declare module dependencies | `docs/Module-Dependencies.md`, `docs/Module.txt.md` ⚠ | `./groovyw module createDependencyDotFile <Module>` |
