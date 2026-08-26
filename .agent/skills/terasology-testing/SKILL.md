@@ -80,13 +80,16 @@ mode here, and it surfaces later, on someone else's machine.
 - **Inner-class `@BroadcastEvent`/`@OwnerEvent`/`@ServerEvent` don't network-replicate** — use existing engine events or `TestEventReceiver` for local tests
 - **Clean the task you are actually running, and qualify it.** Gradle derives one clean task per test task, so `:engine-tests:cleanTest` clears `:engine-tests:test` and nothing else. `engine-tests` also defines `unitTest`, `integrationTest`, `integrationTestFlaky`, `integrationTestDiagnostic` and `filesystemSideEffectTest` — pair each with its own `:engine-tests:cleanUnitTest` / `:engine-tests:cleanIntegrationTest` / etc., or use `--rerun`. Stale cache otherwise serves old failures. Keep the `:engine-tests:` prefix: an unqualified `cleanTest` matches the task in every subproject, which in an Omega workspace is the same ~144-module sweep the adapter's scoped commands exist to avoid
 - **Register post-init probes with both** `ComponentSystemManager` and `EventSystem`
-- **Check the exit code, then check the XML anyway.** A failing Gradle run
-  normally does exit non-zero, so the exit code is the first signal and usually
-  the true one. It is not sufficient: a run under `-q` has reported exit 0 with
-  failing tests, and a task reporting `UP-TO-DATE` silently serves the previous
-  run's results. When a green run is at all surprising — nothing changed, or it
-  finished implausibly fast — read
-  `engine-tests/build/test-results/**/TEST-*.xml` and re-run with `--rerun`.
+- **The exit code is never the answer for tests here. Read the XML.**
+  `build-logic/src/main/kotlin/terasology-metrics.gradle.kts` sets
+  `ignoreFailures = true` inside `tasks.withType<Test>`, so *every* test task in
+  the project reports success whatever the tests did. This is not a `-q` quirk
+  and not an edge case — a fully green `./gradlew :engine-tests:test` is
+  compatible with any number of failures. Read
+  `engine-tests/build/test-results/**/TEST-*.xml`, and re-run with `--rerun`
+  when a task reports `UP-TO-DATE`, which silently serves the previous run's
+  results. The same setting means `ws test terasology` cannot be trusted as a
+  pass/fail gate either.
 
 > ### ⚠ MTE exists twice — keep both in sync
 >
