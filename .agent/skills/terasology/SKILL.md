@@ -5,7 +5,7 @@ description: Use when working on the Terasology engine, its facades, or any modu
 
 # Terasology
 
-Terasology is a mega-workspace: an engine, facades, `libs/`, and ~144 independent module git repositories nested under `modules/`. This skill routes; it does not explain. Rows point at upstream documentation where it exists; where none exists, the gap is tracked in [`terasology-doc-status.md`](../../../docs/terasology-doc-status.md), which also carries the corrections for docs that are wrong — see [`agent-doc-layering.md`](../../../docs/agent-doc-layering.md) rules 2 and 3.
+Terasology is a mega-workspace: an engine, facades, `libs/`, and ~144 independent module git repositories nested under `modules/`. Rows point at upstream documentation where it exists; where none does, the gap is tracked in [`terasology-doc-status.md`](../../../docs/terasology-doc-status.md), which also carries the corrections for docs that are wrong — see [`agent-doc-layering.md`](../../../docs/agent-doc-layering.md) rules 2 and 3. This is a router first, but two sections below explain rather than route — the review procedure and the facts with no documentation home. Both are here for the same reason the triage doc exists: there is no upstream page to point at yet. They leave as upstream docs are written.
 
 ## When to Use
 
@@ -21,7 +21,7 @@ Terasology is a mega-workspace: an engine, facades, `libs/`, and ~144 independen
 
 ## Routing
 
-A ⚠ means the doc is wrong in a specific, recorded way — read the row, then [the annotation](../../../docs/terasology-doc-status.md#fix-cheaply) before trusting the doc.
+A ⚠ means [`terasology-doc-status.md`](../../../docs/terasology-doc-status.md) records something to read before trusting the row — usually a specific way the doc is wrong, occasionally a doc that is accurate while the code has not caught up with it. The annotation lives there and only there, so it stays in one place as it changes.
 
 | I need to… | Read | Run |
 |---|---|---|
@@ -40,7 +40,7 @@ A ⚠ means the doc is wrong in a specific, recorded way — read the row, then 
 | Work with the sandbox / `@API` | `docs/Module-Security.md` | — |
 | Define blocks or assets | `docs/Block-Definitions.md`, `docs/Interactive-Blocks.md` ⚠ | — |
 | Add a console command | `docs/Developing-Commands.md` | — |
-| Do concurrency or scheduling | `docs/5.3-Migrating-to-Project-Reactor.md` — accurate, but the migration it describes is unfinished: `TaskMaster` is still in `LocalChunkProvider` | — |
+| Do concurrency or scheduling | `docs/5.3-Migrating-to-Project-Reactor.md` ⚠ | — |
 | Serialize types | `docs/Serialization-Overview.md` ⚠ | — |
 | Match code style | `docs/Code-Conventions.md` | — |
 | Fork, branch, open a PR | `docs/Dealing-with-Forks.md`, `docs/How-to-Work-on-a-PR-Efficiently.mediawiki` | `ws cr terasology <title> <bodyfile>` |
