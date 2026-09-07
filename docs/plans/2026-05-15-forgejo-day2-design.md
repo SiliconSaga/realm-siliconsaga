@@ -1,6 +1,6 @@
 # Forgejo Day-2 — Design
 
-**Status:** Draft, ready for plan
+**Status:** Superseded by [2026-09-07 Forgejo day-2 design (revised)](2026-09-07-forgejo-day2-design.md); kept for history
 **Date:** 2026-05-15
 **Owner:** Rasmus Praestholm
 **Related:** [Workspace Restructure (TODO: Gitea vs GitHub Day-2)](https://github.com/SiliconSaga/yggdrasil/blob/main/docs/plans/2026-03-06-workspace-restructure.md), [Platform Gitea Notes](../../../../components/nidavellir/docs/platform-gitea.md), [Mimir Data Resiliency Plan](../../../../components/mimir/docs/plans/data-resiliency-plan.md), [Nordri Bootstrap](../../../../components/nordri/docs/bootstrap.md)
