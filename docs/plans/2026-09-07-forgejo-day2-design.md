@@ -4,7 +4,7 @@
 **Date:** 2026-09-07
 **Owner:** Rasmus Praestholm
 **Supersedes:** [2026-05-15 Forgejo day-2 design](2026-05-15-forgejo-day2-design.md) (this realm, moved from yggdrasil), [nidavellir 2026-08-18 Forgejo cutover design](../../../../components/nidavellir/docs/plans/2026-08-18-forgejo-cutover-design.md), and [nidavellir platform-gitea notes](../../../../components/nidavellir/docs/platform-gitea.md). Those documents stay for history; this one is the design of record.
-**Related:** [Nordri bootstrap](../../../../components/nordri/docs/bootstrap.md) · [Mimir DataService design](../../../../components/mimir/docs/plans/2026-08-17-dataservice-vending-design.md) · [Mimir offsite backups](../../../../components/mimir/docs/offsite-backups.md) · [Heimdall alerting and probes](../../../../components/heimdall/docs/plans/2026-07-27-alerting-hygiene-and-service-probes-design.md) · [Realm-owned stack config](2026-07-03-realm-owned-stack-config-design.md) · [ADR 0001 OpenBao-first](../adrs/0001-openbao-first-secrets-management.md)
+**Related:** [Nordri bootstrap](../../../../components/nordri/docs/bootstrap.md) · [Mimir DataService design](../../../../components/mimir/docs/plans/2026-08-17-dataservice-vending-design.md) · [Mimir offsite backups](../../../../components/mimir/docs/offsite-backups.md) · [Heimdall alerting and probes](../../../../components/heimdall/docs/plans/2026-07-27-alerting-hygiene-and-service-probes-design.md) · [Realm-owned stack config](2026-07-03-realm-owned-stack-config-design.md) · [ADR 0001 OpenBao-first](../adrs/0001-openbao-first-secrets-management.md) · [ADR 0002 minimal unseal](../adrs/0002-minimal-unseal-phase1.md)
 
 ## Why this revision
 
@@ -96,7 +96,7 @@ The init Job is idempotent and runs once Forgejo reports ready **and** OpenBao i
 
 This departs from ADR 0001's "born in OpenBao" seeding pattern, where a human runs `bao kv put` first. Generating in-cluster and writing to OpenBao in the same automated step keeps OpenBao as the custody point while removing the manual seed that is the step most likely to be forgotten.
 
-**Prerequisite: OpenBao auto-unseal.** OpenBao re-seals on every restart today, so an init Job that depends on it would fail on the first node roll. Auto-unseal is a small change to the openbao composition branching on cluster-identity: GCP KMS seal via Workload Identity on GKE, a static seal with key material in a Secret on homelab. It is a `bootstrap`-maturity change and a gate for Phase 2 below; it is tracked as its own task, not designed here.
+**Prerequisite: OpenBao auto-unseal.** OpenBao re-seals on every restart today, so an init Job that depends on it would fail on the first node roll. [ADR 0002](../adrs/0002-minimal-unseal-phase1.md) chose manual unseal deliberately and deferred KMS auto-unseal to a hardening phase; Forgejo depending on OpenBao is what makes that phase due. Auto-unseal is a small change to the openbao composition branching on cluster-identity: GCP KMS seal via Workload Identity on GKE, a static seal with key material in a Secret on homelab, which keeps the ADR's "no cloud coupling on homelab" property and accepts the same in-cluster custody it already accepts. It is a `bootstrap`-maturity change and a gate for Phase 2 below; it is tracked as its own task with its own ADR, not designed here.
 
 ### Repository URLs: Git holds the durable state, bootstrap patches the transient one
 
