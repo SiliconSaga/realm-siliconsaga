@@ -34,7 +34,7 @@ Chosen option: "KMS on gke, static on homelab", selected by cluster-identity `en
 * Good, because restarts self-heal and the durable tier can depend on OpenBao.
 * Good, because homelab stays offline-capable and identical in shape.
 * Bad, because homelab custody is the same soft spot ADR 0002 accepted: anyone who can read Secrets in `openbao` holds the seal key. Accepted for a homelab, as before.
-* Bad, because the gke Workload Identity binding is unconditioned (the providerId condition does not match on this cluster, per the Velero finding of 2026-09-01), so identity sameness across clusters in the project is unmitigated until a second cluster exists.
+* Bad, because the gke Workload Identity binding is unconditioned (the providerId condition does not match on this cluster, per the Velero finding of 2026-09-01), so identity sameness across clusters in the project is unmitigated while `ttf-cluster` is the only cluster. Before a second cluster is created in the project, one of these must land first: a working IAM condition (find the claim GKE actually sets), or a per-cluster GSA and KMS key so no two clusters share a seal, or a separate project. The unconditioned grant is a documented interim state, not the design's end state.
 
 ### Confirmation
 
