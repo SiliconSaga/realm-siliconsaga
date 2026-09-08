@@ -1297,7 +1297,7 @@ Expected: nordri's hydration output includes `GKE hydration pinned to project: t
 
 - [ ] **Step 4: Restart the pod yourself**: `ws k8s delete pod openbao-0 -n openbao --timeout=60s` (scope armed to `openbao`), then `ws k8s get pod openbao-0 -n openbao -w` until the replacement container is **Running**. It will not become Ready; `bao status` shows `Seal Type gcpckms`, `Sealed true`.
 
-- [ ] **Step 5: Migrate** with two shares from the password manager, typed at the prompt: `kubectl exec -it -n openbao openbao-0 -- bao operator unseal -migrate`, twice. Verify `bao status`: `Seal Type gcpckms`, `Recovery Seal Type shamir`, `Sealed false`.
+- [ ] **Step 5: Migrate** with two shares from the password manager, typed at the prompt, through the armed guard so the context cannot be wrong: `ws k8s exec -it -n openbao openbao-0 -- bao operator unseal -migrate`, twice (scope from Step 4: `ws k8s scope set --context gke_teralivekubernetes_us-east1-d_ttf-cluster --namespace openbao`). `ws k8s` passes `-it` through to kubectl; if the prompt does not appear, confirm the scope with `ws k8s scope show` and fall back to `kubectl --context gke_teralivekubernetes_us-east1-d_ttf-cluster exec -it …` with the context spelled out. Verify `bao status`: `Seal Type gcpckms`, `Recovery Seal Type shamir`, `Sealed false`.
 
 - [ ] **Step 6: Prove it**: `ws k8s delete pod openbao-0 -n openbao --timeout=60s` once more, then `ws k8s get pods -n openbao -w` until `1/1` with no human input. Then confirm ESO recovered: `ws k8s get clustersecretstore openbao-kv` reports Ready.
 
