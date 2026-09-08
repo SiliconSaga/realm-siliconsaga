@@ -1,5 +1,6 @@
 ---
-status: accepted
+status: superseded
+superseded-by: 0004-openbao-auto-unseal.md
 date: 2026-06-10
 decision-makers:
   - Cervator
