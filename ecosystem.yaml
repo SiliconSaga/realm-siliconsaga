@@ -129,6 +129,13 @@ components:
     repo: https://github.com/MovingBlocks/gestalt.git
     forkRepo: https://github.com/SiliconSaga/gestalt.git
 
+  # End-user app, not a library others depend on - tier 3, not supporting.
+  # No forkRepo: fork destination is per-user, not fixed here.
+  terasologylauncher:
+    tier: 3
+    namespace: terasologylauncher
+    repo: https://github.com/MovingBlocks/TerasologyLauncher.git
+
   # -- Legacy Kubic game-server wrappers ------------------------------------
   # Plain-Kubernetes game-server wrappers predating tafl. Being dusted off as
   # reference + the first real game workloads (Valheim is the phase-1 target).
