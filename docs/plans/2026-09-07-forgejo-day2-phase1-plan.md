@@ -1306,6 +1306,20 @@ Expected: nordri's hydration output includes `GKE hydration pinned to project: t
 
 ---
 
+## Revisions from the final whole-branch review (2026-09-08)
+
+Recorded here rather than rewritten into the tasks above, so the tasks still read as what was executed. These supersede the task text where they conflict.
+
+- **The seal change does not restart the pod on either environment.** The openbao 0.28.3 chart's StatefulSet uses `updateStrategy: OnDelete` and carries no config checksum (verified with `helm template`). Task 5's composition change therefore leaves a running `openbao-0` on its old Shamir config. Tasks 9 and 10 gain an explicit `kubectl delete pod openbao-0 -n openbao` between hydrating and migrating; the runbook in `docs/secrets-management.md` says so. Skipping it leaves the migration armed but not done, and the next unplanned restart lands sealed.
+- **The XRD default is `shamir`, not `auto`.** Merging the nidavellir CR is then genuinely inert on the live cluster: nothing changes until the operator sets `parameters.seal: auto` on `openbao/claim.yaml` as the first step of Task 9 / Task 10, after the seal prerequisites exist. The claim carries `auto` from then on, so fresh bootstraps get auto-unseal. The ArgoCD schema-diff wedge is avoided because the XRD lands (and updates the live CRD) in an earlier hydration than the claim change. Render fixtures: `openbao-xr.yaml` sets `seal: auto` (the graduated state), `openbao-xr-shamir.yaml` omits the field (the default).
+- **`patch_repo_urls_tree` fails closed in `forgejo`/`swap` mode too**: a manifest still carrying the seed URL is an error, since in the swap commit it would point ArgoCD back at the seed being retired. A single-file entry point `patch_repo_urls_file` covers the two manifests bootstrap applies from the source tree rather than from a hydrated repo (`platform/root-app.yaml`, the realm root-app template): both are now applied from a patched copy. `update-embedded-git.sh` and `bootstrap.sh` copy `root-app.yaml` before the tree rewrite, not after.
+- **`openbao-seal-setup` reads the region from `cluster-identity-gke.yaml`** instead of defaulting it, and refuses a `GCP_REGION` that disagrees, so the key ring cannot be created in a region the seal stanza does not name.
+- **The kuttl restart step waits for the delete** (`kubectl delete` without `--wait=false`, plus `kubectl wait --for=delete`); with `--wait=false` the assert could match the pre-delete `readyReplicas: 1` and prove nothing.
+- **`crossplane beta validate` no longer exists in CLI v2.5**; Task 5 Step 6 is dropped. `helm template openbao/openbao --version 0.28.3` was used instead to confirm the chart consumes `server.serviceAccount.annotations` and `server.extraSecretEnvironmentVars` (annotation lands on the ServiceAccount, the env var lands on the server container as a `secretKeyRef`). `docs/testing.md` now documents the render checks and this extra step.
+- **Task 9 Step 2 expectation corrected:** after hydration `openbao-0` stays `1/1` on Shamir until deleted; and the `openbao` XR may show a transient render failure if it reconciles before `layer4-fundamentals` has applied the new cluster-identity fields. Both are expected.
+- **Task 9 order:** 1) `openbao-seal-setup`; 2) commit `seal: auto` on the claim and hydrate; 3) delete the pod; 4) `unseal -migrate` twice; 5) verify `bao status`; 6) delete the pod again and watch it return Ready. Task 10 mirrors it with the static key.
+- **Minor:** `INTERNAL_GITEA_URL` was deleted from `bootstrap.sh` (nothing read it); ADR 0002 is marked superseded by 0004; the realm's `dev-setup.md` `go install` line for the Crossplane CLI is stale for the v2 module layout and the direct download now checksums correctly — a follow-up, not part of this branch.
+
 ## Self-review against the design
 
 - **Auto-unseal, gke KMS via WI, homelab static seal in a Secret** → Tasks 4, 5, 6, 7, 9, 10. Covered, including the "fails loudly if sealed" property the Forgejo Job relies on, since a sealed OpenBao now means a broken backend rather than a missing step.

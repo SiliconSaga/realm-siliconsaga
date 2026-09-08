@@ -27,7 +27,7 @@ ADR 0002 chose manual init/unseal for Phase 1 and deferred KMS auto-unseal to a 
 
 ## Decision Outcome
 
-Chosen option: "KMS on gke, static on homelab", selected by cluster-identity `environment` in the openbao composition with a `seal: shamir` claim-level opt-out. gke unwraps the barrier key through `roles/cloudkms.cryptoKeyEncrypterDecrypter` on one key, bound to the `openbao/openbao` ServiceAccount through Workload Identity; homelab reads a 32-byte key from Secret `openbao-seal-key` that nordri bootstrap creates once.
+Chosen option: "KMS on gke, static on homelab", selected by cluster-identity `environment` in the openbao composition when the claim sets `seal: auto`. The XRD default is `shamir`, so landing the composition changes nothing on a running cluster; graduation is the operator setting `auto` on the claim once the seal prerequisites exist, then deleting the pod (the chart's StatefulSet is `OnDelete`) and running the one-time `unseal -migrate`. gke unwraps the barrier key through `roles/cloudkms.cryptoKeyEncrypterDecrypter` on one key, bound to the `openbao/openbao` ServiceAccount through Workload Identity; homelab reads a 32-byte key from Secret `openbao-seal-key` that nordri bootstrap creates once.
 
 ### Consequences
 
@@ -64,3 +64,4 @@ Chosen option: "KMS on gke, static on homelab", selected by cluster-identity `en
 * Realm design: `docs/plans/2026-09-07-forgejo-day2-design.md` (Credentials § Prerequisite)
 * Plan: `docs/plans/2026-09-07-forgejo-day2-phase1-plan.md`
 * Supersedes the unseal posture of ADR 0002; ADR 0002's init material becomes the recovery keys.
+* OpenBao seal references: static seal (`current_key` accepts `env://` and `file://`, 32-byte AES-256-GCM-96 key) at https://openbao.org/docs/configuration/seal/static/ ; gcpckms seal (application default credentials, so Workload Identity needs no `credentials` field) at https://openbao.org/docs/configuration/seal/gcpckms/ ; seal migration at https://openbao.org/docs/concepts/seal/ . Chart contract verified with `helm template openbao/openbao --version 0.28.3`: `server.serviceAccount.annotations` lands on the ServiceAccount, `server.extraSecretEnvironmentVars` becomes a `secretKeyRef` env on the server container, and the StatefulSet's `updateStrategy` is `OnDelete`.
