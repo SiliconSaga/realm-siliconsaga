@@ -40,6 +40,25 @@ Chosen option: "KMS on gke, static on homelab", selected by cluster-identity `en
 
 `tests/platform/openbao/01-restart.yaml` deletes the pod and asserts it returns Ready unaided; `tests/render/check-openbao.sh` asserts the seal seams render per environment.
 
+## Pros and Cons of the Options
+
+### KMS on gke, static seal on homelab
+
+* Good, because each environment uses the seal that fits it: a managed key service where one exists, a local key where cloud coupling is unwanted.
+* Good, because the composition already branches on cluster-identity `environment`, so this is one more seam of the same kind, not a new mechanism.
+* Bad, because two seal types mean two runbooks and two failure modes to know.
+* Bad, because the homelab key sits in a Kubernetes Secret, the same exposure ADR 0002 accepted.
+
+### KMS everywhere
+
+* Good, because one seal type and one runbook.
+* Bad, because a homelab cluster would need GCP credentials and network reach to unseal, which breaks the "no cloud coupling on homelab" property and makes an offline homelab unable to start.
+
+### Keep manual unseal, add an alerting nudge
+
+* Good, because zero new infrastructure.
+* Bad, because a page still needs a human, and the Forgejo credentials Job would fail on every node roll until someone acted; the durable tier cannot depend on that.
+
 ## More Information
 
 * Realm design: `docs/plans/2026-09-07-forgejo-day2-design.md` (Credentials § Prerequisite)
