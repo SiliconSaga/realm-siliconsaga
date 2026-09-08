@@ -21,6 +21,17 @@
 # terminal. `make dev-gitea` is the secrets-backed variant, still run directly.
 commands:
   test: "make test test-app"
+  # testFilter: how to run ONE thing. `make test test-app` has no filter syntax
+  # for ws to infer, so it is declared here and `{}` marks where the selector
+  # goes. Straight to backstage-cli rather than through make, because the make
+  # targets are deliberately whole-suite and a `test-one` target would be a
+  # second way to invoke the same runner.
+  #
+  # Covers the unit suites (packages/*, plugins/*) only — the envelope and BDD
+  # specs under scripts/ and tests/ run through `make test` and its own jest
+  # config. `--watch=false` because backstage-cli otherwise watches in a TTY and
+  # never exits, which is the same reason the Makefile sets CI=true.
+  testFilter: "corepack yarn backstage-cli repo test {} --watch=false"
   lint: "make lint tsc"
   run: "make dev"
 
