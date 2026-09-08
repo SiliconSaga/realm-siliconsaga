@@ -21,20 +21,20 @@ ADR 0002 chose manual init/unseal for Phase 1 and deferred KMS auto-unseal to a 
 
 ## Considered Options
 
-* GCP Cloud KMS seal on gke via Workload Identity, static seal on homelab
+* GCP Cloud KMS seal on GKE via Workload Identity, static seal on homelab
 * GCP Cloud KMS seal everywhere (homelab reaches out to GCP)
 * Keep manual unseal, add an alerting nudge
 
 ## Decision Outcome
 
-Chosen option: "KMS on gke, static on homelab", selected by cluster-identity `environment` in the openbao composition when the claim sets `seal: auto`. The XRD default is `shamir`, so landing the composition changes nothing on a running cluster; graduation is the operator setting `auto` on the claim once the seal prerequisites exist, then deleting the pod (the chart's StatefulSet is `OnDelete`) and running the one-time `unseal -migrate`. gke unwraps the barrier key through `roles/cloudkms.cryptoKeyEncrypterDecrypter` on one key, bound to the `openbao/openbao` ServiceAccount through Workload Identity; homelab reads a 32-byte key from Secret `openbao-seal-key` that nordri bootstrap creates once.
+Chosen option: "KMS on GKE, static seal on homelab", selected by cluster-identity `environment` (`gke` or `homelab`) in the openbao composition when the claim sets `seal: auto`. The XRD default is `shamir`, so landing the composition changes nothing on a running cluster; graduation is the operator setting `auto` on the claim once the seal prerequisites exist, then deleting the pod (the chart's StatefulSet is `OnDelete`) and running the one-time `unseal -migrate`. GKE unwraps the barrier key through `roles/cloudkms.cryptoKeyEncrypterDecrypter` on one key, bound to the `openbao/openbao` ServiceAccount through Workload Identity; homelab reads a 32-byte key from Secret `openbao-seal-key` that nordri bootstrap creates once.
 
 ### Consequences
 
 * Good, because restarts self-heal and the durable tier can depend on OpenBao.
 * Good, because homelab stays offline-capable and identical in shape.
 * Bad, because homelab custody is the same soft spot ADR 0002 accepted: anyone who can read Secrets in `openbao` holds the seal key. Accepted for a homelab, as before.
-* Bad, because the gke Workload Identity binding is unconditioned (the providerId condition does not match on this cluster, per the Velero finding of 2026-09-01), so identity sameness across clusters in the project is unmitigated while `ttf-cluster` is the only cluster. Before a second cluster is created in the project, one of these must land first: a working IAM condition (find the claim GKE actually sets), or a per-cluster GSA and KMS key so no two clusters share a seal, or a separate project. The unconditioned grant is a documented interim state, not the design's end state.
+* Bad, because the GKE Workload Identity binding is unconditioned (the providerId condition does not match on this cluster, per the Velero finding of 2026-09-01), so identity sameness across clusters in the project is unmitigated while `ttf-cluster` is the only cluster. Before a second cluster is created in the project, one of these must land first: a working IAM condition (find the claim GKE actually sets), or a per-cluster GSA and KMS key so no two clusters share a seal, or a separate project. The unconditioned grant is a documented interim state, not the design's end state.
 
 ### Confirmation
 
@@ -42,7 +42,7 @@ Chosen option: "KMS on gke, static on homelab", selected by cluster-identity `en
 
 ## Pros and Cons of the Options
 
-### KMS on gke, static seal on homelab
+### KMS on GKE, static seal on homelab
 
 * Good, because each environment uses the seal that fits it: a managed key service where one exists, a local key where cloud coupling is unwanted.
 * Good, because the composition already branches on cluster-identity `environment`, so this is one more seam of the same kind, not a new mechanism.
