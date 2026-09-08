@@ -1,0 +1,47 @@
+---
+status: accepted
+date: 2026-09-07
+decision-makers:
+  - Cervator
+consulted:
+  - agent
+---
+
+# OpenBao Auto-Unseal per Environment
+
+## Context and Problem Statement
+
+ADR 0002 chose manual init/unseal for Phase 1 and deferred KMS auto-unseal to a hardening phase. Every OpenBao restart since has needed a human, and the GKE instance was found sealed on 2026-09-07 with nobody having noticed. The Forgejo day-2 design makes OpenBao a dependency of the durable tier: the Forgejo credentials Job writes to OpenBao and refuses to run while it is sealed. A substrate that re-seals on every node roll cannot hold that role.
+
+## Decision Drivers
+
+* No human in the loop after a restart, on either environment.
+* Homelab keeps ADR 0002's "no cloud coupling" property.
+* The custody model does not get worse than ADR 0002 accepted.
+
+## Considered Options
+
+* GCP Cloud KMS seal on gke via Workload Identity, static seal on homelab
+* GCP Cloud KMS seal everywhere (homelab reaches out to GCP)
+* Keep manual unseal, add an alerting nudge
+
+## Decision Outcome
+
+Chosen option: "KMS on gke, static on homelab", selected by cluster-identity `environment` in the openbao composition with a `seal: shamir` claim-level opt-out. gke unwraps the barrier key through `roles/cloudkms.cryptoKeyEncrypterDecrypter` on one key, bound to the `openbao/openbao` ServiceAccount through Workload Identity; homelab reads a 32-byte key from Secret `openbao-seal-key` that nordri bootstrap creates once.
+
+### Consequences
+
+* Good, because restarts self-heal and the durable tier can depend on OpenBao.
+* Good, because homelab stays offline-capable and identical in shape.
+* Bad, because homelab custody is the same soft spot ADR 0002 accepted: anyone who can read Secrets in `openbao` holds the seal key. Accepted for a homelab, as before.
+* Bad, because the gke Workload Identity binding is unconditioned (the providerId condition does not match on this cluster, per the Velero finding of 2026-09-01), so identity sameness across clusters in the project is unmitigated until a second cluster exists.
+
+### Confirmation
+
+`tests/platform/openbao/01-restart.yaml` deletes the pod and asserts it returns Ready unaided; `tests/render/check-openbao.sh` asserts the seal seams render per environment.
+
+## More Information
+
+* Realm design: `docs/plans/2026-09-07-forgejo-day2-design.md` (Credentials § Prerequisite)
+* Plan: `docs/plans/2026-09-07-forgejo-day2-phase1-plan.md`
+* Supersedes the unseal posture of ADR 0002; ADR 0002's init material becomes the recovery keys.
