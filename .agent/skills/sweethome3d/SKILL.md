@@ -59,6 +59,25 @@ Every object worth annotating accepts arbitrary `<property name='…' value='…
 
 A tag selects a U-value *within* the category the geometry already resolved. It can never change the category — that stays `walls: {boundary: …}` in the side-car, keyed by wall id.
 
+## Reading furniture geometry
+
+Each `pieceOfFurniture` carries `x` / `y` (plan centre), `elevation`, `width` / `depth` / `height`, and up to three rotations: `angle` (yaw, about the vertical axis), `pitch`, and `roll`. A duct run drawn as a horizontal cylinder is an upright cylinder with `pitch='1.5707964'`.
+
+**When a piece is tilted, Sweet Home 3D publishes the rotated box itself** — `widthInPlan`, `depthInPlan`, `heightInPlan` — and `elevation` then measures to the bottom of *that* box, not of the upright model. Use them:
+
+```python
+wp = float(f.get("widthInPlan")  or f.get("width"))
+dp = float(f.get("depthInPlan")  or f.get("depth"))
+hp = float(f.get("heightInPlan") or f.get("height"))
+z0, z1 = elevation, elevation + hp          # vertical extent, done
+cs, sn = abs(cos(angle)), abs(sin(angle))   # yaw still applies to the footprint
+ex, ey = wp * cs + dp * sn, wp * sn + dp * cs
+```
+
+Yaw is the only rotation left to apply, because it does not change which dimension is vertical.
+
+**Reconstructing the tilt yourself from `width`/`depth`/`height` is the trap**, and a costly one: it lands the plan position correctly while putting the elevation off by tens of inches. Runs that are visibly joined on screen then read as broken chains, and the plausible numbers invite you to go fix a model that was never wrong. Prefer the published attributes over any rotation of your own — and if an adjacency result contradicts what the owner sees on screen, suspect the reader before the model.
+
 ## Common Mistakes
 
 - **`unpack.sh` clears its `dest`** (so deletions propagate) and refuses a `.git` root — always point it at a subdir.
