@@ -59,6 +59,18 @@ Every object worth annotating accepts arbitrary `<property name='…' value='…
 
 A tag selects a U-value *within* the category the geometry already resolved. It can never change the category — that stays `walls: {boundary: …}` in the side-car, keyed by wall id.
 
+## Working with the owner on geometry
+
+**The model is the collaboration medium — not prose, not diagrams.** Ad-hoc spatial descriptions and topology sketches do not survive translation between a person and an agent; east and west get flipped, and the error is invisible until something is built. The model is already spatially correct at real coordinates, the agent can edit and diff it precisely, and the owner can *see* it and judge it. Route spatial disagreement through the model rather than through paragraphs.
+
+**Divide the work by strength.** The owner supplies spatial truth — measurements, "this register is about here, nearest joist 14". The agent places it precisely, keeps naming and elevations consistent, and produces the diff. **The agent never invents a position**; it places, normalises and connects what the owner specifies.
+
+**Anchor against named walls and furniture, not compass directions.** Cardinal labels are where the repeated east/west mistakes come from. "The wall containing the bar counter" cannot be flipped; "the west wall" can.
+
+**Anchors before contents.** Structural references — joists, beams, posts, a conduit hole, the unit position — are durable and get pinned accurately first. What passes between them is disposable by comparison and can be designed on a branch. Split work by what persists, not by what already exists.
+
+**When a measurement and the model disagree, the owner is looking at the house.** An agent measuring a drawing it cannot see should hold its own numbers loosely — see the reader trap below for what that costs when ignored.
+
 ## Reading furniture geometry
 
 Each `pieceOfFurniture` carries `x` / `y` (plan centre), `elevation`, `width` / `depth` / `height`, and up to three rotations: `angle` (yaw, about the vertical axis), `pitch`, and `roll`. A duct run drawn as a horizontal cylinder is an upright cylinder with `pitch='1.5707964'`.
