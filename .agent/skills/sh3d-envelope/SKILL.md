@@ -40,13 +40,15 @@ bash realms/realm-siliconsaga/sweethome3d/unpack.sh \
 PYTHONPATH=components/eldr components/eldr/.venv/bin/python -m eldr.cli \
     hoards/refrhus/Refrhus.sh3d hoards/refrhus/eldr-sidecar.yaml
 
-# 3. archive the run before changing anything else
-#    hoards/refrhus/hvac/eldr-runs/<date>-<what-changed>.md
+# 3. regenerate the committed report so the diff shows the load change
+#    hoards/refrhus/hvac/eldr-report.md
 ```
 
 **Read the *Assumptions behind these numbers* section before the totals.** Five blocks disclose what the engine decided quietly: *Level heights*, *Buffer spaces*, *Assembly coverage*, *Borrowed U-values*, *Schematic gaps*. A borrowed U-value or an unexpected space name there explains more than the bottom line ever will.
 
-**Archive every run.** Totals lie by cancellation: between two Refrhus runs the whole-house heating figure moved 0.7% while four components underneath it moved by thousands in opposite directions. Anyone comparing only bottom lines would have concluded nothing changed. `hoards/refrhus/hvac/README.md` carries that table as the standing argument for the practice.
+**Never compare bottom lines — totals lie by cancellation.** Between two Refrhus runs the whole-house heating figure moved 0.7% while four components underneath it moved by thousands in opposite directions. Anyone reading only the total would have concluded nothing changed.
+
+**Commit the report so the diff carries the comparison.** Regenerating a single tracked file makes component drift show up in the pull request automatically, which is a better answer than archiving dated runs: an archive compares *documents*, and documents produced by different iterations of the schematic mix real thermal change with the model catching up to the building. Diffing runs against a versioned model does not.
 
 ## Comparing against a professional Manual J
 
