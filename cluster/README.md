@@ -12,7 +12,7 @@ This subtree holds the SiliconSaga realm's own in-cluster GitOps config — the 
 
 ## Ordering
 
-The realm root-app is a separate ArgoCD Application, so it is ordered by CRD-retry, not sync-waves: its `KeycloakRealmImport` / `ExternalSecret` retry until the platform's Keycloak-operator and ESO CRDs exist. The realm import's `${...}` placeholders stay unresolved until OpenBao seeds `secret/leidangr/oidc` — the designed resting state.
+The realm root-app is a separate ArgoCD Application, so it is ordered by CRD-retry, not sync-waves: its `KeycloakRealmImport` / `ExternalSecret` retry until the platform's Keycloak-operator and ESO CRDs exist. The realm import's `${...}` placeholders stay unresolved until OpenBao holds `secret/leidangr/oidc`. On a fresh cluster nordri's bootstrap Layer 5b seeds that path with generated values from the realm's [`openbao-seeds`](../openbao-seeds) file (one line per path, then the key names; kept outside `cluster/` so ArgoCD never sees it), so the import runs without a human step. An existing path is never overwritten; rotation is an explicit `bao kv put`.
 
 ## Extending
 

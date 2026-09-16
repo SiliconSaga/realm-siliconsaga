@@ -1,0 +1,15 @@
+# OpenBao paths this realm's in-cluster config expects to exist, seeded by
+# nordri bootstrap Layer 5b on a fresh cluster (lib/openbao.sh): one line per
+# KV v2 path, then the key names. Each key gets a freshly generated random
+# value the first time the path is absent; an existing path is never touched,
+# so rotation is an explicit `bao kv put`, never a re-bootstrap.
+#
+# Values are born in OpenBao and read by workloads through External Secrets
+# (cluster/keycloak/oidc-realm-secrets.yaml); nothing here is a value.
+#
+# Outside cluster/ on purpose: ArgoCD syncs cluster/, and this file is input to
+# a workstation script, not a manifest.
+
+# leidangr OIDC: the openbao-cli confidential client and the seeded dev user
+# (cluster/keycloak/realm-import.yaml)
+secret/leidangr/oidc client-secret dev-user-password
