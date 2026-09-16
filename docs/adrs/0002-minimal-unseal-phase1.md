@@ -1,6 +1,6 @@
 ---
-status: superseded
-superseded-by: 0004-openbao-auto-unseal.md
+status: accepted
+amended-by: 0004-openbao-auto-unseal.md
 date: 2026-06-10
 decision-makers:
   - Cervator
@@ -9,6 +9,8 @@ consulted:
 ---
 
 # Minimal Unseal Posture in Phase 1, KMS Auto-Unseal Deferred
+
+> **Amended by [ADR 0004](0004-openbao-auto-unseal.md) (2026-09-15).** The unseal posture below — manual unseal after every restart, KMS deferred — is superseded: a graduated cluster (`seal: auto` on the claim) unseals itself. Everything else here stands: single replica, Raft storage, and the init material parked in the in-cluster `openbao-init` Secret, whose shares are now the recovery keys. A cluster still on the XRD default (`shamir`) follows this ADR unchanged.
 
 ## Context and Problem Statement
 

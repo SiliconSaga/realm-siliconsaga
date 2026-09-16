@@ -63,5 +63,5 @@ Chosen option: "KMS on GKE, static seal on homelab", selected by cluster-identit
 
 * Realm design: `docs/plans/2026-09-07-forgejo-day2-design.md` (Credentials § Prerequisite)
 * Plan: `docs/plans/2026-09-07-forgejo-day2-phase1-plan.md`
-* Supersedes the unseal posture of ADR 0002; ADR 0002's init material becomes the recovery keys.
+* Supersedes the unseal posture of ADR 0002 only; its single-replica Raft decision and in-cluster custody of the init material stand. ADR 0002's unseal shares become the recovery keys; its root token stays a root token, a login credential the migration does not touch.
 * OpenBao seal references: static seal (`current_key` accepts `env://` and `file://`, 32-byte AES-256-GCM-96 key) at https://openbao.org/docs/configuration/seal/static/ ; gcpckms seal (application default credentials, so Workload Identity needs no `credentials` field) at https://openbao.org/docs/configuration/seal/gcpckms/ ; seal migration at https://openbao.org/docs/concepts/seal/ . Chart contract verified with `helm template openbao/openbao --version 0.28.3`: `server.serviceAccount.annotations` lands on the ServiceAccount, `server.extraSecretEnvironmentVars` becomes a `secretKeyRef` env on the server container, and the StatefulSet's `updateStrategy` is `OnDelete`.
