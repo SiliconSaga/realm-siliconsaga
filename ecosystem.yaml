@@ -98,6 +98,19 @@ components:
     chartVersion: "0.0.0"
     namespace: ymir
 
+  # xenforo-k8s — the forum, live at forum.cmdbee.org and the shared MySQL
+  # cluster's first tenant. Declared here rather than only in a local
+  # ecosystem.local.yaml: adapters/xenforo-k8s.yaml has carried its test and
+  # build commands for a while, so the realm already described HOW to work on it
+  # while never declaring THAT it exists. A second workspace looked for it, did
+  # not find it, and skipped the component — the adapter alone does not make it
+  # resolvable.
+  xenforo-k8s:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: xenforo
+    repo: https://github.com/SiliconSaga/xenforo-k8s.git
+
   # -- Terasology ecosystem (upstream: MovingBlocks org) ---------------------
   # These live in the MovingBlocks org, so the default gitOrg derivation would
   # resolve wrong, and their repo names are CamelCase where the component names
