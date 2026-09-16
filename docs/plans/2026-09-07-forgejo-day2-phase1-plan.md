@@ -4,7 +4,7 @@
 
 **Goal:** Land the three prerequisites the [Forgejo day-2 design](2026-09-07-forgejo-day2-design.md) names for Phase 1 — OpenBao auto-unseal on both environments, the `maturity` field on cluster-identity, and the target-specific repoURL rewrite in nordri's hydration libs — without changing what any cluster deploys today.
 
-**Architecture:** Three independent slices across three repos. nordri gains `maturity`, `gcpProject` and `gcpRegion` on cluster-identity, a `lib/patch-urls.sh` rewrite that is a no-op while manifests still carry seed URLs, a homelab seal-key step in `bootstrap.sh`, and an `openbao-seal-setup` action in `gke-provision.sh`. nidavellir's openbao composition grows a seal stanza that branches on `environment`: `gcpckms` through Workload Identity on GKE, `static` with a Secret-held key on homelab, with a claim-level `seal: shamir` opt-out. The live migration from Shamir to the new seal is a human-gated runbook, run once per cluster. Render fixtures in nidavellir and heimdall gain the new identity fields so offline checks keep matching the cluster.
+**Architecture:** Three independent slices across three repos. nordri gains `maturity`, `gcpProject` and `gcpRegion` on cluster-identity, a `lib/patch-urls.sh` rewrite that is a no-op while manifests still carry seed URLs, a homelab seal-key step in `bootstrap.sh`, and an `openbao-seal-setup` action in `gke-provision.sh`. nidavellir's openbao composition grows a seal stanza that branches on `environment`: `gcpckms` through Workload Identity on GKE, `static` with a Secret-held key on homelab. The XRD defaults `seal` to `shamir`, so merging changes nothing on a running cluster; graduation is the operator setting `seal: auto` on the claim (Tasks 9 and 10). The live migration from Shamir to the new seal is a human-gated runbook, run once per cluster. Render fixtures in nidavellir and heimdall gain the new identity fields so offline checks keep matching the cluster.
 
 **Tech Stack:** bash (nordri scripts, plain-bash unit tests via `tests/run.sh`), Crossplane Pipeline compositions (`function-environment-configs`, `function-go-templating`, provider-helm `Release`), OpenBao Helm chart 0.28.3 / OpenBao 2.5.4, GCP Cloud KMS + Workload Identity, kuttl for in-cluster checks, `crossplane render` for offline checks.
 
@@ -31,12 +31,12 @@
 | `platform/fundamentals/manifests/cluster-identity-gke.yaml` | gains `maturity`, `gcpProject: __GCP_PROJECT__`, `gcpRegion` |
 | `platform/fundamentals/manifests/cluster-identity-homelab.yaml` | gains `maturity` |
 | `lib/patch-velero.sh` | `patch_velero_tree` also stamps the project into `cluster-identity-gke.yaml` (same placeholder, same fail-closed check) |
-| `lib/patch-urls.sh` (new) | `patch_repo_urls_tree <tree> <mode>`: mode `seed` rewrites committed Forgejo URLs to the seed URL, modes `forgejo` and `swap` leave the tree alone; carries the single seed-URL literal |
+| `lib/patch-urls.sh` (new) | `patch_repo_urls_tree <tree> <mode>` and the single-manifest `patch_repo_urls_file <file> <mode>`: mode `seed` rewrites committed Forgejo URLs to the seed URL and fails closed if one survives; modes `forgejo` and `swap` rewrite nothing but REFUSE a manifest still carrying the seed URL (in the swap commit it would point ArgoCD back at the seed being retired); carries the single seed-URL literal |
 | `lib/hydrate.sh` | `hydrate_working_tree_repo` applies `patch_repo_urls_tree` after the optional per-component patch, driven by `HYDRATE_URL_MODE` (default `seed`) |
 | `bootstrap.sh` | nordri inline block calls `patch_repo_urls_tree`; new Layer 2.9 creates the homelab `openbao-seal-key` Secret if absent |
 | `update-embedded-git.sh` | nordri inline block calls `patch_repo_urls_tree` |
 | `gke-provision.sh` | new `openbao-seal-setup` action: enables Cloud KMS, key ring + key, GSA, IAM, Workload Identity binding |
-| `tests/unit/patch-urls-test.sh` (new) | three-mode assertion: seed snapshot has no `forgejo-http`, forgejo and swap snapshots have no `gitea-http` |
+| `tests/unit/patch-urls-test.sh` (new) | three-mode assertion: seed snapshot has no `forgejo-http`; forgejo and swap leave a Forgejo-form tree untouched and return non-zero on a tree still carrying `gitea-http`; the single-file helper, unreadable-input, and near-miss-host cases |
 | `tests/unit/patch-velero-test.sh` (new) | project stamped into both files, placeholder survival fails |
 | `docs/cluster-identity.md`, `docs/bootstrap.md` | document the new fields, Layer 2.9, and the `openbao-seal-setup` action |
 
@@ -44,7 +44,7 @@
 
 | File | Responsibility |
 |---|---|
-| `openbao/xrd.yaml` | new `parameters.seal` enum `auto \| shamir`, default `auto` |
+| `openbao/xrd.yaml` | new `parameters.seal` enum `auto \| shamir`, default `shamir` (inert merge; `auto` is the explicit graduation step) |
 | `openbao/composition.yaml` | seal stanza and chart values branch on `$identity.environment` and `$seal` |
 | `tests/render/cluster-identity-gke.yaml`, `-homelab.yaml` | gain `maturity`, and for gke `gcpProject`, `gcpRegion` |
 | `tests/render/check-openbao.sh` (new) | offline render asserts the seal seams per environment |
@@ -627,7 +627,7 @@ Run: `ws commit nordri .commits/nordri-patch-urls.md`
 - Modify: `components/nordri/docs/bootstrap.md`
 
 **Interfaces:**
-- Produces on GCP (gke): KMS key ring `openbao` in `$GCP_REGION` (default `us-east1`, must equal cluster-identity `gcpRegion`), crypto key `unseal`, service account `openbao-seal@<project>.iam.gserviceaccount.com` holding `roles/cloudkms.cryptoKeyEncrypterDecrypter` on that key only, and a `roles/iam.workloadIdentityUser` binding for `<project>.svc.id.goog[openbao/openbao]`. Task 5's composition annotates the KSA with that GSA email and names that key ring and key.
+- Produces on GCP (gke): KMS key ring `openbao` in the region cluster-identity's `gcpRegion` names (read from `cluster-identity-gke.yaml`; a `GCP_REGION` that disagrees is an error, not an override), crypto key `unseal`, service account `openbao-seal@<project>.iam.gserviceaccount.com` holding `roles/cloudkms.cryptoKeyEncrypterDecrypter` on that key only, and a `roles/iam.workloadIdentityUser` binding for `<project>.svc.id.goog[openbao/openbao]`. Task 5's composition annotates the KSA with that GSA email and names that key ring and key.
 - Produces on homelab: Secret `openbao-seal-key` in namespace `openbao`, key `key`, value base64 of 32 random bytes. Task 5's composition injects it as `BAO_SEAL_STATIC_KEY`.
 
 - [ ] **Step 1: Add the `openbao-seal-setup` action**
@@ -645,8 +645,20 @@ openbao-seal-setup)
     # Names are FIXED, not overridable, because the OpenBao composition in
     # nidavellir derives them from cluster-identity (gcpProject, gcpRegion) plus
     # these literals. Two sources of truth for a key name would mean an OpenBao
-    # that cannot decrypt its own barrier.
-    SEAL_REGION="${GCP_REGION:-us-east1}"
+    # that cannot decrypt its own barrier. The region comes from the same
+    # manifest the composition reads, so the key ring is created where the
+    # seal stanza will look for it; GCP_REGION may confirm it, never override it.
+    IDENTITY_MANIFEST="$(dirname "$0")/platform/fundamentals/manifests/cluster-identity-gke.yaml"
+    SEAL_REGION="$(sed -n 's/^  gcpRegion:[[:space:]]*//p' "$IDENTITY_MANIFEST")"
+    if [[ -z "$SEAL_REGION" ]]; then
+        echo "❌ cluster-identity-gke.yaml carries no gcpRegion — the seal stanza would have no region either." >&2
+        exit 1
+    fi
+    if [[ -n "${GCP_REGION:-}" && "$GCP_REGION" != "$SEAL_REGION" ]]; then
+        echo "❌ GCP_REGION=$GCP_REGION disagrees with cluster-identity gcpRegion=$SEAL_REGION." >&2
+        echo "   The seal key ring must live in the region cluster-identity names. Unset GCP_REGION, or change the manifest." >&2
+        exit 1
+    fi
     SEAL_KEYRING="openbao"
     SEAL_KEY="unseal"
     SEAL_SA="openbao-seal@${GCP_PROJECT}.iam.gserviceaccount.com"
@@ -841,7 +853,7 @@ Run: `ws commit nordri .commits/nordri-openbao-seal.md`
 
 **Interfaces:**
 - Consumes: cluster-identity `environment`, `gcpProject`, `gcpRegion` (Task 1, fixtures Task 2); Secret `openbao-seal-key` on homelab and the KMS key ring `openbao` / key `unseal` plus GSA `openbao-seal@<project>` on GKE (Task 4).
-- Produces: `OpenBaoInstance.spec.parameters.seal` enum `auto | shamir`, default `auto`. `shamir` renders today's config unchanged, for a cluster where the seal setup has not run yet.
+- Produces: `OpenBaoInstance.spec.parameters.seal` enum `auto | shamir`, default `shamir`. The default renders today's config unchanged, so merging this task is inert on a cluster whose seal setup has not run yet; `auto` is set explicitly on the claim as the graduation step (Tasks 9 and 10).
 
 - [ ] **Step 1: Write the failing render check**
 
@@ -911,7 +923,9 @@ Create `components/nidavellir/tests/render/openbao-xr-shamir.yaml`:
 
 ```yaml
 # Offline-render fixture: the seal opt-out. A cluster whose seal setup has not
-# run yet keeps the manual Shamir posture by setting parameters.seal: shamir.
+# run yet keeps the manual Shamir posture. Kept WITHOUT the seal field so the
+# render exercises the XRD default path the live cluster is on until graduated;
+# an explicit parameters.seal: shamir renders identically.
 apiVersion: nidavellir.siliconsaga.org/v1alpha1
 kind: XOpenBao
 metadata:
@@ -919,7 +933,6 @@ metadata:
 spec:
   parameters:
     storageSize: "2Gi"
-    seal: shamir
 ```
 
 - [ ] **Step 2: Run it to see it fail**
@@ -935,7 +948,10 @@ In `components/nidavellir/openbao/xrd.yaml`, under `parameters.properties` add a
                     seal:
                       type: string
                       enum: ["auto", "shamir"]
-                      default: "auto"
+                      # Revised after the final review (see "Revisions" below): the
+                      # default is shamir so merging changes nothing; graduation
+                      # sets auto on the claim.
+                      default: "shamir"
                       description: "auto renders the environment's auto-unseal seal (gcpckms via Workload Identity on gke, static key from Secret openbao-seal-key on homelab; realm ADR 0004). shamir renders no seal stanza — the manual-unseal posture of ADR 0002 — for a cluster whose seal prerequisites have not been provisioned yet."
 ```
 
@@ -951,7 +967,8 @@ In `components/nidavellir/openbao/composition.yaml`, replace the `deploy-openbao
           {{- $storageClass := $identity.storageClass -}}
           {{- $version := .observed.composite.resource.spec.parameters.chartVersion | default "0.28.3" -}}
           {{- $size := .observed.composite.resource.spec.parameters.storageSize | default "2Gi" -}}
-          {{- $seal := .observed.composite.resource.spec.parameters.seal | default "auto" -}}
+          {{- /* Revised after the final review: default matches the XRD (shamir). */ -}}
+          {{- $seal := .observed.composite.resource.spec.parameters.seal | default "shamir" -}}
           {{- $env := $identity.environment -}}
           {{- if and (eq $seal "auto") (eq $env "gke") (not $identity.gcpProject) -}}
           {{ fail "cluster-identity gcpProject is required for the gcpckms seal on gke (stamped by nordri hydration from GCP_PROJECT)" }}
@@ -1039,10 +1056,10 @@ Also update the step's header comment: replace `minimal unseal posture — manua
 Run from `components/nidavellir`: `bash tests/render/check-openbao.sh`
 Expected: `openbao render checks: PASS`.
 
-- [ ] **Step 6: Validate the XRD schema offline**
+- [ ] **Step 6: Confirm the chart consumes the values the composition sets**
 
-Run from `components/nidavellir`: `crossplane beta validate openbao/xrd.yaml tests/render/openbao-xr-shamir.yaml`
-Expected: `Total 1 resources: 0 missing schemas, 1 success cases, 0 failure cases`.
+`crossplane beta validate` no longer exists in CLI v2.5, so the schema check is the render check above. Instead confirm the chart contract the seal stanza depends on. Run from `components/nidavellir`: `helm template openbao openbao/openbao --version 0.28.3 --set server.serviceAccount.annotations.example=x --set 'server.extraSecretEnvironmentVars[0].envName=BAO_SEAL_STATIC_KEY,server.extraSecretEnvironmentVars[0].secretName=openbao-seal-key,server.extraSecretEnvironmentVars[0].secretKey=key'`
+Expected: the annotation lands on the ServiceAccount, the env var lands on the server container as a `secretKeyRef`, and the StatefulSet shows `updateStrategy: type: OnDelete` (which is why Tasks 9 and 10 delete the pod by hand).
 
 - [ ] **Step 7: Commit**
 
@@ -1058,7 +1075,7 @@ add:
   - tests/render/openbao-xr-shamir.yaml
 ---
 
-The claim is deliberately untouched: the XRD default carries `seal: auto`, and setting a new field in the claim in the same commit wedges ArgoCD on the schema diff. On an initialized cluster this commit alone leaves OpenBao sealed until the one-time `unseal -migrate` in docs/secrets-management.md.
+The claim is deliberately untouched: the XRD default carries `seal: shamir` (revised from `auto` after the final review), so this commit changes nothing on a running cluster, and setting a new field in the claim in the same commit would wedge ArgoCD on the schema diff anyway. Graduation is a later `seal: auto` on the claim followed by the one-time `unseal -migrate` in nidavellir's docs/secrets-management.md.
 ```
 
 Run: `ws commit nidavellir .commits/nida-openbao-seal.md`
@@ -1085,10 +1102,16 @@ Create `components/nidavellir/tests/platform/openbao/01-restart.yaml`:
 # gates on seal status and a restarted pod always came back sealed. Under ADR
 # 0004 it must pass on both environments. 00-assert.yaml already proved the
 # first Ready; this proves the SECOND, which is the one that matters.
+#
+# The delete WAITS for the pod object to be gone (kubectl's default) and is
+# bounded. With --wait=false the assert could match the pre-delete
+# readyReplicas: 1 and prove nothing. Deliberately no separate
+# `kubectl wait --for=delete`: the StatefulSet recreates a pod with the same
+# name within seconds, so that wait would latch onto the replacement.
 apiVersion: kuttl.dev/v1beta1
 kind: TestStep
 commands:
-  - command: kubectl delete pod openbao-0 -n openbao --wait=false
+  - command: kubectl delete pod openbao-0 -n openbao --timeout=60s
 ```
 
 Create `components/nidavellir/tests/platform/openbao/01-assert.yaml`:
@@ -1145,18 +1168,20 @@ Only a cluster still on `Seal Type shamir` needs the old two-share unseal; run t
 
 Prerequisite on gke: `./gke-provision.sh openbao-seal-setup` has run. On homelab: bootstrap Layer 2.9 created `openbao-seal-key` (on an older homelab cluster, run `kubectl create secret generic openbao-seal-key -n openbao --from-literal=key="$(openssl rand -base64 32)"` once).
 
-1. Hydrate the composition change (`update-embedded-git.sh <env> realm-siliconsaga`). ArgoCD rolls the StatefulSet; the pod comes back **sealed**, because a Shamir-initialized barrier does not know the new seal yet. This is the only restart that still needs a human.
-2. Migrate with two shares (password manager on live envs, else `openbao-init`):
+1. Checkpoint: if the pod is sealed, unseal it the old way first. Then take a Raft snapshot with an explicit path, `bao operator raft snapshot save /tmp/pre-migrate.snap` (OpenBao 2.5.4 has `save` and `restore` only; there is no `inspect`), confirm it is non-trivial in size with `ls -l /tmp/pre-migrate.snap` inside the pod, and copy it off-cluster. On GKE that copy goes through the armed guard, `ws k8s cp openbao/openbao-0:/tmp/pre-migrate.snap ./pre-migrate.snap`, which checks the pod's namespace against the scope so the file cannot come from the wrong cluster; plain `kubectl cp` is for homelab only. Do not continue until the off-cluster copy exists and matches the in-pod size.
+2. Set `parameters.seal: auto` on the claim and hydrate (`update-embedded-git.sh <env> realm-siliconsaga`). Wait until the `openbao` XR renders successfully (`Synced=True`, no render error; a transient failure while `layer4-fundamentals` is still delivering the identity fields clears on its own). Nothing restarts: the chart's StatefulSet is `OnDelete`, so `openbao-0` stays `1/1` on Shamir.
+3. Restart the pod yourself: `kubectl delete pod openbao-0 -n openbao --timeout=60s`, then wait for the replacement container to be **Running**. It stays sealed (`Seal Type gcpckms` or `static`, `Sealed true`); a Shamir-initialized barrier does not know the new seal yet. This is the only restart that still needs a human.
+4. Migrate with two shares (password manager on live envs, else `openbao-init`), **typed at the prompt** so they never appear in a process argument list:
 
 ```bash
-kubectl exec -n openbao openbao-0 -- bao operator unseal -migrate <share-1>
-kubectl exec -n openbao openbao-0 -- bao operator unseal -migrate <share-2>
+kubectl exec -it -n openbao openbao-0 -- bao operator unseal -migrate    # prompts for share 1
+kubectl exec -it -n openbao openbao-0 -- bao operator unseal -migrate    # prompts for share 2
 ```
 
-3. Verify: `bao status` now reports `Seal Type gcpckms` (or `static`) and `Recovery Seal Type shamir`, `Sealed false`.
-4. Prove it: `kubectl delete pod openbao-0 -n openbao`, then watch it return `1/1` unaided. This is also `tests/platform/openbao/01-restart.yaml`.
+5. Verify: `bao status` now reports `Seal Type gcpckms` (or `static`) and `Recovery Seal Type shamir`, `Sealed false`.
+6. Prove it: `kubectl delete pod openbao-0 -n openbao --timeout=60s`, then watch it return `1/1` unaided. This is also `tests/platform/openbao/01-restart.yaml`.
 
-Rolling back: set `parameters.seal: shamir` on the claim, hydrate, then `bao operator unseal -migrate` with the same shares reverses the migration.
+Rolling back: first take a FRESH snapshot the same way as step 1 and copy it off-cluster (the pre-migration snapshot predates everything written since, and a seal migration is exactly when OpenBao recommends a backup), then set `parameters.seal: shamir` on the claim, hydrate and wait for the XR to render, then delete `openbao-0` and wait for the replacement to run sealed (hydration alone restarts nothing, same `OnDelete` reason as above), then `bao operator unseal -migrate` with the recovery shares typed at the prompt. Verify `bao status` reports `Seal Type shamir`, `Sealed false`.
 ```
 
 Replace the "Custody posture" paragraph's last bullet `- **Hardening phase (future):** GCP KMS auto-unseal ...` with:
@@ -1226,7 +1251,7 @@ ADR 0002 chose manual init/unseal for Phase 1 and deferred KMS auto-unseal to a 
 
 ## Decision Outcome
 
-Chosen option: "KMS on gke, static on homelab", selected by cluster-identity `environment` in the openbao composition with a `seal: shamir` claim-level opt-out. gke unwraps the barrier key through `roles/cloudkms.cryptoKeyEncrypterDecrypter` on one key, bound to the `openbao/openbao` ServiceAccount through Workload Identity; homelab reads a 32-byte key from Secret `openbao-seal-key` that nordri bootstrap creates once.
+Chosen option: "KMS on gke, static on homelab", selected by cluster-identity `environment` in the openbao composition when the claim sets `seal: auto`. The XRD default is `shamir`, so landing the composition changes nothing on a running cluster; graduation is the operator setting `auto` on the claim once the seal prerequisites exist. gke unwraps the barrier key through `roles/cloudkms.cryptoKeyEncrypterDecrypter` on one key, bound to the `openbao/openbao` ServiceAccount through Workload Identity; homelab reads a 32-byte key from Secret `openbao-seal-key` that nordri bootstrap creates once.
 
 ### Consequences
 
@@ -1243,7 +1268,7 @@ Chosen option: "KMS on gke, static on homelab", selected by cluster-identity `en
 
 * Realm design: `docs/plans/2026-09-07-forgejo-day2-design.md` (Credentials § Prerequisite)
 * Plan: `docs/plans/2026-09-07-forgejo-day2-phase1-plan.md`
-* Supersedes the unseal posture of ADR 0002; ADR 0002's init material becomes the recovery keys.
+* Supersedes the unseal posture of ADR 0002 only; its single-replica Raft decision and in-cluster custody stand. ADR 0002's unseal shares become the recovery keys; its root token stays a root token, a login credential the migration does not touch.
 ```
 
 - [ ] **Step 2: Commit**
@@ -1274,37 +1299,57 @@ Run: `ws commit realm-siliconsaga .commits/realm-adr-0004.md`
 
 ### Task 9: Live migration on GKE (HUMAN-GATED)
 
-Run by the operator, in order, with the agent watching read-only through `ws k8s`.
+Run by the operator, in order, with the agent watching read-only through `ws k8s`. This is the corrected sequence from the final review (see "Revisions" below); it supersedes any Shamir-first or "the StatefulSet rolls" wording elsewhere in this plan.
 
 - [ ] **Step 1: Provision the seal**
 
 From `components/nordri`: `GCP_PROJECT=teralivekubernetes ./gke-provision.sh openbao-seal-setup`
 Expected: `✅ OpenBao KMS seal ready.` The Cloud KMS API is enabled as part of this; it was off on 2026-09-07.
 
-- [ ] **Step 2: Hydrate** after the nordri and nidavellir CRs are merged and pulled:
+- [ ] **Step 2: Checkpoint** (after the nordri and nidavellir CRs are merged and pulled). If `openbao-0` is sealed, unseal it the old way first (two shares). Then take and verify a Raft snapshot and copy it off-cluster, per the runbook in nidavellir's `docs/secrets-management.md` ("Migrating an initialized OpenBao to auto-unseal"). Do not continue without a snapshot you have inspected.
+
+- [ ] **Step 3: Graduate and hydrate.** Set `parameters.seal: auto` in nidavellir `openbao/claim.yaml`, commit it (`ws commit nidavellir …`), then:
 
 ```text
 GITEA_HOST=gitea.cmdbee.org GITEA_SCHEME=https GCP_PROJECT=teralivekubernetes ./update-embedded-git.sh gke realm-siliconsaga
 ```
 
-Expected: nordri's hydration output includes `GKE hydration pinned to project: teralivekubernetes`; ArgoCD syncs `layer4-fundamentals` (cluster-identity gains the fields) and `openbao` (StatefulSet rolls). `openbao-0` comes back `0/1`, `bao status` shows `Seal Type shamir` still, `Sealed true`.
+Expected: nordri's hydration output includes `GKE hydration pinned to project: teralivekubernetes`; ArgoCD syncs `layer4-fundamentals` (cluster-identity gains the fields) and `openbao` (the Release values change). **Wait until the `openbao` XR renders successfully** — `Synced=True` with no render error, up to five minutes; a transient failure while `layer4-fundamentals` is still delivering the identity fields is expected and clears on its own. If it never renders, stop: the fields did not arrive. Note that `openbao-0` stays `1/1` on Shamir at this point — the chart's StatefulSet is `OnDelete`, so nothing has restarted.
 
-- [ ] **Step 3: Migrate** with two shares from the password manager, per the runbook. Verify `bao status`: `Seal Type gcpckms`, `Recovery Seal Type shamir`, `Sealed false`.
+- [ ] **Step 4: Restart the pod yourself**: `ws k8s delete pod openbao-0 -n openbao --timeout=60s` (scope armed to `openbao`), then `ws k8s get pod openbao-0 -n openbao -w` until the replacement container is **Running**. It will not become Ready; `bao status` shows `Seal Type gcpckms`, `Sealed true`.
 
-- [ ] **Step 4: Prove it**: `ws k8s delete pod openbao-0 -n openbao` (scope armed to `openbao`), then `ws k8s get pods -n openbao -w` until `1/1`. Then confirm ESO recovered: `ws k8s get clustersecretstore openbao-kv` reports Ready.
+- [ ] **Step 5: Migrate** with two shares from the password manager, typed at the prompt, through the armed guard so the context cannot be wrong: `ws k8s exec -it -n openbao openbao-0 -- bao operator unseal -migrate`, twice (scope from Step 4: `ws k8s scope set --context gke_teralivekubernetes_us-east1-d_ttf-cluster --namespace openbao`). `ws k8s` passes `-it` through to kubectl. If the prompt does not appear, **stop**: do not fall back to raw `kubectl` against GKE (the Global Constraints forbid it, and `ws k8s scope show` authorizes nothing). Fix the interactive `ws k8s` path first and resume from this step; the pod simply stays sealed meanwhile. Verify `bao status`: `Seal Type gcpckms`, `Recovery Seal Type shamir`, `Sealed false`.
 
-- [ ] **Step 5: Record** in Loki's thalamus `heimdall-alerting` arc that "OpenBAO auto-unseal" is done, and in `forgejo-day2` that Phase 1 is complete on GKE.
+- [ ] **Step 6: Prove it**: `ws k8s delete pod openbao-0 -n openbao --timeout=60s` once more, then `ws k8s get pods -n openbao -w` until `1/1` with no human input. Then confirm ESO recovered: `ws k8s get clustersecretstore openbao-kv` reports Ready.
+
+- [ ] **Step 7: Record** in Loki's thalamus `heimdall-alerting` arc that "OpenBAO auto-unseal" is done, and in `forgejo-day2` that Phase 1 is complete on GKE.
 
 ---
 
 ### Task 10: Live migration on a homelab cluster (HUMAN-GATED)
 
 - [ ] **Step 1**: On an existing homelab cluster, create the key once: `kubectl create secret generic openbao-seal-key -n openbao --from-literal=key="$(openssl rand -base64 32)"`. On a fresh cluster, `bootstrap.sh homelab` Layer 2.9 does it.
-- [ ] **Step 2**: Hydrate: `./update-embedded-git.sh homelab realm-siliconsaga`.
-- [ ] **Step 3**: Migrate with two shares from `openbao-init`, verify `Seal Type static`.
-- [ ] **Step 4**: Run the kuttl platform suite: `./test.ps1 openbao` from `components/nidavellir`. Expected: both `00-assert` and `01-assert` pass.
+- [ ] **Step 2**: Checkpoint: unseal the old way if sealed, take and inspect a Raft snapshot, copy it off-cluster (runbook in nidavellir's `docs/secrets-management.md`).
+- [ ] **Step 3**: Graduate and hydrate: with `parameters.seal: auto` already committed on the claim by Task 9 (or commit it now if homelab goes first), `./update-embedded-git.sh homelab realm-siliconsaga`; wait for the `openbao` XR to render successfully.
+- [ ] **Step 4**: Restart the pod yourself: `kubectl delete pod openbao-0 -n openbao --timeout=60s`, wait for the replacement container to be Running (it stays sealed, `Seal Type static`).
+- [ ] **Step 5**: Migrate with two shares from `openbao-init`, typed at the prompt (`kubectl exec -it … bao operator unseal -migrate`, twice); verify `Seal Type static`, `Recovery Seal Type shamir`, `Sealed false`.
+- [ ] **Step 6**: Run the kuttl platform suite: `./test.ps1 openbao` from `components/nidavellir`. Expected: both `00-assert` and `01-assert` pass — the second one is the restart proof.
 
 ---
+
+## Revisions from the final whole-branch review (2026-09-08)
+
+The record of what the final review changed. The task text above has since been corrected in place to match (2026-09-15), so an implementer reading tasks in order no longer meets the superseded instructions; this section stays as the why.
+
+- **The seal change does not restart the pod on either environment.** The openbao 0.28.3 chart's StatefulSet uses `updateStrategy: OnDelete` and carries no config checksum (verified with `helm template`). Task 5's composition change therefore leaves a running `openbao-0` on its old Shamir config. Tasks 9 and 10 gain an explicit `kubectl delete pod openbao-0 -n openbao` between hydrating and migrating; the runbook in nidavellir's `docs/secrets-management.md` says so. Skipping it leaves the migration armed but not done, and the next unplanned restart lands sealed.
+- **The XRD default is `shamir`, not `auto`.** Merging the nidavellir CR is then genuinely inert on the live cluster: nothing changes until the operator sets `parameters.seal: auto` on `openbao/claim.yaml` as the first step of Task 9 / Task 10, after the seal prerequisites exist. The claim carries `auto` from then on, so fresh bootstraps get auto-unseal. The ArgoCD schema-diff wedge is avoided because the XRD lands (and updates the live CRD) in an earlier hydration than the claim change. Render fixtures: `openbao-xr.yaml` sets `seal: auto` (the graduated state), `openbao-xr-shamir.yaml` omits the field (the default).
+- **`patch_repo_urls_tree` fails closed in `forgejo`/`swap` mode too**: a manifest still carrying the seed URL is an error, since in the swap commit it would point ArgoCD back at the seed being retired. A single-file entry point `patch_repo_urls_file` covers the two manifests bootstrap applies from the source tree rather than from a hydrated repo (`platform/root-app.yaml`, the realm root-app template): both are now applied from a patched copy. `update-embedded-git.sh` and `bootstrap.sh` copy `root-app.yaml` before the tree rewrite, not after.
+- **`openbao-seal-setup` reads the region from `cluster-identity-gke.yaml`** instead of defaulting it, and refuses a `GCP_REGION` that disagrees, so the key ring cannot be created in a region the seal stanza does not name.
+- **The kuttl restart step waits for the delete** (`kubectl delete … --timeout=60s`, which blocks until the pod object is gone); with `--wait=false` the assert could match the pre-delete `readyReplicas: 1` and prove nothing. A separate `kubectl wait --for=delete` was tried and dropped: the StatefulSet recreates a same-named pod within seconds, so that wait latches onto the replacement and times out.
+- **`crossplane beta validate` no longer exists in CLI v2.5**; Task 5 Step 6 is dropped. `helm template openbao/openbao --version 0.28.3` was used instead to confirm the chart consumes `server.serviceAccount.annotations` and `server.extraSecretEnvironmentVars` (annotation lands on the ServiceAccount, the env var lands on the server container as a `secretKeyRef`). nidavellir's `docs/testing.md` now documents the render checks and this extra step.
+- **Task 9 Step 3 (hydration) expectation corrected:** after hydration `openbao-0` stays `1/1` on Shamir until deleted; and the `openbao` XR may show a transient render failure if it reconciles before `layer4-fundamentals` has applied the new cluster-identity fields. Both are expected.
+- **Task 9 order (Task 10 mirrors it with the static key):** 1) `openbao-seal-setup`; 2) unseal the old way if currently sealed, then take a Raft snapshot (`bao operator raft snapshot save /tmp/pre-migrate.snap`; OpenBao has no `inspect`, so verify by size with `ls -l` and copy it off-cluster with `ws k8s cp` on GKE) — the checkpoint to restore from if anything below goes wrong; 3) commit `seal: auto` on the claim and hydrate, then **wait until the `openbao` XR renders successfully** (`Synced=True`, no render error; up to five minutes; if it never does, the cluster-identity fields did not arrive and the procedure stops here); 4) delete the pod and wait for the replacement container to be **Running** — not Ready, it comes back sealed; 5) `kubectl exec -it … bao operator unseal -migrate` twice, typing the shares at the prompt rather than on the command line; 6) verify `bao status`; 7) delete the pod again and watch it return Ready. The runbook in nidavellir `docs/secrets-management.md` carries the commands.
+- **Minor:** `INTERNAL_GITEA_URL` was deleted from `bootstrap.sh` (nothing read it); ADR 0002 is marked superseded by 0004; the realm's `dev-setup.md` `go install` line for the Crossplane CLI is stale for the v2 module layout and the direct download now checksums correctly — a follow-up, not part of this branch.
 
 ## Self-review against the design
 
