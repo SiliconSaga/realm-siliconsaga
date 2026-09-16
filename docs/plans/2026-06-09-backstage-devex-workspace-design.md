@@ -281,7 +281,7 @@ Treat this list as a starting shortlist, not as a package manifest. Check curren
 | Security | Security Insights, Snyk/FOSSA/DependencyTrack depending on your tools | Pick based on the actual scanner you use; avoid duplicating security portals unless Backstage adds context. |
 | CI/CD legacy | Jenkins plugin | `@backstage-community/plugin-jenkins` is actively maintained (npm publish 2026-04-24); check its release notes for the exact feature set (multi-project support and project-type limitations vary by version) before committing. Use it only if Jenkins remains important — though see the CI section above: an in-cluster Jenkins has real advantages here. |
 | InnerSource/community | Synergy, Playlist, Q&A, Entity Feedback | Synergy is aimed at inner-source projects/issues/maintainers. Playlist helps curated collections. Q&A and Entity Feedback can support community knowledge loops. Verify maintenance and UX before broad rollout. |
-| Learning/volunteering | Custom "Skill Exchange Lite" plugin or catalog entity model | There is no obvious OSS replacement for Spotify Skill Exchange. Model opportunities as catalog entities or a small plugin: request help, offer mentorship, track temporary project needs, and link to GitHub issues/projects. |
+| Learning/volunteering | Custom "Skill Exchange Lite" plugin or catalog entity model | There is no obvious OSS replacement for Spotify Skill Exchange. Model opportunities as catalog entities or a small plugin: request help, offer mentorship, track temporary project needs, and link to GitHub issues/projects. The full design lives in `2026-06-19-backstage-community-coordination-design.md`. |
 | Resource/time tracking | TimeSaver, DORA metrics plugins, OpenCost/Infracost | Use TimeSaver only if you actively measure scaffolder value. Use DORA/cost plugins only when teams will act on the data. |
 
 Plugin due diligence checklist:
@@ -296,15 +296,7 @@ Plugin due diligence checklist:
 
 ## Community and Skill Exchange Lite
 
-Spotify Skill Exchange is commercial, but the idea is straightforward enough to pilot in open source Backstage:
-
-- Define an `Opportunity` catalog kind or a custom plugin data model with fields for type, owner, skills offered/needed, time window, expected commitment, GitHub issue/project link, and status.
-- Support types such as `mentoring`, `pairing`, `temporary-help`, `hack-project`, `plugin-maintainer-needed`, and `reviewer-needed`.
-- Render opportunities on team pages and user pages.
-- Integrate with GitHub Issues or Projects for the actual work queue instead of building a full task tracker.
-- Add lightweight notifications through Backstage Notifications, chat, or email later.
-
-This should be a second-phase plugin, not part of the first bootstrap. Start with GitHub issue labels and a Backstage page/card that indexes them.
+Moved to the community coordination design (`2026-06-19-backstage-community-coordination-design.md`), which now owns the skill/opportunity-exchange model for both the developer-community and the volunteer-organizer cases. The plugin/catalog option remains listed in the Plugin Recommendations table above as a setup note.
 
 ## Facility, Reservable Resources, and Community-Org Modeling
 
@@ -662,152 +654,7 @@ The same mature sample also shows failure modes that a fresh instance should avo
 
 ## Appendix: Community Resource and Volunteer Coordination
 
-This appendix describes a non-software domain that can still benefit from the Backstage control-plane pattern: a local community platform for youth sports, school-support groups, PTAs, volunteer projects, mentoring, gear swaps, facility coordination, and similar community operations. The point is not to pretend that shoes, sports fields, volunteer skills, and community groups are software components. The point is to reuse Backstage's strengths - identity, catalog metadata, ownership, docs, search, permissions, plugins, and admin workflows - while giving busy parents and volunteers a simpler purpose-built frontend for day-to-day interaction.
-
-### Product Shape
-
-Use Backstage as the power-user and administrator surface, not necessarily as the only user interface.
-
-- **Backstage:** admin and operator view for group metadata, activity definitions, resource catalogs, volunteer opportunity configuration, scorecards, audit trails, docs, and integrations.
-- **Mini-frontend:** mobile-first parent and volunteer view for "I can help", "I need this", "I can offer this", "I want to learn", "I can mentor", "I can give/lend this item", and "I can sign up for this shift".
-- **Backend/API:** shared service that owns dynamic data such as offers, needs, claims, reservations, messages, and moderation state.
-- **Catalog:** stable index of groups, activities, programs, facilities, resource categories, and ownership, with links into the mini-frontend for live interactions.
-
-The recommended strategy is a hybrid. Keep stable, owned, documented things in Backstage/catalog-friendly structures; keep volatile marketplace and signup data in an application database behind a custom backend plugin or companion API. A gear-swap listing or volunteer claim should not require editing YAML.
-
-Backstage's Software Templates also earn their keep here: scaffolding new efforts (a new group, season, activity, or drive) from templates that encode existing practices encourages reuse across organizations, volunteer groups, and efforts rather than each one improvising from scratch.
-
-### Design Principles
-
-- **Parent-first UX:** assume users are busy, on phones, and not interested in Backstage terminology.
-- **Adult accounts only by default:** avoid child accounts unless there is a deliberate legal/privacy review and a strong need.
-- **Minimal child data:** model age group, grade band, team, season, or size when needed; avoid storing children's names, photos, precise schedules, medical details, or unnecessary education records.
-- **Private by default:** offers, needs, and contact details should be visible only to the relevant group, approved volunteers, or moderators.
-- **Moderated exchange:** gear swaps, facility access, and volunteer roles need moderation, report/flag workflows, and admin audit trails.
-- **No exact public locations:** use managed pickup points, event handoff windows, or moderator-mediated contact rather than public home addresses.
-- **Time-boxed data:** seasons end, children grow, needs expire, and offers get claimed. Every dynamic record should have an expiry or archival path.
-- **Community trust over gamification:** recognition can help, but avoid leaderboards that shame volunteers or expose family circumstances.
-
-### Architecture Options
-
-| Option | Shape | Pros | Cons | Recommendation |
-|---|---|---|---|---|
-| Catalog-first | Define custom catalog kinds for groups, activities, resources, facilities, opportunities, and maybe offers/needs | Simple to inspect, easy for admins, strong ownership and docs, low app complexity | YAML is a bad fit for fast-moving inventory, claims, parent UX, privacy, and matching | Useful only for stable objects |
-| App/database-first | Build a small community app with its own database and expose a Backstage plugin for admins | Best UX for parents, natural fit for offers/needs/signups, easier privacy controls | More product surface, requires schema/API work, less Backstage-native metadata unless integrated | Good if the community app is the real product |
-| Hybrid | Catalog stable objects; database dynamic interactions; Backstage plugin administers both; mini-frontend serves parents | Balances Backstage strengths with real user needs, keeps volatile data out of YAML, supports simple frontend | Requires clear boundaries and integration discipline | Recommended |
-| External-tools-first | Start with Google Forms/Sheets, Airtable, GitHub Issues, or a lightweight form tool, then import/index into Backstage | Very fast pilot, low engineering effort, easy to validate demand | Permission sprawl, data quality issues, privacy concerns, hard to scale matching/moderation | Good for discovery, not the long-term platform |
-| Marketplace-first | Build gear/resource exchange first, then generalize to volunteering and mentoring | Tangible value, easy adoption before a season, clear workflows | Can overfit to inventory and miss broader community organization needs | Good first mini-frontend slice |
-| Volunteer-exchange-first | Build Skill Exchange-style profiles and opportunities first | Aligns with mentoring/learning goals, supports PTAs and community groups | Harder to motivate without concrete activities, more privacy-sensitive | Better as the second slice |
-
-### Suggested Domain Objects
-
-Do not force these into Backstage's `Component` kind. Create domain-specific kinds or database tables with clear names.
-
-| Object | Purpose | Stable or Dynamic | Backstage Fit |
-|---|---|---|---|
-| `CommunityGroup` | PTA, sports league, team, committee, booster group, local nonprofit, school-support group | Stable | Strong catalog fit |
-| `Program` or `Season` | Soccer season, school year, fundraising drive, tournament, reading program | Stable-ish | Good catalog fit |
-| `Activity` | Gear swap, volunteer day, field cleanup, tournament support, fundraiser, mentoring night | Stable-ish | Good catalog fit when activity has owners/docs |
-| `Opportunity` | A need for help, mentoring, reviewing, coaching, setup, cleanup, translation, carpentry, grant writing, etc. | Dynamic or semi-stable | Hybrid |
-| `VolunteerProfile` | Adult's skills, interests, availability, learning goals, mentoring offers, preferred groups | Dynamic and private | App database, Backstage admin summary |
-| `Skill` or `Interest` | Controlled vocabulary for what volunteers can do, teach, or want to learn | Stable | Catalog/config fit |
-| `ResourceType` | Cleats, shin guards, uniforms, cones, tents, tables, coolers, laptops, books, facility access | Stable | Catalog/config fit |
-| `ResourceOffer` | "I have size 2 cleats to give/lend" or "I can loan a canopy for Saturday" | Dynamic | App database |
-| `ResourceNeed` | "Need size 3 cleats" or "Need two tables for the event" | Dynamic | App database |
-| `Facility` | Sports field, gym, meeting room, storage closet, concession stand, parking lot | Stable | Catalog fit with access controls |
-| `Reservation` | Time-boxed booking or claim for a facility, item, or volunteer shift | Dynamic | App database |
-| `Transfer` | Matched handoff between an offer and a need | Dynamic and sensitive | App database with audit |
-| `Policy` | Rules for eligibility, privacy, pickup, donations, facility use, background checks, and data retention | Stable | Docs/TechDocs fit |
-
-### Activity Patterns
-
-- **Gear swap:** parents list give-away or lendable items by category, size, condition, season, and pickup method; other parents request or claim; moderators can approve, hide, expire, or mark fulfilled.
-- **Volunteer signup:** organizers publish shifts, roles, required skills, background-check requirements, and time windows; volunteers claim slots; admins see coverage gaps.
-- **Skill exchange:** adults list skills they can teach, mentor, or contribute and skills they want to learn; opportunities can request skills without exposing private personal details broadly.
-- **Facility and equipment coordination:** groups can request fields, rooms, storage, tables, tents, or sports gear; admins can approve reservations or route requests to the right owner.
-- **Community project board:** local groups publish project ideas and needed help, linked to GitHub Issues/Projects if the work is technical or to a simpler task board if it is operational.
-- **Donation and resource drives:** organizers publish target resources, quantities, deadlines, accepted conditions, drop-off rules, and fulfillment status.
-- **Season readiness checks:** a scorecard-like view can show whether a season has coaches, background checks, field reservations, gear coverage, emergency contacts, docs, and volunteer slots ready.
-
-### Parent Mini-Frontend Ideas
-
-The mini-frontend should not look or feel like Backstage. It should be a focused web app, probably installable/PWA-style, with a small number of flows.
-
-- A landing screen with three actions: `Offer`, `Need`, and `Volunteer`.
-- Fast filters for group, season, age/grade band, item size, activity date, location area, and pickup/drop-off method.
-- "I have extra gear" flow with category, size, condition, photo optional, give/lend, preferred handoff, expiry date, and visibility.
-- "I need gear" flow with category, size, needed-by date, acceptable condition, and whether a loan is acceptable.
-- "I can help" flow with skills, availability, preferred groups, background-check status if applicable, and mentoring/learning interests.
-- "I want to learn" flow for adults who want coaching, mentoring, first-aid training, scorekeeping, event organizing, grant writing, technical help, or other skills.
-- Match suggestions that reveal only enough information to proceed, with contact details hidden until both sides opt in or a moderator approves.
-- Moderator handoff mode for sensitive exchanges, where the system routes both parties to a public pickup point or event table instead of sharing direct contact details.
-- Expiry nudges before a season starts: "these offers expire Friday", "these needs are still open", "this activity is short two volunteers".
-
-### Backstage Admin and Power-User Surface
-
-Backstage should give organizers the richer view that ordinary parents do not need.
-
-- Catalog pages for `CommunityGroup`, `Program`, `Activity`, `Facility`, and `ResourceType`.
-- Entity cards showing open needs, available offers, volunteer coverage, upcoming events, stale listings, and moderation queue counts.
-- Docs pages for rules, volunteer onboarding, background-check process, gear condition guidelines, facility use, and season playbooks.
-- Search across groups, activities, facilities, docs, and public resource categories.
-- Permission-controlled admin routes for approving groups, editing taxonomies, seeing reports, handling moderation, and exporting summaries.
-- Backend scheduled tasks for expiring old offers/needs, sending reminders, detecting uncovered volunteer slots, and archiving completed seasons.
-- Notifications for organizers when critical roles are unfilled or resource needs remain open near a deadline.
-- Optional scorecards for readiness and coverage, framed as operational status rather than team judgment.
-
-### Data and Privacy Notes
-
-This domain involves children, schools, families, locations, volunteer eligibility, and potentially sensitive need signals. Treat privacy and safety as primary product requirements.
-
-- Avoid collecting personal information from children. The FTC's COPPA guidance is relevant if an online service is directed to children under 13 or knowingly collects personal information from them.
-- Avoid treating the system as a school records system. If the platform interacts with a school district or education records, FERPA and district policy may apply; keep the community app focused on adult volunteers and non-educational operational data unless reviewed.
-- Keep child identity out of inventory exchange. Prefer "size 2 cleats needed for U8 soccer" over child names.
-- Do not store home addresses by default. Prefer pickup sites, event handoff windows, or moderator-mediated exchange.
-- Use role-based visibility: parent, organizer, group admin, district liaison, moderator, system admin.
-- Keep audit logs for moderator/admin actions, claim state changes, and permission changes.
-- Add abuse/reporting workflows before broad rollout, even if they are simple.
-- Define data retention early: expire unclaimed gear offers, archive old seasons, delete stale personal preferences, and give adults a way to remove their profile.
-
-### Matching Strategies
-
-| Strategy | How it works | Pros | Cons |
-|---|---|---|---|
-| Manual browse | Users search/filter offers and needs themselves | Simple, transparent, low risk | Requires user effort, weak at scale |
-| Moderator matching | Organizers see likely matches and coordinate handoff | Safer for sensitive communities, good for early trust | More admin work |
-| Rule-based matching | Match category, size, group, season, location area, condition, and dates | Predictable, explainable, easy to test | Can miss nuanced cases |
-| Preference-aware matching | Use volunteer interests, skills, availability, and learning goals | Better for Skill Exchange-style volunteering | More profile data and privacy surface |
-| Recommendation engine | Rank opportunities/resources automatically | Powerful later | Too complex and potentially opaque for MVP |
-
-Start with manual browse plus moderator matching. Add rule-based matching once the fields stabilize. Defer recommendation-style matching until there is enough usage and trust.
-
-### First Pilot Slice
-
-A useful first slice is a gear-swap MVP because it is concrete, seasonal, and easy for families to understand.
-
-1. Define `CommunityGroup`, `Program`, `Activity`, `ResourceType`, and `Facility` as stable catalog-backed concepts.
-2. Build a small backend table/API for `ResourceOffer`, `ResourceNeed`, `Transfer`, and moderation state.
-3. Build a parent mini-frontend with `Offer`, `Need`, browse, claim/request, and expiry.
-4. Add a Backstage admin plugin page for open needs, offers, stale listings, moderation, and simple exports.
-5. Keep identity adult-only through Keycloak/OIDC or another community identity source.
-6. Run one season-bound gear swap with a few resource categories and explicit pickup rules.
-7. After the pilot, decide whether the next slice is volunteer signup, Skill Exchange-style profiles, facility reservations, or community project boards.
-
-### Later Expansion Ideas
-
-- Volunteer skill profiles with "can mentor", "can help", and "want to learn" sections.
-- Activity templates for gear swap, fundraiser, field cleanup, tournament support, PTA event, reading night, and community tech help.
-- Facility calendar and request workflow for fields, gyms, rooms, and storage.
-- Background-check eligibility flags for roles that require it, stored minimally and visible only to authorized organizers.
-- Resource kits for recurring activities, such as "soccer season starter kit", "field day kit", or "fundraiser table kit".
-- Group playbooks in TechDocs, linked directly from activities and volunteer roles.
-- Integration with GitHub Issues/Projects for technical community efforts, while nontechnical tasks remain in the simpler mini-frontend.
-- Public read-only pages for approved activities and needs, with private details hidden.
-- Lightweight impact reporting: fulfilled needs, volunteer slots covered, gear reused, estimated savings, and unresolved gaps.
-
-### Fit Assessment
-
-This appendix stretches Backstage beyond its original software-catalog center, but the fit is reasonable if Backstage is treated as the admin/control-plane and not forced to be the parent-facing marketplace UI. The strongest overlap is ownership, metadata, documentation, permissions, search, workflows, and extension points. The weakest overlap is high-churn human interaction: claims, messaging, handoffs, personal preferences, inventory state, and mobile-first UX. That weak area should be handled by a small custom frontend and database, with Backstage used to configure, inspect, and operate it.
+Moved to its own design doc: `2026-06-19-backstage-community-coordination-design.md`. That document covers the civic and community-coordination use of this platform — thesis, constraints, domain model, pilots, and the build-when-ready plan. This document stays focused on standing up and working on Backstage.
 
 ## Appendix: Distilling Agent Plans Into ADRs
 
