@@ -1168,7 +1168,7 @@ Only a cluster still on `Seal Type shamir` needs the old two-share unseal; run t
 
 Prerequisite on gke: `./gke-provision.sh openbao-seal-setup` has run. On homelab: bootstrap Layer 2.9 created `openbao-seal-key` (on an older homelab cluster, run `kubectl create secret generic openbao-seal-key -n openbao --from-literal=key="$(openssl rand -base64 32)"` once).
 
-1. Checkpoint: if the pod is sealed, unseal it the old way first. Then take and inspect a Raft snapshot and copy it off-cluster (`bao operator raft snapshot save`, `bao operator raft snapshot inspect`, `kubectl cp`). Do not continue without a snapshot you have looked at.
+1. Checkpoint: if the pod is sealed, unseal it the old way first. Then take and inspect a Raft snapshot (`bao operator raft snapshot save`, `bao operator raft snapshot inspect`) and copy it off-cluster. On GKE that copy goes through the armed guard, `ws k8s cp openbao/openbao-0:/tmp/pre-migrate.snap ./pre-migrate.snap`, which checks the pod's namespace against the scope so the file cannot come from the wrong cluster; plain `kubectl cp` is for homelab only. Do not continue without a snapshot you have looked at.
 2. Set `parameters.seal: auto` on the claim and hydrate (`update-embedded-git.sh <env> realm-siliconsaga`). Wait until the `openbao` XR renders successfully (`Synced=True`, no render error; a transient failure while `layer4-fundamentals` is still delivering the identity fields clears on its own). Nothing restarts: the chart's StatefulSet is `OnDelete`, so `openbao-0` stays `1/1` on Shamir.
 3. Restart the pod yourself: `kubectl delete pod openbao-0 -n openbao --timeout=60s`, then wait for the replacement container to be **Running**. It stays sealed (`Seal Type gcpckms` or `static`, `Sealed true`); a Shamir-initialized barrier does not know the new seal yet. This is the only restart that still needs a human.
 4. Migrate with two shares (password manager on live envs, else `openbao-init`), **typed at the prompt** so they never appear in a process argument list:
@@ -1181,7 +1181,7 @@ kubectl exec -it -n openbao openbao-0 -- bao operator unseal -migrate    # promp
 5. Verify: `bao status` now reports `Seal Type gcpckms` (or `static`) and `Recovery Seal Type shamir`, `Sealed false`.
 6. Prove it: `kubectl delete pod openbao-0 -n openbao --timeout=60s`, then watch it return `1/1` unaided. This is also `tests/platform/openbao/01-restart.yaml`.
 
-Rolling back: set `parameters.seal: shamir` on the claim, hydrate, then `bao operator unseal -migrate` with the same shares reverses the migration.
+Rolling back: set `parameters.seal: shamir` on the claim, hydrate and wait for the XR to render, then delete `openbao-0` and wait for the replacement to run sealed (hydration alone restarts nothing, same `OnDelete` reason as above), then `bao operator unseal -migrate` with the recovery shares typed at the prompt. Verify `bao status` reports `Seal Type shamir`, `Sealed false`.
 ```
 
 Replace the "Custody posture" paragraph's last bullet `- **Hardening phase (future):** GCP KMS auto-unseal ...` with:
