@@ -1,7 +1,25 @@
 # terasology adapter — build/test commands and AI context pointers
+#
+# test and lint are spelled to match Jenkins rather than Gradle defaults, so a
+# local run and a CI stage answer the same question. See the Jenkinsfile.
 commands:
   build: "./gradlew :facades:PC:build"
-  test: "./gradlew test"
+  # `unitTest`, not `test`: CI gates on this stage, and it excludes the MteTest
+  # and TteTest tags (1m timeout) that the conventional `test` task pulls in at a
+  # 4m timeout. The slow ones are their own Jenkins stages (integrationTest,
+  # integrationTestFlaky) and are run deliberately, not as part of `ws test`.
+  #
+  # CAVEAT: every Test task sets ignoreFailures = true in build-logic, so this
+  # exits 0 even with failing tests. Jenkins recovers the verdict by parsing
+  # build/test-results/unitTest/*.xml; a local exit code has nothing to recover
+  # it from. Read the report, not the return code.
+  test: "./gradlew unitTest"
+  # The exact static-analysis command from the Jenkinsfile, so `ws lint` is that
+  # stage rather than an approximation of it. Checkstyle is the only one of the
+  # three that fails the build (ignoreFailures = false); PMD and SpotBugs report
+  # only, and Jenkins surfaces those through recordIssues. A green lint therefore
+  # means checkstyle passed, not that nothing was found.
+  lint: "./gradlew check -x test"
   run: "./gradlew :facades:PC:run"
   clean: "./gradlew clean"
 
