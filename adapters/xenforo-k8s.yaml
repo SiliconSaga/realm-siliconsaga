@@ -10,9 +10,15 @@
 #
 # build: the runtime image. Deliberately NOT wired to a `ws build` that pushes —
 # CI owns publishing (.github/workflows/image.yml); this is the local rehearsal.
+#
+# clean: removes the image build produced. NOT idempotent — a second run fails
+# with "No such image", because ws execs adapter commands without a shell, so
+# there is no `|| true` to hide it. Build cache is untouched, so the next build
+# stays fast.
 commands:
   test: "bash tests/render-all.sh"
   build: "docker build -t xenforo-k8s:local image"
+  clean: "docker image rm xenforo-k8s:local"
 
 ai_context:
   - path: "README.md"
