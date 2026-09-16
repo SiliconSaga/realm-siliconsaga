@@ -33,6 +33,10 @@ commands:
   # never exits, which is the same reason the Makefile sets CI=true.
   testFilter: "corepack yarn backstage-cli repo test {} --watch=false"
   lint: "make lint tsc"
+  # format: prettier with the Backstage shared config, the same rewrite the
+  # repo's lint-staged hook applies per file. `yarn prettier:check` is the
+  # check form; ESLint under `make lint` does not cover formatting.
+  format: "corepack yarn prettier --write ."
   run: "make dev"
 
 ai_context:

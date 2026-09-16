@@ -2,6 +2,9 @@
 commands:
   test: "make test"
   lint: "make lint"
+  # The Makefile has no format target yet; this calls the same venv ruff that
+  # `make lint` uses. Move it behind a `make format` target once one exists.
+  format: ".venv/bin/python -m ruff format ."
 
 ai_context:
   - path: "README.md"

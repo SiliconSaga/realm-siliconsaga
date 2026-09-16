@@ -3,6 +3,8 @@
 commands:
   test: ".venv/bin/python -m pytest tests/unit tests/integration -v"
   lint: ".venv/bin/python -m ruff check src/ tests/"
+  # format rewrites; lint above only checks. Same ruff, same pyproject config.
+  format: ".venv/bin/python -m ruff format src/ tests/"
 
 ai_context:
   - path: "README.md"
