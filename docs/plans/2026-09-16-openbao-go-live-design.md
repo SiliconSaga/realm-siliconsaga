@@ -33,31 +33,30 @@ The named hardening step, unchanged from ADR 0004: replace the parked root token
 
 `nordri/openbao-configure.sh <gke|homelab> [realm]` exposes Layer 5b's configure and seed halves standalone (mount, Kubernetes auth, policies and roles, canary, realm seeds), so a live cluster is configured without re-running bootstrap. Both scripts are thin: argument handling, the context check, and calls into the lib.
 
-### Backup: a daily Raft snapshot to a dedicated bucket
+### Backup: the chart's snapshot agent, daily, to a dedicated bucket
 
-A CronJob `openbao-backup` in the openbao composition, 05:00 UTC daily, an hour before Velero's 06:00 run:
+The OpenBao Helm chart ships a snapshot agent (`ghcr.io/openbao/openbao-snapshot-agent`), a CronJob that logs in through Kubernetes auth, runs `bao operator raft snapshot save`, uploads with s3cmd and expires objects older than `S3_EXPIRE_DAYS`. The composition enables it through chart values rather than rendering its own CronJob: it is the engine's own scheduler, the shape the Mimir doc argues for over a separate job that copies files, and upstream owns the image and the script. Schedule 05:00 UTC daily, an hour before Velero's 06:00 run.
 
-1. An init container on the OpenBao image logs in through Kubernetes auth as role `openbao-backup` and runs `bao operator raft snapshot save` into a shared `emptyDir`. The role's policy allows exactly `sys/storage/raft/snapshot` read and nothing else; the job can copy the vault out, encrypted, and can read no secret.
-2. The main container (rclone) uploads the file as `openbao/<YYYY-MM-DD>T<HHMM>Z.snap`, then lists it back and exits non-zero unless the remote size equals the local size. A Job that succeeds is a Job whose object is in the bucket.
+The agent's role `openbao-backup` gets a policy that allows exactly `sys/storage/raft/snapshot` read and nothing else: the job can copy the vault out, encrypted, and can read no secret. Both are created by `openbao_configure` in Layer 5b, so a fresh cluster has them before the first run.
 
-Targets, one bucket per environment in the Mimir shape (own retention, own IAM, a mistake in one cannot reach another):
+The agent is S3-only, so GKE reaches its bucket over the GCS S3-interop endpoint with an HMAC key, the precedent Mimir's MySQL backups set and documented, rather than keyless Workload Identity. That was weighed against a hand-rolled keyless CronJob and chosen for the smaller surface to own; the cost is one more static credential, bounded the same way as MySQL's. Targets, one bucket per environment (own retention, own IAM, a mistake in one cannot reach another):
 
 | Environment | Target | Auth | Retention |
 |---|---|---|---|
-| gke | `gs://<project>-openbao-backups` | Workload Identity: GSA `openbao-backup@<project>` with `roles/storage.objectAdmin` on that bucket only, bound to KSA `openbao/openbao-backup` | 30-day bucket lifecycle rule |
-| homelab | Garage bucket `openbao-backups` | Garage key `openbao-backup-key`, HMAC in Secret `openbao-backup-s3` | rclone `delete --min-age 30d` after each upload |
+| gke | `gs://<project>-openbao-backups` via `storage.googleapis.com` | HMAC key of GSA `openbao-backup@<project>`, which holds `roles/storage.objectAdmin` on that bucket only; key in Secret `openbao/openbao-backup-s3` | `S3_EXPIRE_DAYS=30`, plus a 30-day bucket lifecycle rule as the backstop |
+| homelab | Garage bucket `openbao-backups` at `garage.garage.svc.cluster.local:3900` | Garage key `openbao-backup-key`, in Secret `openbao/openbao-backup-s3` | `S3_EXPIRE_DAYS=30` |
 
-GKE's bucket, GSA, grant and binding come from a new `gke-provision.sh openbao-backup-setup` action, idempotent like `velero-setup`. Homelab's bucket, key and Secret are created by bootstrap Layer 5 beside Velero's. The Workload Identity binding is unconditioned, the same documented interim state as the seal's binding in ADR 0004.
+GKE's bucket, GSA, grant, HMAC key and Secret come from a new `gke-provision.sh openbao-backup-setup` action, idempotent like `velero-setup` (the HMAC key is minted once and parked; re-runs leave an existing Secret alone). Homelab's bucket, key and Secret are created by bootstrap Layer 5 beside Velero's. The Secret's key names are the chart's contract: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, AWS-shaped names holding Google or Garage values, exactly as the MySQL backup Secret does.
 
-The policy and role live in OpenBao and are created by `openbao_configure` in Layer 5b, so a fresh cluster has them before the first CronJob run. The snapshot is the vault's own encrypted barrier; the bucket holds ciphertext that only the seal can open.
+The chart names the CronJob, its ServiceAccount and its ConfigMap `openbao-snapshot` (with `fullnameOverride: openbao`), so the Kubernetes-auth role binds ServiceAccount `openbao/openbao-snapshot`, and Jobs are named `openbao-snapshot-<ts>` — which Heimdall's `HeimdallDatabaseBackupFailed` rule does not match today, since it looks for `*-backup-*`; the rule's pattern widens to cover `*-snapshot-*` too. The agent does not verify the upload beyond s3cmd's exit status; a failed put fails the Job, which that rule catches. The snapshot is the vault's own encrypted barrier; the bucket holds ciphertext that only the seal can open.
 
 ### Alerts and dashboard: kube-state-metrics, no exporter
 
-The CronJob is the metric source. Three rules in Heimdall's `heimdall.data-services` group:
+The CronJob is the metric source. Two new rules in Heimdall's data-services group, and one widened:
 
-- `OpenBaoBackupStale` — `time() - kube_cronjob_status_last_successful_time{namespace="openbao", cronjob="openbao-backup"} > 36h`, warning. One missed night before it speaks.
-- `OpenBaoBackupNeverSucceeded` — the CronJob exists (`kube_cronjob_info`) but no success timestamp does, for 26h, warning. The absent() guard, scoped by the CronJob's presence so a cluster without the job stays silent.
-- Failures need no new rule: `HeimdallDatabaseBackupFailed` already matches every Job named `*-backup-*`, and `openbao-backup-<ts>` does.
+- `OpenBaoSnapshotStale` — `time() - kube_cronjob_status_last_successful_time{namespace="openbao", cronjob="openbao-snapshot"} > 36h`, warning. One missed night before it speaks.
+- `OpenBaoSnapshotNeverSucceeded` — the CronJob exists (`kube_cronjob_info`) but no success timestamp does, for 26h, warning. The absent() guard, scoped by the CronJob's presence so a cluster without the job stays silent.
+- `HeimdallDatabaseBackupFailed` widens its Job-name pattern from `*-backup-*` to `*-(backup|snapshot)-*` so a failed upload fires the existing failure rule.
 
 Neither carries `watched`. Local data is intact and Velero's disk snapshot still runs; this is backup plumbing, the heimdall-info tier, exactly as KubicValheim reasons about its upload alerts. The Backups dashboard gains a "time since last OpenBao snapshot" tile beside Velero's, reading the same CronJob metric, with the same "NEVER" no-value text.
 
@@ -75,7 +74,7 @@ And the sentence that matters most: the KMS key is now what opens the vault. It 
 | Repo | Change |
 |---|---|
 | nordri | `openbao-init.sh`, `openbao-configure.sh`; `lib/openbao.sh` gains the keep-file option and the backup policy/role in `openbao_configure`; `gke-provision.sh openbao-backup-setup`; bootstrap Layer 5 creates the Garage bucket, key and `openbao-backup-s3` Secret on homelab; docs |
-| nidavellir | openbao composition renders ServiceAccount `openbao-backup` (WI-annotated on gke), the CronJob, and on homelab reads the S3 Secret; `openbao/claim.yaml` gains `seal: auto`; render checks; `secrets-management.md` backup and restore sections |
+| nidavellir | openbao composition enables the chart's `snapshotAgent` with per-environment S3 values; `openbao/claim.yaml` gains `seal: auto`; render checks; `secrets-management.md` backup and restore sections |
 | heimdall | two rules, one dashboard tile |
 | realm | this design, the plan, ADR 0004 gains a note on the fresh-init path |
 
