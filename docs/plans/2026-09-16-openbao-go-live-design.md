@@ -31,7 +31,7 @@ What the safe *is* stays open here; this round uses whichever shared safe the op
 
 ### The init runs from a script that never prints
 
-`nordri/openbao-init.sh <gke|homelab> <output-file>` runs `bao operator init`, writes the JSON to the named file (0600, in a directory it creates 0700), parks `init.json` and `root_token` in the Secret from that file, verifies the Secret reads back, and prints only `bao status`. The operator moves the file's contents into the safe and deletes it. The same script refuses an initialised instance and refuses a target whose kubectl context does not fit, via the `lib/kube-context.sh` check both nordri scripts now share. It reuses `lib/openbao.sh`'s functions rather than duplicating them; the lib gains an `OPENBAO_INIT_KEEP_FILE` path so `openbao_ensure_initialized` can hand the material to a file the caller owns instead of removing it.
+`nordri/openbao-init.sh <gke|homelab> <output-file>` runs `bao operator init -format=json` with explicit share flags for the seal it finds (`-recovery-shares=3 -recovery-threshold=2` under an auto seal, `-key-shares=3 -key-threshold=2` under Shamir; the defaults are five and three, and the API refuses the wrong family), writes the JSON to the named file (0600, in a directory it creates 0700 or refuses if wider), parks `init.json` and `root_token` in the Secret from that file, verifies the Secret reads back, and prints only `bao status`. The operator moves the file's contents into the safe and deletes it. The same script refuses an initialised instance and refuses a target whose kubectl context does not fit, via the `lib/kube-context.sh` check both nordri scripts now share. It reuses `lib/openbao.sh`'s functions rather than duplicating them; the lib gains an `OPENBAO_INIT_KEEP_FILE` path so `openbao_ensure_initialized` can hand the material to a file the caller owns instead of removing it.
 
 `nordri/openbao-configure.sh <gke|homelab> [realm]` exposes Layer 5b's configure and seed halves standalone (mount, Kubernetes auth, policies and roles, canary, realm seeds), so a live cluster is configured without re-running bootstrap. Both scripts are thin: argument handling, the context check, and calls into the lib.
 
@@ -45,8 +45,8 @@ The agent is S3-only, so GKE reaches its bucket over the GCS S3-interop endpoint
 
 | Environment | Target | Auth | Retention |
 |---|---|---|---|
-| gke | `gs://<project>-openbao-backups` via `storage.googleapis.com` | HMAC key of GSA `openbao-backup@<project>`, which holds `roles/storage.objectAdmin` on that bucket only; key in Secret `openbao/openbao-backup-s3` | `S3_EXPIRE_DAYS=30`, plus a 30-day bucket lifecycle rule as the backstop |
-| homelab | Garage bucket `openbao-backups` at `garage.garage.svc.cluster.local:3900` | Garage key `openbao-backup-key`, in Secret `openbao/openbao-backup-s3` | `S3_EXPIRE_DAYS=30` |
+| gke | `gs://<project>-openbao-backups` via `storage.googleapis.com` | HMAC key of GSA `openbao-backup@<project>`, which holds `roles/storage.objectCreator` and `roles/storage.objectViewer` on that bucket only — create and read, never delete or overwrite, so a compromised backup pod cannot erase history; key in Secret `openbao/openbao-backup-s3` | 30-day bucket lifecycle rule alone; `S3_EXPIRE_DAYS` unset so the agent never tries to delete |
+| homelab | Garage bucket `openbao-backups` at `garage.garage.svc.cluster.local:3900` — an in-cluster copy, not off-site: it survives a wiped OpenBao PVC, not a lost cluster, which is the accepted posture for a resettable homelab holding nothing that is not regenerable | Garage key `openbao-backup-key` (read/write, since the agent does its own expiry), in Secret `openbao/openbao-backup-s3` | `S3_EXPIRE_DAYS=30` |
 
 GKE's bucket, GSA, grant, HMAC key and Secret come from a new `gke-provision.sh openbao-backup-setup` action, idempotent like `velero-setup` (the HMAC key is minted once and parked; re-runs leave an existing Secret alone). Homelab's bucket, key and Secret are created by bootstrap Layer 5 beside Velero's. The Secret's key names are the chart's contract: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, AWS-shaped names holding Google or Garage values, exactly as the MySQL backup Secret does.
 
@@ -64,10 +64,10 @@ Neither carries `watched`. Local data is intact and Velero's disk snapshot still
 
 ### Restore, documented for real
 
-`secrets-management.md` replaces its aspirational restore notes with two procedures, both of which the plan exercises once:
+`secrets-management.md` replaces its aspirational restore notes with two procedures. The first is the one the plan exercises (and did, on the local homelab, 2026-09-17); the second is documented from Velero's existing, verified gke schedule and is not drilled here:
 
-- **Raft snapshot restore**: fetch the object, `bao operator raft snapshot restore` into an initialised, unsealed instance whose seal can open it (same KMS key, or same static key). `-force` only when the instance was re-initialised under a different seal, and then the recovery keys from the safe are required.
-- **Disk restore**: Velero restore of the `openbao` namespace brings back the PVC and the `openbao-init` Secret together; under `seal: auto` the pod unseals itself, provided the KMS key (or the static key Secret) still exists.
+- **Raft snapshot restore**: fetch the object, `bao operator raft snapshot restore` into an initialised, unsealed instance whose seal can open it: the same KMS key, or the same static key. `-force` is needed only when the target was re-initialised (its root token and cluster identity differ from the snapshot's), and it merely skips the consistency check: it cannot make a different seal open the snapshot, and recovery keys cannot either, they authorise operations rather than decrypt the barrier. A changed seal means restoring into an instance that still has the original seal material and migrating afterwards; if that material is gone, the snapshot is unreadable.
+- **Disk restore** (gke only; homelab Velero has no schedule): Velero restore of the `openbao` namespace brings back the PVC and the `openbao-init` Secret together; under `seal: auto` the pod unseals itself, provided the KMS key still exists.
 
 And the sentence that matters most: the KMS key is now what opens the vault. It cannot be deleted outright (destruction is scheduled with a 24-hour minimum), and its key ring can never be deleted; the setup uses one dedicated key with one narrow grant for exactly that reason.
 

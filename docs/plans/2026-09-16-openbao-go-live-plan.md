@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status (2026-09-17):** Tasks 1–6 implemented (nordri #34, nidavellir #32, heimdall #22, this branch) and Task 7's local rehearsal and restore drill done; what the implementation changed from this text (the auto-seal init flags, file-fed Garage credentials, create-only GKE grant with lifecycle-only retention, the `openbao-scripts-test.sh` unit test) is recorded in those CRs and the design. Only the GKE steps of Task 7 remain. Plan docs are not maintained past this point.
+
 **Goal:** Take OpenBao live per the [go-live design](2026-09-16-openbao-go-live-design.md): fresh init under the auto seal with custody in the safe and in-cluster, the chart's snapshot agent shipping daily Raft snapshots to a dedicated bucket per environment, Heimdall rules and a tile, and a restore that has been exercised once.
 
 **Architecture:** nordri gains two thin operator scripts over `lib/openbao.sh` and two provisioning steps (GCS HMAC on gke, Garage key on homelab). nidavellir's openbao composition enables the chart's `snapshotAgent` with per-environment S3 values and the claim graduates to `seal: auto`. heimdall gains two rules and one tile. All GDD conventions apply: `ws orient` at session start, `ws commit <comp> <bodyfile>`, `ws test`, rebase over merge, no key material in argv or shell variables.
