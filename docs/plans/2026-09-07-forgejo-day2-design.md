@@ -171,7 +171,7 @@ Known risk carried, not resolved here: the shared Postgres is a single instance.
 | Phase | Work | Gated on |
 |---|---|---|
 | 0 | Slim, ephemeral, internally consistent seed live on GKE | **Done 2026-09-07** |
-| 1 | OpenBao auto-unseal; `maturity` in cluster-identity with existing components unaffected; URL rewrite in nordri hydration libs (a no-op while manifests still carry seed URLs) | nothing |
+| 1 | OpenBao auto-unseal; `maturity` in cluster-identity with existing components unaffected; URL rewrite in nordri hydration libs (a no-op while manifests still carry seed URLs) | **Done 2026-09-17** — see `2026-09-16-openbao-go-live-design.md` for the fresh-init route both clusters took instead of the Shamir migration |
 | 2 | Forgejo composition, init Jobs, puller, vendor-mirror config; validate end to end on a homelab or Docker Desktop cluster at `durable` maturity | 1 |
 | 3 | Coordinated URL PR train (nordri, nidavellir, mimir, realm); `graduate.sh`; GKE graduation and cutover; soak | 2 |
 | 4 | Heimdall probe and ArgoCD-Unknown alert; Velero scope; restore drills; `--retire-seed` on GKE | 3 and the gates |
