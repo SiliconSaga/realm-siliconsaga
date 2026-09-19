@@ -3,6 +3,10 @@ commands:
   # Portable bash runner (no `make`; this host has no bats/shellcheck on PATH).
   # test: workspace-vendored bats over tests/. lint: shellcheck via container.
   test: "bash tests/run.sh test"
+  # `ws test gdd-sandbox <selector>` — a path under tests/ runs that file, anything
+  # else is a bats --filter regex over test names; a regex matching nothing fails
+  # rather than passing as an empty green run. Needs gdd-sandbox#9's run.sh.
+  testFilter: "bash tests/run.sh test {}"
   lint: "bash tests/run.sh lint"
   # Building the image is this component's real build step — it is what turns the
   # scripts into something runnable. Declared here so it is discoverable via
