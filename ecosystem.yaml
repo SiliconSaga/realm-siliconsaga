@@ -292,7 +292,7 @@ components:
   # cluster-deployed and it ships no chart — it runs as a container on an
   # operator's own machine — so it takes the non-stack "supporting" tier, like
   # gestalt above. See yggdrasil's
-  # docs/gdd/features.md#-new-in-11-sandboxed-workspaces--gdd-sandbox-optional-companion
+  # docs/gdd/features.md#sandboxed-workspaces-gdd-sandbox-optional-companion-new-in-11
   # and the component's own README for setup.
   gdd-sandbox:
     tier: supporting
