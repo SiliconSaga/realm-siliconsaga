@@ -868,6 +868,74 @@ archives all bridged platforms (Discord, Matrix, future bridges) — not just
 Matrix-native messages. Kafka replay enables regenerating the archive from
 history. Public rooms only; routing rules can control what gets archived.
 
+### Forum as Long-Term Memory (XenForo ↔ chat)
+
+**Added 2026-09-19, after the XenForo revival.** Not scheduled — this should be
+reached naturally as Knarr develops, but the reasoning is recorded now while it
+is fresh. It extends Scribe above rather than competing with it.
+
+**The motivation is memory, not convenience.** Going IRC → forum → Slack →
+Discord traded durability for immediacy. A module thread on the forum covers a
+single module across *years*, is searchable, and is indexed publicly. A Discord
+channel covering the same module is effectively write-only: nobody scrolls back,
+there is no organising principle beyond recency, and search is poor. Scribe
+recovers the *log*; this recovers the *organisation*.
+
+**Selectivity is the design problem, not protocol translation.** Mirroring a
+channel wholesale into a multi-year thread destroys the property worth having —
+design discussion interleaved with "gm", build spam and reactions is worse than
+no sync, and it ruins the indexed searchability that makes the thread valuable.
+So promotion is explicit and curated:
+
+- **Emoji reactions are the promotion trigger** — the same pattern already used
+  for approvals elsewhere in this design, and a pattern the operator already
+  runs in production at work. React with an agreed emoji on a message (or a
+  thread's opening message) and the router proposes a promotion: which forum
+  thread, what excerpt, attributed to whom. A human confirms; an agent drafts.
+- **Visibility runs both ways.** The forum is the archive of record, but new
+  forum activity should surface in chat, and there should be tooling to promote
+  *back* — a forum post worth discussing becomes a Discord/Matrix thread. Treat
+  it as two surfaces over one memory, not a one-way funnel.
+
+**Policy, decided up front because tests cannot decide it:**
+
+- **Public logging is disclaimed, not implied.** Discord (and any bridged
+  platform) needs a rules/intro notice stating that old-school public logging is
+  on, that it is a fact of life of the project, and how to engage the
+  right-to-forget process. Anything posted publicly is durable by default.
+- **A user delete on Discord does NOT automatically propagate** to the archive
+  or the forum. Erasure is a deliberate, documented process with a human in it —
+  not an API side effect. This is the deliberate opposite of the usual bridge
+  default, and it is the whole point of an archive of record.
+- **Edits SHOULD bridge**, with an admin-visible audit ledger. The goal is
+  confidence that the archive represents what was actually said, not archaeology
+  of typos: show that an edit happened and what it changed, keep it out of the
+  reader's way.
+
+**Identity is a prerequisite, not a parallel track.** Attribution across
+platforms needs the Discord ID ↔ forum account mapping, which is exactly the
+Keycloak custom-attribute model in the Authentication section above. XenForo SSO
+via Keycloak therefore lands *before* promotion is meaningful — otherwise a
+promoted excerpt cannot be credited to a forum identity.
+
+**Bidirectional sync is no longer considered prohibitive.** The historical
+objection was maintenance cost: protocol quirks drift silently and are noticed
+weeks later by a user. Two things change that — a **nightly synthetic
+round-trip** per bridged platform pair (a canary message sent and asserted back,
+turning silent drift into a caught regression), and agentic repair making each
+quirk cheap to fix in place. Build the canary harness with the first bridge, not
+after the third.
+
+**Suggested order,** each step useful alone: (1) Scribe archive — one-directional,
+recovers the IRC loss immediately and builds the corpus; (2) reaction-triggered
+promotion into forum threads, plus forum activity surfacing in chat;
+(3) full bidirectional thread sync if still wanted, by which point identity,
+replay and the canary harness all exist to support it.
+
+Note the Discord forum-channel caveat from the Threading section above: a forum
+channel is "a room full of threads", and the per-post Matrix room shape suits
+XenForo threads better than the naive thread mapping.
+
 ### Blog Comments via Cactus Comments
 
 Cactus Comments uses Matrix rooms as a commenting backend for static sites.
