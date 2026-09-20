@@ -44,7 +44,18 @@ realm-internal skills (e.g. `terasology-testing`).
 | :--- | :--- | :--- |
 | siliconsaga-stack | Stack narrative + skill index — which component owns which capability, the alert pipeline end-to-end, GitOps model (`argo` ns + in-cluster seed-Gitea), homelab-vs-GKE seam, bare-workspace recipe | realm-wide |
 | terasology | Task-axis index: which doc, command, or skill covers what; known-wrong docs flagged with dated corrections | terasology |
+| terasology-review | Six ordered checks for reviewing a Terasology PR: merge-base diff, baseline on the unmodified base, scoped run + XML verdict, reached code path, game launch, clean tree | terasology |
 | terasology-testing | Engine-level and MTE integration test patterns, network event gotchas, Gradle execution | terasology |
+
+## Terasology
+
+Terasology is an upstream community (MovingBlocks and Terasology orgs, ~200 repositories) that does not carry agent configuration; this realm carries it instead. Three things to hold every session:
+
+- **Register is `oss-wide`** (`comms.flavor` in this realm's `ecosystem.yaml`; `ws orient` prints it). Neutral tone, fairly concise, simple language, no judgement — the audience spans many countries and first languages. Post from the agent account. Never close, merge, resolve, or characterise the state of someone's contribution; say what was observed and what decision it needs, and route it to a human.
+- **Modules are nested repos, addressed as `terasology/modules/<Name>`.** `ws checkout`, `ws commit`, `ws push`, `ws cr`, `ws review` and `ws clone-fork` all take that form; work happens inside the engine tree, since a module cloned out on its own cannot build. A nested target sits on the module's default branch (`develop`) until you branch it.
+- **A green `ws test terasology` means the run completed, not that the tests passed.** Every Gradle `Test` task sets `ignoreFailures = true` so Jenkins can mark findings UNSTABLE instead of FAILED; locally nothing reads the reports for you. The verdict is `engine-tests/build/test-results/unitTest/TEST-*.xml`.
+
+Skills: `terasology` (which doc or command covers what), `terasology-review`, `terasology-testing`.
 
 
 ## Tone Guide

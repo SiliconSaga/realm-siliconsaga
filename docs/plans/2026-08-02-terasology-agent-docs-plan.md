@@ -39,6 +39,8 @@ Tasks 1-5 are one realm CR. Task 6 is one yggdrasil CR and has no dependency on 
 
 ### Task 1: Doc triage document
 
+The seed tables in this task and Task 3 are historical excerpts from the survey as written; the delivered files grew past them in review (`Playing.md`, more gap rows, the `⚠` on `Event-Types.md`). Rerunning these steps reproduces the starting point, not the current artifact.
+
 **Files:**
 - Create: `realms/realm-siliconsaga/docs/terasology-doc-status.md`
 
@@ -648,7 +650,7 @@ Run: `ws commit yggdrasil .commits/orient-ai-context.md`
 | Index skill, task axis, ~120 lines | 3 |
 | Triage doc with dated corrections + backlog | 1 |
 | Convention doc, four rules | 2 |
-| Adapter: dead pointers, `test:` | 4 — the spec’s skill pointer is deviation 1 below, dropped rather than built |
+| Adapter: dead pointers, `test:` | 4 — pointers and scoping only; the spec's skill pointer was dropped (deviation 1 below) |
 | `ws orient` renders `ai_context` | 6 |
 | Link test | 6 (as fixture-backed rendering tests, plus Task 3 step 4 for the skill's own paths) |
 | Realm `AGENTS.md` row | 5 |
