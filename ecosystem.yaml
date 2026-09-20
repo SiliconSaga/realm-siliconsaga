@@ -33,6 +33,13 @@ identity:
 style:
   changeNotes: terse
 
+# How agent-authored tracker and review output reads, rendered first by
+# `ws orient`. oss-wide is the strictest setting, chosen for Terasology's
+# international contributor base; the civic-facing repos carry their own
+# guidance in AGENTS.md. See yggdrasil docs/gdd/agent-communication.md.
+comms:
+  flavor: oss-wide
+
 # ---------------------------------------------------------------------------
 # Components
 # ---------------------------------------------------------------------------
