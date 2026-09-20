@@ -128,7 +128,7 @@ def _inventory(xml_text: str):
 
 
 def cmd_list(target: str) -> int:
-    with open(home_xml_path(target), encoding="utf-8") as fh:
+    with open(home_xml_path(target), encoding="utf-8", newline="") as fh:
         walls, rooms = _inventory(fh.read())
 
     print(f"WALLS ({len(walls)}) — index, level, length, run, nearest room, tag")
@@ -149,6 +149,13 @@ def cmd_list(target: str) -> int:
     return 0
 
 
+# A variant ends up inside a single-quoted XML attribute, unescaped, so the
+# characters that could close it early or open a new one are refused rather
+# than encoded. Nothing legitimate needs them: variants are short names like
+# r0, r11, single, storm, 2x6+r5.
+VARIANT_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_.+-]*\Z")
+
+
 def _validate(keys: list[str]) -> None:
     for key in keys:
         category, sep, variant = key.partition("/")
@@ -160,6 +167,11 @@ def _validate(keys: list[str]) -> None:
             raise SystemExit(
                 f"error: '{key}' names unknown category '{category}'. "
                 f"Known: {', '.join(sorted(CATEGORIES))}")
+        if not VARIANT_RE.match(variant):
+            raise SystemExit(
+                f"error: '{variant}' is not a usable variant name. Use letters, "
+                f"digits, and _ . + - only, starting with a letter or digit. "
+                f"The value is written into an XML attribute as-is.")
 
 
 def _element_span(xml_text: str, kind: str, obj_id: str) -> tuple[int, int, str, bool]:
@@ -182,14 +194,25 @@ def _element_span(xml_text: str, kind: str, obj_id: str) -> tuple[int, int, str,
 def _rewrite(xml_text: str, kind: str, obj_id: str, keys: list[str]) -> str:
     """Return `xml_text` with the object's assembly property set to `keys` (or removed).
 
-    Everything outside the property element is preserved byte for byte.
+    Everything outside the property element is preserved byte for byte, including the
+    file's line ending — inserted lines copy whatever the file already uses rather than
+    assuming "\n", or a CRLF model comes back with a couple of bare LF in it.
     """
     start, end, indent, self_closing = _element_span(xml_text, kind, obj_id)
+    nl = "\r\n" if "\r\n" in xml_text else "\n"
     block = xml_text[start:end]
-    prop_re = re.compile(rf"[ \t]*<property\s+name=['\"]{re.escape(PROPERTY)}['\"][^>]*/>\n?")
+    prop_re = re.compile(
+        rf"[ \t]*<property\s+name=['\"]{re.escape(PROPERTY)}['\"][^>]*/>\r?\n?")
     block = prop_re.sub("", block)                       # drop any existing tag first
 
     if not keys:                                          # `clear` — nothing to insert
+        # An element this tool reopened and has now emptied should go back to being
+        # self-closing, so that set-then-clear returns the original bytes rather than
+        # leaving `<wall ...></wall>` behind as diff noise.
+        empty = re.compile(rf"\A(\s*<{kind}\b[^>]*?)>\s*</{kind}>\Z", re.S)
+        m = empty.match(block)
+        if m:
+            block = f"{m.group(1)}/>"
         return xml_text[:start] + block + xml_text[end:]
 
     value = " ".join(keys)
@@ -200,13 +223,13 @@ def _rewrite(xml_text: str, kind: str, obj_id: str, keys: list[str]) -> str:
         # written by Sweet Home 3D still lands in a valid order.
         head = block.rstrip()
         assert head.endswith("/>")
-        block = f"{head[:-2].rstrip()}>\n{prop}\n{indent}</{kind}>"
+        block = f"{head[:-2].rstrip()}>{nl}{prop}{nl}{indent}</{kind}>"
     else:
         # Splice the property in as the first child and leave the existing children
         # exactly as they were — including their own indentation, which is why nothing
         # is stripped or re-added here. Re-indenting the next line is the easy mistake.
         head_end = block.index(">") + 1
-        block = block[:head_end] + "\n" + prop + block[head_end:]
+        block = block[:head_end] + nl + prop + block[head_end:]
     return xml_text[:start] + block + xml_text[end:]
 
 
@@ -216,7 +239,7 @@ def cmd_set(target: str, kind: str, index: int, keys: list[str]) -> int:
                          "tagged by name in Sweet Home 3D, not here.")
     _validate(keys)
     path = home_xml_path(target)
-    with open(path, encoding="utf-8") as fh:
+    with open(path, encoding="utf-8", newline="") as fh:
         xml_text = fh.read()
     walls, rooms = _inventory(xml_text)
     items = walls if kind == "wall" else rooms
@@ -224,11 +247,16 @@ def cmd_set(target: str, kind: str, index: int, keys: list[str]) -> int:
         raise SystemExit(f"error: {kind} index {index} out of range (1..{len(items)}). "
                          f"Re-run `list` — indices move when the model is edited.")
     obj = items[index - 1]
+    if not obj["id"]:
+        raise SystemExit(
+            f"error: {kind} {index} carries no id, so it cannot be addressed "
+            f"safely. The DTD makes id required — re-save the model in Sweet "
+            f"Home 3D to have one written, or tag this one by hand.")
     updated = _rewrite(xml_text, kind, obj["id"], keys)
     if updated == xml_text:
         print(f"unchanged: {kind} {index} already carries {' '.join(keys) or '(no tag)'}")
         return 0
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8", newline="") as fh:
         fh.write(updated)
     label = obj.get("name") or obj["id"]
     print(f"{kind} {index} ({label}, {obj['level']}) -> {' '.join(keys) or '(cleared)'}")
