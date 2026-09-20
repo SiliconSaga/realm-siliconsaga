@@ -73,7 +73,7 @@ The `durable` boundary is also where homelab's deferred storage questions belong
 
 The composition renders:
 
-- The Forgejo Helm release from the native OCI chart `oci://code.forgejo.org/forgejo/forgejo`, **pinned to an exact chart version** in the claim, with a PVC for repositories on the cluster default storage class, `strategy: Recreate` since a PVC-backed single replica cannot roll, database settings read from the DataService Secret, and the admin credential read from the ESO-delivered Secret via `gitea.admin.existingSecret`. The release is ordered after that Secret exists.
+- The Forgejo Helm release from the native OCI chart `oci://code.forgejo.org/forgejo-helm/forgejo` (corrected 2026-09-19: the `forgejo/forgejo` path is the container image, not the chart), **pinned to an exact chart version** in the claim, with a PVC for repositories on the cluster default storage class, `strategy: Recreate` since a PVC-backed single replica cannot roll, database settings read from the DataService Secret, and the admin credential read from the ESO-delivered Secret via `gitea.admin.existingSecret`. The release is ordered after that Secret exists.
 - An `HTTPRoute` for `forgejo.<domain>` on the shared Gateway's `websecure` listener. No per-route certificate; the platform wildcard covers it.
 - The existing `DataService` claim (`engine: postgres`, `placement: shared`) — already in the repo, not yet wired.
 - The two **init Jobs** (below): credentials before the release, configuration after it.
