@@ -249,6 +249,17 @@ components:
     chartVersion: "0.0.0"
     namespace: mtl-volunteering
 
+  # hirdir — "the herdsman": coaching tool for MTL teams. Phase 0 generates
+  # printable per-game workbooks (field time in/out, goals, practice plans);
+  # later phases add a browser-side tracker and a cluster-deployed backend for
+  # cross-season player history and roster balancing. Rosters name children, so
+  # team data stays in the component's gitignored local/ — never in the repo.
+  # See docs/plans/2026-09-19-hirdir-phases-design.md and adapters/hirdir.yaml.
+  hirdir:
+    tier: 3
+    chartVersion: "0.0.0"
+    namespace: hirdir
+
   # volundr — shared CI forge: reusable workflows (Jekyll deploy, PR preview +
   # visual diff) called by the per-sport sites; future home of composite
   # actions such as the Jules review trigger. See mtl-soccer

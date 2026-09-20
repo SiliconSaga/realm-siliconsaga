@@ -1,0 +1,14 @@
+# hirdir adapter — pytest + ruff through uv.
+# Component cwd is components/hirdir/ when the verbs run; uv manages .venv there.
+commands:
+  test: "uv run --frozen pytest"
+  lint: "uv run --frozen ruff check src tests"
+  # format rewrites; lint above only checks. Same ruff, same pyproject config.
+  format: "uv run --frozen ruff format src tests"
+  run: "uv run --frozen hirdir build examples/example-team.json"
+
+ai_context:
+  - path: "README.md"
+    description: "Quickstart, config format, and the privacy stance on team data"
+  - path: "docs/plans/"
+    description: "Phased design: printable sheets now, browser tracker and backend later"
