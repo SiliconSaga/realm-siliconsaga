@@ -40,7 +40,7 @@ The claim is realm content, at `realm-siliconsaga/cluster/forgejo/claim.yaml`, d
 | `repos` | `[{name: nordri, github: SiliconSaga/nordri}, …]` for nordri, nidavellir, mimir, heimdall, realm-siliconsaga | the maintained repositories the puller writes |
 | `vendorMirrors` | `[{name: keycloak-k8s-resources, upstream: https://github.com/keycloak/keycloak-k8s-resources.git}]` | Forgejo pull-mirrors with tag sync |
 | `breakGlassAdmins` | `[cervator]` | local accounts whose passwords live in OpenBao |
-| `pullerSchedule` | omitted | defaults to `0 * * * *`; cluster-identity does not carry it yet and Phase 2 does not add it — a claim override is enough until a second cluster wants a different cadence |
+| `pullerSchedule` | omitted | the composition resolves the schedule as cluster-identity `pullerSchedule` if present, else the claim's field, else `0 * * * *`. The claim is realm-owned and hydrated unchanged into every cluster, so a per-cluster cadence can only come from cluster-identity; Phase 2 writes the precedence into the composition but adds the identity field to no manifest yet |
 | `storageSize` | `"10Gi"` | the chart default, stated |
 
 The realm's `cluster/` README gains the `forgejo/` entry. The realm's `openbao-seeds` file is **not** used for Forgejo: its credentials are born in the credentials Job (below), which is the parent design's departure from ADR 0001.
@@ -51,31 +51,33 @@ The realm's `cluster/` README gains the `forgejo/` entry. The realm's `openbao-s
 
 This is why Phase 2 can land on main before any cluster graduates: the code is inert until an identity says otherwise.
 
+**Downgrade is fail-closed.** These are Crossplane-composed resources, so a render that returns nothing while composed resources exist would have Crossplane delete the release, the PVC and the DataService — repository and database data, gone on an identity edit. The template therefore checks `.observed.resources`: if `maturity` is below `durable` and any composed resource is observed, it `fail`s with a message naming the field, and nothing is touched. Teardown requires `parameters.allowTeardown: true` on the claim in the same hydration, which is a deliberate, committed act rather than a side effect of lowering maturity. On GKE the flag is never set.
+
 ### What the composition renders at `durable`
 
 - **Namespace** `forgejo`, ahead of everything.
 - **DataService** `forgejo` (`engine: postgres`, `placement: shared`, `databaseName: forgejo`), which publishes `forgejo-dataservice` with `host`, `port`, `database`, `username`, `password`, `uri`.
 - **ExternalSecrets** from the `openbao-kv` ClusterSecretStore: `forgejo-admin` (`username`, `password`, the chart's `gitea.admin.existingSecret` contract) from `secret/forgejo`, and one `forgejo-admin-<user>` per break-glass admin from `secret/forgejo/admins/<user>`. Until the credentials Job has written those paths they report `SecretSyncedError`, which is the gate, not a failure.
 - **The credentials Job** (below), ordered before the release.
-- **The Helm Release** from `oci://code.forgejo.org/forgejo/forgejo` at the claim's version, `fullnameOverride: forgejo` so the Service is `forgejo-http` and the pod names are stable, `strategy: Recreate`, persistence on the cluster default storage class at the claim's size, `gitea.admin.existingSecret: forgejo-admin`, `gitea.config.database` pointing at the shared pgBouncer with `SSL_MODE: require` (the same JDBC-versus-libpq lesson Keycloak recorded: state it), the password reaching the pod through `additionalConfigFromEnvs` as `GITEA__database__PASSWD` from the DataService Secret, `ROOT_URL` set to `https://forgejo.<domain>/`, SSH disabled, metrics enabled with no ServiceMonitor yet. The release is ordered after the `forgejo-admin` Secret exists.
+- **The Helm Release** from `oci://code.forgejo.org/forgejo-helm/forgejo` (the chart lives under the `forgejo-helm` organisation; `oci://code.forgejo.org/forgejo/forgejo` is the container image and fails a Helm pull — verified with `helm show chart` at 17.1.7) at the claim's version, `fullnameOverride: forgejo` so the Service is `forgejo-http` and the pod names are stable, `strategy: Recreate`, persistence on the cluster default storage class at the claim's size, `gitea.admin.existingSecret: forgejo-admin`, `gitea.config.database` pointing at the shared pgBouncer with `SSL_MODE: require` (the same JDBC-versus-libpq lesson Keycloak recorded: state it), the password reaching the pod through `additionalConfigFromEnvs` as `FORGEJO__DATABASE__PASSWD` from the DataService Secret (the `FORGEJO__` prefix and this exact spelling are the chart README's own external-database example; the chart imports only `FORGEJO__*` variables, so a `GITEA__` name is silently ignored), `ROOT_URL` set to `https://forgejo.<domain>/`, SSH disabled, metrics enabled with no ServiceMonitor yet. The release is ordered after the `forgejo-admin` Secret exists.
 - **HTTPRoute** `forgejo.<domain>` on the shared Gateway's `websecure` listener, the OpenBao route's shape.
 - **The configure Job** (below), ordered after the release is ready.
 - **A ConfigMap `forgejo-repos`** rendered from the claim: one line per maintained repository, `<name> <github-upstream>`, plus the org. This is what the puller reads (open question 2, resolved: **the claim, via a ConfigMap, not a query to Forgejo**). A repository removed from the claim stops being pulled at the next hydration; a query to Forgejo would keep pulling anything that still existed there, which is the wrong direction for a source-of-truth mirror.
 - **The puller CronJob** on the claim's schedule.
-- **RBAC** for the Jobs: a ServiceAccount `forgejo-init` (OpenBao's Kubernetes-auth subject) and a Role allowing it to create and read the `forgejo-puller` Secret in its own namespace, nothing else.
+- **RBAC**, two ServiceAccounts with different blast radii. `forgejo-init` is OpenBao's Kubernetes-auth subject for the credentials Job and also runs the configure Job; its Role allows `get`, `create` and `update` on the one Secret named `forgejo-puller` in its own namespace (`resourceNames`), `update` being what `--rotate puller` needs to rewrite it. `forgejo-puller` runs the puller: no OpenBao role, no Role at all, `automountServiceAccountToken: false`, the token reaching the pod only as a mounted Secret volume. A compromised puller can push to Forgejo `main` as the token allows and nothing more; it cannot reach OpenBao.
 
 ### The credentials Job: create-only writes over the HTTP API
 
 Runs as ServiceAccount `forgejo-init`. It logs in to OpenBao at `http://openbao.openbao.svc:8200/v1/auth/kubernetes/login` with role `forgejo-init` and its projected ServiceAccount token, then for the admin path and each break-glass path: reads `secret/metadata/forgejo/...`; if OpenBao answers 404, generates a 32-byte random password and writes `secret/data/forgejo/...` with `options.cas: 0`, so a concurrent or repeated write can never overwrite a value that exists; any other status is an error and the Job fails. It writes `username` alongside `password` so the ExternalSecret can materialise both keys. It never prints a value. A sealed or unreachable OpenBao fails the Job loudly; the composition's ordering means the release does not proceed.
 
-The `forgejo-init` role and its policy are created by nordri's `openbao_configure` in `lib/openbao.sh`, beside `eso-role` and `openbao-backup`: bound to ServiceAccount `forgejo-init` in namespace `forgejo`; policy `create` and `update` on `secret/data/forgejo/*` and `read` on `secret/metadata/forgejo/*`. Create-only is enforced by the `cas` option in the write, and the policy's `update` exists only because KV v2's data endpoint requires it for a `cas` write; the Job never sends a write without `cas: 0`. `openbao-configure.sh` on both clusters is how the role reaches the live vaults; Layer 5b does it on a fresh cluster.
+The `forgejo-init` role and its policy are created by nordri's `openbao_configure` in `lib/openbao.sh`, beside `eso-role` and `openbao-backup`: bound to ServiceAccount `forgejo-init` in namespace `forgejo`; policy `create` and `update` on both `secret/data/forgejo` and `secret/data/forgejo/*`, and `read` on both `secret/metadata/forgejo` and `secret/metadata/forgejo/*`. Both forms are needed: the admin credential lives at the root path `secret/forgejo`, whose API paths are exactly `secret/data/forgejo` and `secret/metadata/forgejo`, and a trailing `/*` never matches the path it hangs off. Create-only is enforced by the `cas` option in the write, and the policy's `update` exists only because KV v2's data endpoint requires it for a `cas` write; the Job never sends a write without `cas: 0`. `openbao-configure.sh` on both clusters is how the role reaches the live vaults; Layer 5b does it on a fresh cluster.
 
 ### The configure Job: reconcile, and refuse to guess about tokens
 
 Runs after the release is ready, authenticating to Forgejo's API as the admin with the password from the `forgejo-admin` Secret mounted as a file, never an argument. Every step is check-then-act:
 
 1. Org exists; each claimed repository exists, empty, created with `auto_init` so `HEAD` resolves before the first pull. Existing repositories are never modified.
-2. The `puller` token, by the parent's three-state rule: `forgejo-puller` Secret present and the token authenticates, keep; neither the Secret nor a token named `puller` on the admin account, mint one with scope `write:repository` and create the Secret; any other combination, stop with a `PullerTokenInvalid` condition written to the XR status and a non-zero exit. Only `--rotate puller` (an env var on a manually created Job from the same template) revokes by name, mints, and rewrites the Secret.
+2. The `puller` token, by the parent's three-state rule: `forgejo-puller` Secret present and the token authenticates, keep; neither the Secret nor a token named `puller` on the admin account, mint one with scope `write:repository` and create the Secret; any other combination, stop: log one line naming the state (`PullerTokenInvalid`) and exit with a distinct code. The Job has no RBAC on the XR and writes no status itself; the failed Job leaves its composed `Object` not Ready, so the XR reports not Ready and the ArgoCD Application shows Degraded, which is the surface an operator already watches. Only `--rotate puller` (an env var on a manually created Job from the same template) revokes by name, mints, and rewrites the Secret.
 3. `main` branch protection on every maintained repository: pushes and force-pushes allowed only for the admin and the break-glass accounts, required for the puller's force-with-lease and the workstation's branch loop.
 4. Each vendor mirror as a Forgejo pull-mirror (`POST /repos/migrate` with `mirror: true`, `service: git`, the claim's upstream, tag sync on, default interval); an existing mirror whose upstream differs from the claim is updated.
 5. Each break-glass account exists with the password ESO delivered, admin flag set.
@@ -84,7 +86,14 @@ Token scope names are validated against the pinned Forgejo version during the pl
 
 ### The puller: anonymous fetch, authenticated force-with-lease
 
-A CronJob on the claim's schedule (`0 * * * *` default), image `alpine/k8s:1.36.4`, ServiceAccount `forgejo-init` for nothing but the Secret mount. For each line of `forgejo-repos`: a fresh `git clone --mirror`-free fetch of GitHub `main` into an emptyDir, then `git push --force-with-lease=main:<expected>` to `http://forgejo-http.forgejo.svc.cluster.local:3000/<org>/<name>.git` with the `puller` token supplied through `GIT_ASKPASS`, never in the URL. Only `main` is written; branches on Forgejo are untouched. A failure on one repository does not stop the others; the Job's exit status is non-zero if any failed, so a Kubernetes-level alert catches it. No GitHub credential exists anywhere; public repositories and `git fetch` are not API-rate-limited.
+A CronJob on the resolved schedule (`0 * * * *` default), image `alpine/k8s:1.36.4`, ServiceAccount `forgejo-puller` (no OpenBao access, no API token mounted; the `forgejo-puller` Secret is a volume). For each line of `forgejo-repos`, in a fresh emptyDir:
+
+1. `git init`, add `github` (`https://github.com/<upstream>.git`) and `forgejo` (`http://forgejo-http.forgejo.svc.cluster.local:3000/<org>/<name>.git`) as remotes.
+2. A full, not shallow, `git fetch forgejo main` first, so `refs/remotes/forgejo/main` holds Forgejo's current tip; capture it as `expected` (an empty ref on a freshly `auto_init`ed repository is the one case where the lease is against that initial commit, not nothing).
+3. `git fetch github main`.
+4. `git push forgejo --force-with-lease=refs/heads/main:<expected> refs/remotes/github/main:refs/heads/main`, the `puller` token supplied through `GIT_ASKPASS`, never in the URL. The lease is what makes a concurrent workstation push (the local-branch loop, or a human) a refused push rather than a silent overwrite; the next run retries against the new tip.
+
+Only `main` is written; branches on Forgejo are untouched. A failure on one repository does not stop the others; the Job's exit status is non-zero if any failed, so a Kubernetes-level alert catches it. No GitHub credential exists anywhere; public repositories and `git fetch` are not API-rate-limited.
 
 Suspension for the local-branch loop is the parent design's `update-embedded-git.sh --target forgejo` work and belongs to Phase 3; Phase 2 only makes the CronJob's `suspend` field the switch that flow will flip.
 
@@ -112,7 +121,8 @@ Proof list, all before Phase 2 is called done:
 - [ ] Configure Job Complete: org, five repositories, branch protection, the vendor mirror synced with tag `26.6.3` visible, break-glass login works with the password read from OpenBao.
 - [ ] Puller: a triggered run brings GitHub `main` for every listed repository, matched by commit; the scheduled run repeats it; a non-existent repository in the list fails that entry and not the run.
 - [ ] Pod delete: the repository PVC survives and the clone still matches.
-- [ ] Re-hydrating at `bootstrap` removes everything the composition rendered (ArgoCD prune) — the gate works in both directions.
+- [ ] Re-hydrating at `bootstrap` without `allowTeardown` is refused: the XR reports the render failure, and every composed resource, the PVC included, is still there.
+- [ ] Re-hydrating at `bootstrap` with `allowTeardown: true` on the claim tears everything down on this disposable cluster — the gate works in both directions, but only when told to.
 - [ ] ArgoCD adopted: the `argocd` Application `Synced`/`Healthy` with no diff after bootstrap's install; `argocd_app_info` scraped; the rule loads; forcing an Application to `Unknown` (point it at a missing path) fires it within five minutes.
 - [ ] `bootstrap.sh homelab realm-siliconsaga` re-run from scratch on the wiped cluster comes up green at `bootstrap` maturity with the Forgejo pieces present and inert.
 
@@ -138,5 +148,4 @@ Land order: nordri first (the role and the ArgoCD adoption are inert), then nida
 ## Open questions left for the plan
 
 - Forgejo 15's token scope names and the branch-protection API field names, checked against the pinned version before the configure script is written.
-- Whether `git push --force-with-lease` needs the expected ref to be fetched first in a fresh emptyDir (it does: fetch Forgejo's `main` too, then lease against it) — the plan writes the exact sequence.
 - The `forgejo-init` policy's exact HCL, verified against a live `cas: 0` write from a pod rather than assumed.
