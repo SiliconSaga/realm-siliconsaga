@@ -16,7 +16,7 @@ Terasology is a mega-workspace: an engine, facades, `libs/`, and ~144 independen
 
 ## Orient first
 
-- `./groovyw usage` — prints the workspace CLI's own reference. Most verbs take a type first (`groovyw module get <Name>`, types being `module`/`meta`/`lib`/`facade`); `usage` is one of the few that stands alone
+- `./groovyw usage` — prints the workspace CLI's own reference. Item verbs take a type first (`groovyw module get <Name>`; types are `module`/`meta`/`lib`/`facade`), while `usage` and a few other global verbs take none
 - `ws test terasology --help` — what the adapter actually runs, before you run it
 
 ## Routing
