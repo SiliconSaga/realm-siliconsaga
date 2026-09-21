@@ -1,7 +1,7 @@
 # hirdir adapter — pytest + ruff through uv.
 # Component cwd is components/hirdir/ when the verbs run; uv manages .venv there.
 commands:
-  test: "uv run --frozen pytest"
+  test: "bash scripts/test.sh"
   lint: "uv run --frozen ruff check src tests"
   # format rewrites; lint above only checks. Same ruff, same pyproject config.
   format: "uv run --frozen ruff format src tests"
