@@ -15,14 +15,16 @@
 #    `ws test terasology <ClassName>` resolves the class on disk and scopes to
 #    its owning subproject; the qualification here fixes the bare form.
 #
-# CAVEAT: `build-logic/src/main/kotlin/terasology-metrics.gradle.kts` sets
-# `ignoreFailures = true` for every Test task, so `ws test terasology` exits 0
-# whatever the tests did. That is deliberate upstream — Jenkins reads the
-# reports and marks findings UNSTABLE rather than FAILED — and the cost lands
-# locally, where nothing reads the reports. The verdict is
-# `engine-tests/build/test-results/unitTest/TEST-*.xml`, not the exit code.
+# VERDICT: `build-logic/src/main/kotlin/terasology-metrics.gradle.kts` sets
+# `ignoreFailures` only when `JENKINS_URL` is set. Locally a failing test fails
+# its task, so `ws test terasology` exits non-zero; on Jenkins failures stay
+# findings, read from the reports and marked UNSTABLE rather than FAILED.
 #
-# `lint` is half-affected: Checkstyle sets `isIgnoreFailures = false` and does
+# A filtered run (`ws test terasology <ClassName>`) keeps `unitTest`, which
+# excludes MteTest/TteTest classes and reports "No tests found" for one. Name
+# the task that includes them: `ws test terasology <ClassName> --task integrationTest`.
+#
+# `lint` is split by tool: Checkstyle sets `isIgnoreFailures = false` and does
 # fail the command; PMD and SpotBugs report only. Green means "no Checkstyle
 # violations", not "clean".
 commands:

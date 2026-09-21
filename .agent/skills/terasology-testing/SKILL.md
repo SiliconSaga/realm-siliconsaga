@@ -80,22 +80,8 @@ mode here, and it surfaces later, on someone else's machine.
 - **Inner-class `@BroadcastEvent`/`@OwnerEvent`/`@ServerEvent` don't network-replicate** — use existing engine events or `TestEventReceiver` for local tests
 - **Clean the task you are actually running, and qualify it.** Gradle derives one clean task per test task, so `:engine-tests:cleanTest` clears `:engine-tests:test` and nothing else. `engine-tests` also defines `unitTest`, `integrationTest`, `integrationTestFlaky`, `integrationTestDiagnostic` and `filesystemSideEffectTest` — pair each with its own `:engine-tests:cleanUnitTest` / `:engine-tests:cleanIntegrationTest` / etc., or use `--rerun`. Stale cache otherwise serves old failures. Keep the `:engine-tests:` prefix: an unqualified `cleanTest` matches the task in every subproject, which in an Omega workspace is the same ~144-module sweep the adapter's scoped commands exist to avoid
 - **Register post-init probes with both** `ComponentSystemManager` and `EventSystem`
-- **The exit code is never the answer for tests here. Read the XML.**
-  `build-logic/src/main/kotlin/terasology-metrics.gradle.kts` sets
-  `ignoreFailures = true` inside `tasks.withType<Test>`, so *every* test task in
-  the project reports success whatever the tests did. This is not a `-q` quirk
-  and not an edge case — a fully green `./gradlew :engine-tests:test` is
-  compatible with any number of failures. Read
-  `engine-tests/build/test-results/**/TEST-*.xml`, and re-run with `--rerun`
-  when a task reports `UP-TO-DATE`, which silently serves the previous run's
-  results.
-- **That flag is deliberate; do not "fix" it.** Jenkins reads the reports and
-  marks a build carrying analytics or test findings UNSTABLE rather than FAILED,
-  so the exit code is reserved for "the build broke" and the reports carry "the
-  build has findings". The cost falls on local runs, where nothing reads the
-  reports for you — including `ws test terasology`, whose green result means the
-  run completed. A local signal that distinguishes the two without disturbing
-  the Jenkins semantics does not exist yet.
+- **A failing test fails the task locally, and only locally.** `build-logic/src/main/kotlin/terasology-metrics.gradle.kts` sets `ignoreFailures` when `JENKINS_URL` is set: on Jenkins the reports mark a build with test findings UNSTABLE rather than FAILED, and the exit code stays reserved for "the build broke". Keep that condition intact when touching the file. Per-test detail is in `engine-tests/build/test-results/<task>/TEST-*.xml`; re-run with `--rerun` when a task reports `UP-TO-DATE`, which serves the previous run's results.
+- **A multi-task local run stops at the first task with failing tests.** Pass `--continue` to run the rest.
 
 > ### ⚠ MTE exists twice — keep both in sync
 >
@@ -120,11 +106,15 @@ mode here, and it surfaces later, on someone else's machine.
 ### Running tests
 
 ```bash
-# Via ws CLI (recommended — auto-discovers subproject, clears cache)
+# Via ws CLI (recommended — auto-discovers subproject, clears cache).
+# Stays on the adapter's unitTest task, which excludes MteTest/TteTest classes.
 ws test terasology MyTestClass
 
+# An MteTest/TteTest class: name the task that includes it
+ws test terasology MyMteTestClass --task integrationTest
+
 # Direct Gradle
-./gradlew :engine-tests:cleanTest :engine-tests:test --tests "*.MyTestClass"
+./gradlew :engine-tests:cleanUnitTest :engine-tests:unitTest --tests "*.MyTestClass"
 ```
 
 ## Existing Test Examples

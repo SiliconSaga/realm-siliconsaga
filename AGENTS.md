@@ -53,7 +53,7 @@ Terasology is an upstream community (MovingBlocks and Terasology orgs, ~200 repo
 
 - **Register is `oss-wide`** (`comms.flavor` in this realm's `ecosystem.yaml`; `ws orient` prints it). Neutral tone, fairly concise, simple language, no judgement — the audience spans many countries and first languages. Post from the agent account. Never close, merge, resolve, or characterise the state of someone's contribution; say what was observed and what decision it needs, and route it to a human.
 - **Modules are nested repos, addressed as `terasology/modules/<Name>`.** `ws checkout`, `ws commit`, `ws push`, `ws cr`, `ws review` and `ws clone-fork` all take that form; work happens inside the engine tree, since a module cloned out on its own cannot build. A nested target sits on the module's default branch (`develop`) until you branch it.
-- **A green `ws test terasology` means the run completed, not that the tests passed.** Every Gradle `Test` task sets `ignoreFailures = true` so Jenkins can mark findings UNSTABLE instead of FAILED; locally nothing reads the reports for you. The verdict is `engine-tests/build/test-results/unitTest/TEST-*.xml`.
+- **`ws test terasology` fails when a test fails, and a filtered run stays on `unitTest`.** That task excludes `MteTest`/`TteTest` classes, so one of those needs `ws test terasology <ClassName> --task integrationTest`. Test failures are ignored only on Jenkins (`JENKINS_URL` set), where the reports mark the build UNSTABLE instead.
 
 Skills: `terasology` (which doc or command covers what), `terasology-review`, `terasology-testing`.
 
