@@ -1,8 +1,8 @@
 # Knarr Design Spec
 
 **Date:** 2026-04-02
-**Status:** Draft
-**Component:** knarr (new)
+**Status:** Foundational; refined by the notes in the knarr repo's `docs/plans/` (see its README for the map and current status). Sections marked *historical* below describe the April 2026 plan, not the current state.
+**Component:** knarr
 
 ---
 
@@ -87,7 +87,7 @@ Synapse homeserver with mautrix bridges, deployed via Helm into k3s.
 | mautrix-discord | Terasology | Immediate priority |
 | mautrix-whatsapp | PTA, sports league | Spare phone as anchor device |
 | mautrix-gmessages | Sports league, PTA | SMS via Google Messages on spare phone |
-| mautrix-facebook | PTA | Meeting parents where they are |
+| mautrix-meta | PTA | Facebook Messenger and Instagram DMs; upstream folded mautrix-facebook and mautrix-instagram into this one bridge |
 | mautrix-slack | Future | If needed |
 
 **Room hierarchy:**
@@ -338,9 +338,11 @@ logged and others can see it's handled. Kafka replay supports tooling for catch-
 
 ## Event Schema
 
-### Phase 0/1 envelope (implemented)
+### Phase 0/1 envelope (historical)
 
-The current producers/consumers use a reduced payload:
+> Superseded on 2026-09-01 by knarr#8, which replaced the nested `source` block with flat `instance_id` / `scope` / `access_path` / `platform` fields plus `raw_post_ref` and `extracted_at`. The live shape is in the source-identity design's "Kafka schemas" section and in the knarr repo's `docs/architecture.md`; consumers are strict and skip a message in this older shape.
+
+The original producers and consumers used a reduced payload:
 
 ```json
 {
@@ -713,7 +715,9 @@ to Knarr.
 
 ---
 
-## Phasing
+## Phasing (historical)
+
+> Written with week-based timelines in April 2026. Phases 0 and 1 landed (Synapse, the Discord bridge, Kafka topics, Reddit and GitHub watchers); the rest was reshaped by the source-identity and publish designs, and current status lives in the knarr repo's `docs/plans/README.md`.
 
 | Phase | Scope | Timeline | Goal |
 |-------|-------|----------|------|
