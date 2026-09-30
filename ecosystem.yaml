@@ -1,35 +1,13 @@
 # ecosystem.yaml — SiliconSaga Community Realm
 #
 # This realm declares the SiliconSaga ecosystem components, defaults,
-# and identity. It is merged with upstream Yggdrasil's ecosystem.yaml
+# and communication policy. It is merged with upstream Yggdrasil's ecosystem.yaml
 # and any per-developer ecosystem.local.yaml overrides.
 
 defaults:
-  chartRegistry: oci://ghcr.io/siliconsaga
+
   gitOrg: https://github.com/SiliconSaga
-  gitea:
-    # Internal Gitea URL pattern used by ArgoCD inside the cluster.
-    # {repo} is replaced by the component name at resolve time.
-    internalUrl: "http://gitea-http.gitea.svc.cluster.local:3000/nordri-admin/{repo}.git"
 
-identity:
-  agent_account: agent-refr
-  # co_authored_by is intentionally unset here — when omitted,
-  # ws-commit.sh falls back to "Claude ${CLAUDE_MODEL:-Opus 4.7}",
-  # so the trailer tracks whichever model is actually running. A
-  # static value here would override the dynamic mechanism and age
-  # as Anthropic ships new models.
-  #
-  # Override only if a non-Claude agent is running this realm:
-  # co_authored_by: "MyBot 1.0"
-  #
-  # human_account is personal — set it in ecosystem.local.yaml, not here
-
-# Prose budget for commit / CR / issue bodies (terse | standard | detailed).
-# Budgets live in yggdrasil templates/*.md; `ws orient` reports the active
-# value. terse = subject line alone, plus a few body lines only when
-# something non-obvious needs recording. Override per-machine in
-# ecosystem.local.yaml if a given box wants more room.
 style:
   changeNotes: terse
 
@@ -48,62 +26,35 @@ components:
   # -- Tier 1: Cluster Substrate -------------------------------------------
   nordri:
     tier: 1
-    chartVersion: "0.0.0"
-    path: "platform/fundamentals"
-    namespace: argo
 
   # -- Tier 2: Platform ----------------------------------------------------
   nidavellir:
     tier: 2
-    chartVersion: "0.0.0"
-    path: "apps"
-    namespace: argo
 
   mimir:
     tier: 2
-    chartVersion: "0.0.0"
-    namespace: mimir
-    values:
-      postgres:
-        enabled: true
-      kafka:
-        enabled: false
-      valkey:
-        enabled: false
 
   vordu:
     tier: 2
-    chartVersion: "0.0.0"
-    namespace: vordu
 
   heimdall:
     tier: 2
-    chartVersion: "0.0.0"
-    namespace: heimdall
 
   # -- Tier 2: Platform Services --------------------------------------------
   tafl:
     tier: 2
-    chartVersion: "0.0.0"
-    namespace: tafl
 
   bifrost:
     tier: 2
-    chartVersion: "0.0.0"
-    namespace: bifrost
 
   # knarr — integration/bridging layer (Matrix homeserver, bridge fleet,
   # Kafka bus, routing). See docs/plans/2026-04-02-knarr-design.md.
   knarr:
     tier: 2
-    chartVersion: "0.0.0"
-    namespace: knarr
 
   # -- Tier 3: End-User Platform -------------------------------------------
   ymir:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: ymir
 
   # xenforo-k8s — the forum, live at forum.cmdbee.org and the shared MySQL
   # cluster's first tenant. Declared here rather than only in a local
@@ -114,8 +65,6 @@ components:
   # resolvable.
   xenforo-k8s:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: xenforo
     repo: https://github.com/SiliconSaga/xenforo-k8s.git
 
   # -- Terasology ecosystem (upstream: MovingBlocks org) ---------------------
@@ -126,17 +75,11 @@ components:
   # `ws clone-fork <name>` to get upstream + fork remotes wired.
   terasology:
     tier: 3
-    chartVersion: "0.0.0"
-    chartName: "ts-game"
-    namespace: terasology
     repo: https://github.com/MovingBlocks/Terasology.git
     forkRepo: https://github.com/SiliconSaga/Terasology.git
 
   destinationsol:
     tier: 3
-    chartVersion: "0.0.0"
-    chartName: "ds-game"
-    namespace: destinationsol
     repo: https://github.com/MovingBlocks/DestinationSol.git
     forkRepo: https://github.com/SiliconSaga/DestinationSol.git
 
@@ -164,69 +107,49 @@ components:
   # parent/framework repo for the per-game wrappers.
   kubicgamehosting:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: kubicgamehosting
     repo: https://github.com/SiliconSaga/KubicGameHosting.git
 
   kubicvalheim:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: kubicvalheim
     repo: https://github.com/SiliconSaga/KubicValheim.git
 
   kubicark:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: kubicark
     repo: https://github.com/SiliconSaga/KubicArk.git
 
   kubicterasology:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: kubicterasology
     repo: https://github.com/SiliconSaga/KubicTerasology.git
 
   kubicrend:
     tier: 3
-    chartVersion: "0.0.0"
-    chartName: "kubicrend"
-    namespace: kubicrend
 
   ting:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: ting
 
   # eldr — Manual J heat-load engine for Sweet Home 3D. Python CLI/library (not
   # k8s-deployed); the realm adapter adapters/eldr.yaml runs its tests/lint via a
   # local .venv. Repo: SiliconSaga/eldr.
   eldr:
     tier: 3
-    namespace: eldr
 
   # schools — overarching volunteer pitch for the local school system,
   # a custom site akin to ting. Forward-looking framing lives in the component
   # repo itself: https://github.com/SiliconSaga/schools/blob/main/next-year.md
   schools:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: schools
 
   # skipta — AI-backed field amendment & signing demo (voice → Gemini →
   # Sheets pricing → signed PDF in Drive). Design doc lives in the component
   # repo: docs/plans/2026-07-01-skipta-field-amendments-design.md.
   skipta:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: skipta
 
   # skipan — AI-suggested crew scheduling board, skipta's sibling ("the
   # arrangement" beside "the exchange"). Design doc lives in the component
   # repo: docs/plans/2026-07-15-skipan-crew-board-design.md.
   skipan:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: skipan
 
   # mtl-soccer — Mountain Top League soccer sub-site, served at
   # soccer.mountaintopleague.com. Static Jekyll on GitHub Pages (not
@@ -235,8 +158,6 @@ components:
   # _docs/plans/2026-08-09-per-sport-subsites-design.md.
   mtl-soccer:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: mtl-soccer
 
   # mtl-hockey — Mountain Top League hockey sub-site, first of the per-sport
   # sites. Static Jekyll on GitHub Pages (not cluster-deployed); declared so
@@ -244,8 +165,6 @@ components:
   # See mtl-soccer _docs/plans/2026-08-09-per-sport-subsites-design.md.
   mtl-hockey:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: mtl-hockey
 
   # mtl-volunteering — Mountain Top League cross-sport volunteer guide
   # (league house, gear, sportsmanship, safety), served at
@@ -253,8 +172,6 @@ components:
   # cluster-deployed); declared here so the workspace can clone/exec/commit it.
   mtl-volunteering:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: mtl-volunteering
 
   # hirdir — "the herdsman": coaching tool for MTL teams. Phase 0 generates
   # printable per-game workbooks (field time in/out, goals, practice plans);
@@ -264,8 +181,6 @@ components:
   # See docs/plans/2026-09-19-hirdir-phases-design.md and adapters/hirdir.yaml.
   hirdir:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: hirdir
 
   # volundr — shared CI forge: reusable workflows (Jekyll deploy, PR preview +
   # visual diff) called by the per-sport sites; future home of composite
@@ -281,8 +196,6 @@ components:
   # adapters/leidangr.yaml.
   leidangr:
     tier: 3
-    chartVersion: "0.0.0"
-    namespace: leidangr
 
   # gdd-sandbox — the GDD sandboxed-workspace companion: a Docker image running
   # a scoped GDD agent against one target component, reachable over chat. An
@@ -309,13 +222,3 @@ components:
   # pull-mirrors). See docs/plans/2026-06-11-sso-demo-design.md context.
   keycloak-k8s-resources:
     tier: vendor
-    chartVersion: "0.0.0"
-    namespace: keycloak
-
-  # -- Test chart (validates chart-mode resolution) ------------------------
-  echo-test:
-    tier: test
-    chartVersion: "0.1.0"
-    chartName: "echo-test"
-    namespace: echo-test
-    disabled: true
