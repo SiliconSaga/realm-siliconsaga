@@ -1,6 +1,6 @@
 # Forgejo day-2 — Phase 2 design: the composition, its Jobs, the puller, and ArgoCD watching itself
 
-**Status:** Design, approved in brainstorm 2026-09-19; written as the hand-off to a fresh session. Plan next.
+**Status:** Implemented on 2026-09-30 from the [plan](2026-09-19-forgejo-day2-phase2-plan.md) (nordri, nidavellir, heimdall, realm CRs) and validated on the Docker Desktop cluster at `durable`; every proof below passed except the fresh-bootstrap re-run, which needs a cluster reset. The plan records what the Forgejo 15 spec changed (no force-push allowlist, repositories created empty) and what the live runs found.
 **Date:** 2026-09-19
 **Owner:** Rasmus Praestholm
 **Parent:** [Forgejo day-2 design](2026-09-07-forgejo-day2-design.md) (design of record; this document settles Phase 2's open questions and does not restate what it decides) · [OpenBao go-live design](2026-09-16-openbao-go-live-design.md) (Phase 1's last third) · [ADR 0004](../adrs/0004-openbao-auto-unseal.md)
