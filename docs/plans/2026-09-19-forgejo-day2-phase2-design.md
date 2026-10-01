@@ -1,6 +1,6 @@
 # Forgejo day-2 — Phase 2 design: the composition, its Jobs, the puller, and ArgoCD watching itself
 
-**Status:** Implemented on 2026-09-30 from the [plan](2026-09-19-forgejo-day2-phase2-plan.md) (nordri, nidavellir, heimdall, realm CRs) and validated on the Docker Desktop cluster at `durable`; every proof below passed except the fresh-bootstrap re-run, which needs a cluster reset. The plan records what the Forgejo 15 spec changed (no force-push allowlist, repositories created empty) and what the live runs found.
+**Status:** Implemented on 2026-09-30 from the [plan](2026-09-19-forgejo-day2-phase2-plan.md) (nordri, nidavellir, heimdall, realm CRs) and validated on the Docker Desktop cluster at `durable`; every proof below passed except the fresh-bootstrap re-run, which needs a cluster reset. Validated again on 2026-10-01 on the Loki k3s homelab (seed-Gitea GitOps, a cluster bootstrapped before the ArgoCD pin): same results, plus a teardown-and-re-graduate cycle, with the ArgoCD adoption running as an in-place 10.1.2 → 10.9.1 upgrade and `ArgoCDApplicationUnknown` firing unprompted on a genuinely wedged Application. The plan records what the Forgejo 15 spec changed (no force-push allowlist, repositories created empty) and what the live runs found.
 **Date:** 2026-09-19
 **Owner:** Rasmus Praestholm
 **Parent:** [Forgejo day-2 design](2026-09-07-forgejo-day2-design.md) (design of record; this document settles Phase 2's open questions and does not restate what it decides) · [OpenBao go-live design](2026-09-16-openbao-go-live-design.md) (Phase 1's last third) · [ADR 0004](../adrs/0004-openbao-auto-unseal.md)
@@ -116,14 +116,14 @@ The Docker Desktop cluster is the Phase 2 surface. Its identity bump to `durable
 
 Proof list, all before Phase 2 is called done:
 
-- [ ] Rendered offline: `tests/render/check-forgejo.sh` shows no resources at `bootstrap` maturity, the full set at `durable`, and a failure on an invalid value.
-- [ ] Hydrated at `durable`: XR `Synced` and `Ready`, DataService Ready, both ExternalSecrets `SecretSynced`, credentials Job Complete, release Ready, `https://forgejo.homelab.local` answers `/api/healthz`.
-- [ ] Configure Job Complete: org, five repositories, branch protection, the vendor mirror synced with tag `26.6.3` visible, break-glass login works with the password read from OpenBao.
-- [ ] Puller: a triggered run brings GitHub `main` for every listed repository, matched by commit; the scheduled run repeats it; a non-existent repository in the list fails that entry and not the run.
-- [ ] Pod delete: the repository PVC survives and the clone still matches.
-- [ ] Re-hydrating at `bootstrap` without `allowTeardown` is refused: the XR reports the render failure, and every composed resource, the PVC included, is still there.
-- [ ] Re-hydrating at `bootstrap` with `allowTeardown: true` on the claim tears everything down on this disposable cluster — the gate works in both directions, but only when told to.
-- [ ] ArgoCD adopted: the `argocd` Application `Synced`/`Healthy` with no diff after bootstrap's install; `argocd_app_info` scraped; the rule loads; forcing an Application to `Unknown` (point it at a missing path) fires it within five minutes.
+- [x] Rendered offline: `tests/render/check-forgejo.sh` shows no resources at `bootstrap` maturity, the full set at `durable`, and a failure on an invalid value.
+- [x] Hydrated at `durable`: XR `Synced` and `Ready`, DataService Ready, both ExternalSecrets `SecretSynced`, credentials Job Complete, release Ready, `https://forgejo.homelab.local` answers `/api/healthz`.
+- [x] Configure Job Complete: org, five repositories, branch protection, the vendor mirror synced with tag `26.6.3` visible, break-glass login works with the password read from OpenBao.
+- [x] Puller: a triggered run brings GitHub `main` for every listed repository, matched by commit; the scheduled run repeats it; a non-existent repository in the list fails that entry and not the run.
+- [x] Pod delete: the repository PVC survives and the clone still matches.
+- [x] Re-hydrating at `bootstrap` without `allowTeardown` is refused: the XR reports the render failure, and every composed resource, the PVC included, is still there.
+- [x] Re-hydrating at `bootstrap` with `allowTeardown: true` on the claim tears everything down on this disposable cluster — the gate works in both directions, but only when told to.
+- [x] ArgoCD adopted: the `argocd` Application `Synced`/`Healthy` with no diff after bootstrap's install; `argocd_app_info` scraped; the rule loads; forcing an Application to `Unknown` (point it at a missing path) fires it within five minutes.
 - [ ] `bootstrap.sh homelab realm-siliconsaga` re-run from scratch on the wiped cluster comes up green at `bootstrap` maturity with the Forgejo pieces present and inert.
 
 ## Components and files
