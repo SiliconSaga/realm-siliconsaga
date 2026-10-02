@@ -1,6 +1,6 @@
 # Forgejo day-2 — Phase 2 design: the composition, its Jobs, the puller, and ArgoCD watching itself
 
-**Status:** Design, approved in brainstorm 2026-09-19; written as the hand-off to a fresh session. Plan next.
+**Status:** Implemented on 2026-09-30 from the [plan](2026-09-19-forgejo-day2-phase2-plan.md) (nordri, nidavellir, heimdall, realm CRs) and validated on the Docker Desktop cluster at `durable`; every proof below passed except the fresh-bootstrap re-run, which needs a cluster reset. Validated again on 2026-10-01 on the Loki k3s homelab (seed-Gitea GitOps, a cluster bootstrapped before the ArgoCD pin): the same proof items passed, plus a teardown-and-re-graduate cycle, with the ArgoCD adoption running as an in-place 10.1.2 → 10.9.1 upgrade and `ArgoCDApplicationUnknown` firing unprompted on a genuinely wedged Application. On both clusters the break-glass login was checked through the API (basic auth as the account against `/api/v1/user`, admin flag set), not through the UI. The plan records what the Forgejo 15 spec changed (no force-push allowlist, repositories created empty) and what the live runs found.
 **Date:** 2026-09-19
 **Owner:** Rasmus Praestholm
 **Parent:** [Forgejo day-2 design](2026-09-07-forgejo-day2-design.md) (design of record; this document settles Phase 2's open questions and does not restate what it decides) · [OpenBao go-live design](2026-09-16-openbao-go-live-design.md) (Phase 1's last third) · [ADR 0004](../adrs/0004-openbao-auto-unseal.md)
@@ -70,7 +70,7 @@ This is why Phase 2 can land on main before any cluster graduates: the code is i
 
 Runs as ServiceAccount `forgejo-init`. It logs in to OpenBao at `http://openbao.openbao.svc:8200/v1/auth/kubernetes/login` with role `forgejo-init` and its projected ServiceAccount token, then for the admin path and each break-glass path: reads `secret/metadata/forgejo/...`; if OpenBao answers 404, generates a 32-byte random password and writes `secret/data/forgejo/...` with `options.cas: 0`, so a concurrent or repeated write can never overwrite a value that exists; any other status is an error and the Job fails. It writes `username` alongside `password` so the ExternalSecret can materialise both keys. It never prints a value. A sealed or unreachable OpenBao fails the Job loudly; the composition's ordering means the release does not proceed.
 
-The `forgejo-init` role and its policy are created by nordri's `openbao_configure` in `lib/openbao.sh`, beside `eso-role` and `openbao-backup`: bound to ServiceAccount `forgejo-init` in namespace `forgejo`; policy `create` and `update` on both `secret/data/forgejo` and `secret/data/forgejo/*`, and `read` on both `secret/metadata/forgejo` and `secret/metadata/forgejo/*`. Both forms are needed: the admin credential lives at the root path `secret/forgejo`, whose API paths are exactly `secret/data/forgejo` and `secret/metadata/forgejo`, and a trailing `/*` never matches the path it hangs off. Create-only is enforced by the `cas` option in the write, and the policy's `update` exists only because KV v2's data endpoint requires it for a `cas` write; the Job never sends a write without `cas: 0`. `openbao-configure.sh` on both clusters is how the role reaches the live vaults; Layer 5b does it on a fresh cluster.
+The `forgejo-init` role and its policy are created by nordri's `openbao_configure` in `lib/openbao.sh`, beside `eso-role` and `openbao-backup`: bound to ServiceAccount `forgejo-init` in namespace `forgejo`; policy `create` only on both `secret/data/forgejo` and `secret/data/forgejo/*`, and `read` on both `secret/metadata/forgejo` and `secret/metadata/forgejo/*`. Both forms are needed: the admin credential lives at the root path `secret/forgejo`, whose API paths are exactly `secret/data/forgejo` and `secret/metadata/forgejo`, and a trailing `/*` never matches the path it hangs off. Create-only is enforced twice over: the Job writes with `options.cas: 0`, and the policy grants no `update`, so even a token holder who dropped the `cas` option could not overwrite an existing value. (Verified live on 2026-10-01: KV v2 authorizes a write to an absent path as `create` and to an existing one as `update`; with `create` alone the `cas: 0` write succeeds and any write to an existing path is refused with 403 — which the Job tells apart from a missing policy by re-reading the metadata.) `openbao-configure.sh` on both clusters is how the role reaches the live vaults; Layer 5b does it on a fresh cluster.
 
 ### The configure Job: reconcile, and refuse to guess about tokens
 
@@ -116,14 +116,14 @@ The Docker Desktop cluster is the Phase 2 surface. Its identity bump to `durable
 
 Proof list, all before Phase 2 is called done:
 
-- [ ] Rendered offline: `tests/render/check-forgejo.sh` shows no resources at `bootstrap` maturity, the full set at `durable`, and a failure on an invalid value.
-- [ ] Hydrated at `durable`: XR `Synced` and `Ready`, DataService Ready, both ExternalSecrets `SecretSynced`, credentials Job Complete, release Ready, `https://forgejo.homelab.local` answers `/api/healthz`.
-- [ ] Configure Job Complete: org, five repositories, branch protection, the vendor mirror synced with tag `26.6.3` visible, break-glass login works with the password read from OpenBao.
-- [ ] Puller: a triggered run brings GitHub `main` for every listed repository, matched by commit; the scheduled run repeats it; a non-existent repository in the list fails that entry and not the run.
-- [ ] Pod delete: the repository PVC survives and the clone still matches.
-- [ ] Re-hydrating at `bootstrap` without `allowTeardown` is refused: the XR reports the render failure, and every composed resource, the PVC included, is still there.
-- [ ] Re-hydrating at `bootstrap` with `allowTeardown: true` on the claim tears everything down on this disposable cluster — the gate works in both directions, but only when told to.
-- [ ] ArgoCD adopted: the `argocd` Application `Synced`/`Healthy` with no diff after bootstrap's install; `argocd_app_info` scraped; the rule loads; forcing an Application to `Unknown` (point it at a missing path) fires it within five minutes.
+- [x] Rendered offline: `tests/render/check-forgejo.sh` shows no resources at `bootstrap` maturity, the full set at `durable`, and a failure on an invalid value.
+- [x] Hydrated at `durable`: XR `Synced` and `Ready`, DataService Ready, both ExternalSecrets `SecretSynced`, credentials Job Complete, release Ready, `https://forgejo.homelab.local` answers `/api/healthz`.
+- [x] Configure Job Complete: org, five repositories, branch protection, the vendor mirror synced with tag `26.6.3` visible, break-glass login works with the password read from OpenBao.
+- [x] Puller: a triggered run brings GitHub `main` for every listed repository, matched by commit; the scheduled run repeats it; a non-existent repository in the list fails that entry and not the run.
+- [x] Pod delete: the repository PVC survives and the clone still matches.
+- [x] Re-hydrating at `bootstrap` without `allowTeardown` is refused: the XR reports the render failure, and every composed resource, the PVC included, is still there.
+- [x] Re-hydrating at `bootstrap` with `allowTeardown: true` on the claim tears down everything composed on this disposable cluster — the gate works in both directions, but only when told to. On both clusters three things survived, as the runbook documents: the PVC `forgejo-data` (the chart's `resource-policy: keep`), the Job-created `forgejo-puller` Secret, and the app-shipped `forgejo-scripts` ConfigMap.
+- [x] ArgoCD adopted: the `argocd` Application `Synced`/`Healthy` with no diff after bootstrap's install; `argocd_app_info` scraped; the rule loads; forcing an Application to `Unknown` (point it at a missing path) fires it within five minutes.
 - [ ] `bootstrap.sh homelab realm-siliconsaga` re-run from scratch on the wiped cluster comes up green at `bootstrap` maturity with the Forgejo pieces present and inert.
 
 ## Components and files
@@ -137,15 +137,6 @@ Proof list, all before Phase 2 is called done:
 
 Land order: nordri first (the role and the ArgoCD adoption are inert), then nidavellir and heimdall, then the realm claim. The validation runs on the local cluster after all four.
 
-## For the session that picks this up
+## How it was picked up (historical)
 
-1. `ws orient`; read the Loki thalamus `forgejo-day2` arc note dated 2026-09-19, then this document, then the parent design's Forgejo composition, credentials and puller sections (not the whole parent).
-2. Write the implementation plan as `2026-09-19-forgejo-day2-phase2-plan.md` in the shape of the OpenBao go-live plan: tasks per repo, the validation list above as the final task. The author does not review plans separately; implement inline and review the CRs.
-3. The Docker Desktop cluster on Nano76Win11 is the validation surface and can be wiped on demand. Its OpenBao is fresh under the static seal and holds the realm's OIDC seeds; bootstrap re-runs are idempotent (Helm 4 `--force-conflicts` is in). Raw `kubectl` needs `ws hook-bypass k8s` and follows the current context, which the nordri scripts now refuse to run against the wrong target.
-4. Windows quirks that cost time last round: the Write tool saves CRLF (strip before running scripts), Windows `jq -r` emits CRLF, MSYS rewrites `/path` arguments (`MSYS_NO_PATHCONV=1`), `mkdir -m` fails on NTFS, POSIX modes are emulated.
-5. Review etiquette: fix and push, no per-thread replies, never resolve threads; rebase, never merge; hand force pushes to the author.
-
-## Open questions left for the plan
-
-- Forgejo 15's token scope names and the branch-protection API field names, checked against the pinned version before the configure script is written.
-- The `forgejo-init` policy's exact HCL, verified against a live `cas: 0` write from a pod rather than assumed.
+This section carried the hand-off instructions for the session that wrote the plan; they were followed on 2026-09-30 and the plan's "Facts checked" table records what they turned up. The two open questions left here were both settled there: Forgejo 15's token scopes and branch-protection fields were read from the v15.0 swagger (no force-push allowlist exists, so repositories are created empty), and the `forgejo-init` policy was proven live as `create` only.

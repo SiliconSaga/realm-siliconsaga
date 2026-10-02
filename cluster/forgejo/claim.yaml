@@ -1,0 +1,38 @@
+# The SiliconSaga Forgejo instance (realm Forgejo day-2 design; Phase 2).
+#
+# Delivered by nordri's realm root-app exactly as the Keycloak realm import
+# is. The XRD and composition are nidavellir's (forgejo/); this file is the
+# only place the org name, the repository list, the vendor mirrors and the
+# break-glass accounts are written down. It is hydrated unchanged into every
+# cluster and renders NOTHING until that cluster's identity says
+# maturity: durable — so it can sit on GKE and on a Docker Desktop cluster
+# alike, inert, until an operator graduates one.
+#
+# Credentials are not seeded here (openbao-seeds is not used for Forgejo):
+# the composition's credentials Job mints them in-cluster and writes them to
+# OpenBao create-only, at secret/forgejo and secret/forgejo/admins/<user>.
+apiVersion: nidavellir.siliconsaga.org/v1alpha1
+kind: ForgejoInstance
+metadata:
+  name: forgejo
+  namespace: forgejo
+spec:
+  parameters:
+    chartVersion: "17.1.7"
+    org: siliconsaga
+    # main is written only by the puller, from these GitHub upstreams.
+    repos:
+      - {name: nordri, github: SiliconSaga/nordri}
+      - {name: nidavellir, github: SiliconSaga/nidavellir}
+      - {name: mimir, github: SiliconSaga/mimir}
+      - {name: heimdall, github: SiliconSaga/heimdall}
+      - {name: realm-siliconsaga, github: SiliconSaga/realm-siliconsaga}
+    # Forgejo pull-mirrors, tags included (the keycloak-operator app pins tag 26.6.3).
+    vendorMirrors:
+      - {name: keycloak-k8s-resources, upstream: https://github.com/keycloak/keycloak-k8s-resources.git}
+    breakGlassAdmins:
+      - cervator
+    storageSize: "10Gi"
+    # pullerSchedule: hourly by default; a per-cluster cadence belongs on
+    # cluster-identity (pullerSchedule), not here.
+    # allowTeardown: never set on GKE. See nidavellir docs/forgejo.md.

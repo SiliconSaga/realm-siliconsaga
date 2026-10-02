@@ -7,3 +7,4 @@ kind: Kustomization
 # (nidavellir) stays unaware of any realm, app, or game.
 resources:
   - keycloak
+  - forgejo
