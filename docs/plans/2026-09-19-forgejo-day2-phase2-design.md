@@ -122,7 +122,7 @@ Proof list, all before Phase 2 is called done:
 - [x] Puller: a triggered run brings GitHub `main` for every listed repository, matched by commit; the scheduled run repeats it; a non-existent repository in the list fails that entry and not the run.
 - [x] Pod delete: the repository PVC survives and the clone still matches.
 - [x] Re-hydrating at `bootstrap` without `allowTeardown` is refused: the XR reports the render failure, and every composed resource, the PVC included, is still there.
-- [x] Re-hydrating at `bootstrap` with `allowTeardown: true` on the claim tears everything down on this disposable cluster — the gate works in both directions, but only when told to.
+- [x] Re-hydrating at `bootstrap` with `allowTeardown: true` on the claim tears down everything composed on this disposable cluster — the gate works in both directions, but only when told to. On both clusters three things survived, as the runbook documents: the PVC `forgejo-data` (the chart's `resource-policy: keep`), the Job-created `forgejo-puller` Secret, and the app-shipped `forgejo-scripts` ConfigMap.
 - [x] ArgoCD adopted: the `argocd` Application `Synced`/`Healthy` with no diff after bootstrap's install; `argocd_app_info` scraped; the rule loads; forcing an Application to `Unknown` (point it at a missing path) fires it within five minutes.
 - [ ] `bootstrap.sh homelab realm-siliconsaga` re-run from scratch on the wiped cluster comes up green at `bootstrap` maturity with the Forgejo pieces present and inert.
 
