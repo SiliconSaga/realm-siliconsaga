@@ -1,14 +1,22 @@
-# hirdir adapter — pytest + ruff through uv.
+# hirdir adapter — pytest + ruff through uv, plus node --test for the field app.
 # Component cwd is components/hirdir/ when the verbs run; uv manages .venv there.
 commands:
   test: "bash scripts/test.sh"
+  # Two runners behind one script, so the selector goes to it rather than to a
+  # runner ws would have to guess at: web/* reaches node --test, anything else
+  # pytest (a path or nodeid when it exists on disk, else -k).
+  testFilter: "bash scripts/test.sh {}"
   lint: "uv run --frozen ruff check src tests"
   # format rewrites; lint above only checks. Same ruff, same pyproject config.
   format: "uv run --frozen ruff format src tests"
   run: "uv run --frozen hirdir build examples/example-team.json"
 
 ai_context:
-  - path: "README.md"
-    description: "Quickstart, config format, and the privacy stance on team data"
-  - path: "docs/plans/"
-    description: "Phased design: printable sheets now, browser tracker and backend later"
+  - path: "AGENTS.md"
+    description: "The rule that outranks the rest: team data names children and never enters the repo"
+  - path: "docs/development.md"
+    description: "Layout, both test suites, the deploy and its cache-busting trap"
+  - path: "docs/field-app.md"
+    description: "The field app: event log, fair-share maths, offline behaviour, rough edges"
+  - path: "docs/roadmap.md"
+    description: "Why this exists, the phases, and the open work"
