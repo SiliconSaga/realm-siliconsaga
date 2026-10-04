@@ -173,6 +173,12 @@ components:
   mtl-volunteering:
     tier: 3
 
+  # mtl-basketball — Mountain Top League basketball sub-site, served at
+  # basketball.mountaintopleague.com. Static Jekyll on GitHub Pages (not
+  # cluster-deployed), same shape as mtl-hockey, with a flyer kit.
+  mtl-basketball:
+    tier: 3
+
   # hirdir — "the herdsman": coaching tool for MTL teams. Phase 0 generates
   # printable per-game workbooks (field time in/out, goals, practice plans);
   # later phases add a browser-side tracker and a cluster-deployed backend for
