@@ -15,7 +15,7 @@
 - Every script starts `#!/usr/bin/env bash` and `set -euo pipefail`; no `make`, no Python, no `jq` on the host. JSON from `gh` is shaped with `gh … --jq`; YAML with `yq` (present already, `ws hoard lint` needs it).
 - A bay is `bays/<name>/` under the operator's workspace: a complete yggdrasil clone with its own realm checkout and components. Everything that runs inside a bay goes through `ws bay exec <name> …`, which runs that bay's own `scripts/ws` from the bay with the parent's `ROOT_DIR`, `ECOSYSTEM`, `ECOSYSTEM_LOCAL`, `REALMS_DIR`, `COMPONENTS_DIR`, `HOARDS_DIR` and `BAYS_DIR` unset. Naust never runs Gradle itself; profile commands may, and they run with the component directory as cwd.
 - Naust's machine-local config and state live in `bays/.naust/` (`naust.yaml`, `state/`, `gradle-home/`). Profiles and the trust list are read from the parent's realm checkout; a bay's own realm clone serves the bay's `ws`.
-- Secrets come from the workspace's own `.env`, read literally (never sourced): `NAUST_GITHUB_TOKEN` (the machine account, exported to jobs as `GH_TOKEN`) and `NAUST_DISCORD_WEBHOOK`. A bay holds no `.env`.
+- Secrets come from the workspace's own `.env`, read literally (never sourced): `NAUST_GITHUB_TOKEN` (the machine account) and `NAUST_DISCORD_WEBHOOK`. A bay holds no `.env`. The token becomes `GH_TOKEN` only in naust's own process (`gh_auth` in the tick and in `naust run`) and for the report step's two `ws review` calls; the job unsets it first thing, so Gradle, tests, boots and profile scripts never see it, not even inherited from the tick.
 - A nod is a PR review by a login in `maintainers`: state `APPROVED`, or any review that is not `DISMISSED` whose body contains `nod_phrase`. It admits exactly the commit GitHub recorded the review against (`commit.oid`); a newer head needs a new review. Labels are never read.
 - A job stops at checkout unless the head it fetched is the head the gate admitted.
 - PR comments go through `ws review <comp> comment`, which prepends the GDD banner; the text is in the `oss-wide` register: what was observed, what decision it needs, no characterisation of the contribution.
@@ -1272,7 +1272,7 @@ Run: `ws commit yggdrasil .commits/ws-bay.md`, then `ws push yggdrasil`, then `w
 - Create: `components/naust/naust.example.yaml`
 
 **Interfaces:**
-- Produces, in `lib.sh` (sourced by every other script): `log <msg>`, `die <msg>` (exit 1), `now` (epoch, overridable by `NAUST_NOW` for tests), `require_tool <name>`, `load_config` (sets `WORKSPACE WS REALM REALM_DIR PROFILE_DIR ADAPTER_DIR BAYS_DIR STATE_DIR GRADLE_HOME LOCK_STALE_HOURS` and creates `STATE_DIR/{queue,seen,jobs,bays}`), `cfg <yq-path> [default]`, `cfg_list`, `prof <profile> <yq-path> [default]`, `prof_list`, `trust <profile> <yq-path> [default]`, `trust_list`, `adapter <component> <yq-path> [default]`, `adapter_list`, `env_value <KEY>`, `kv_get <file> <key>`, `kv_set <file> <key> <value>`, `with_lock` (returns 1 when another tick holds the lock), `json_escape <text>`, `bay_ws <bay> <ws-args...>` (the parent's `ws bay exec`).
+- Produces, in `lib.sh` (sourced by every other script): `log <msg>`, `die <msg>` (exit 1), `now` (epoch, overridable by `NAUST_NOW` for tests), `require_tool <name>`, `load_config` (sets `WORKSPACE WS REALM REALM_DIR PROFILE_DIR ADAPTER_DIR BAYS_DIR STATE_DIR GRADLE_HOME LOCK_STALE_HOURS` and creates `STATE_DIR/{queue,seen,jobs,bays}`), `cfg <yq-path> [default]`, `cfg_list`, `prof <profile> <yq-path> [default]`, `prof_list`, `trust <profile> <yq-path> [default]`, `trust_list`, `adapter <component> <yq-path> [default]`, `adapter_list`, `env_value <KEY>`, `gh_auth` (exports `GH_TOKEN` from `NAUST_GITHUB_TOKEN` for this process), `kv_get <file> <key>`, `kv_set <file> <key> <value>`, `with_lock` (returns 1 when another tick holds the lock), `json_escape <text>`, `bay_ws <bay> <ws-args...>` (the parent's `ws bay exec`).
 - Produces: `bin/naust <command> [args]` dispatching to `bin/<command>.sh` for `tick bay run job report notify`; `naust --help`.
 - Locations: the workspace is the one naust is cloned into (`bin/../../..`), overridable by `NAUST_WORKSPACE`; config at `<workspace>/bays/.naust/naust.yaml` (`NAUST_CONFIG`); secrets in `<workspace>/.env` (`NAUST_ENV_FILE`); state and the Gradle home under `<workspace>/bays/.naust/`.
 - Config file `naust.yaml` keys: `realm` (optional; default the workspace's active realm), `profiles` (list), `lock_stale_hours`, `workspace_repo` (optional; the yggdrasil URL `ws bay add` clones, for a workspace whose own checkout has several remotes).
@@ -1637,6 +1637,14 @@ env_value() {
   line="${line%\"}"; line="${line#\"}"
   line="${line%\'}"; line="${line#\'}"
   printf '%s\n' "$line"
+}
+
+# Give this process the machine account's token for its own gh calls. Only the
+# tick and naust run call it; job.sh unsets GH_TOKEN before PR code runs.
+gh_auth() {
+  local t; t="$(env_value NAUST_GITHUB_TOKEN)"
+  [ -n "$t" ] && export GH_TOKEN="$t"
+  return 0
 }
 
 # key=value state files. Keys are [A-Za-z0-9_], values are single lines.
@@ -2817,6 +2825,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib.sh"
 load_config
 require_tool gh
+gh_auth
 
 profile="${1:-}"; number="${2:-}"
 [ -n "$profile" ] && [ -n "$number" ] || die "usage: naust run <profile> <number> [--with <target>#<n>]... [--bay <name>]"
@@ -2977,6 +2986,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/lib.sh
 . "$HERE/lib.sh"
 load_config
+gh_auth
 JOB_SCRIPT="${NAUST_JOB_SCRIPT:-$HERE/job.sh}"
 
 if ! with_lock; then
@@ -3058,7 +3068,7 @@ Run: `ws commit naust .commits/naust-tick.md`
 - Consumes: `bay.sh env|reset|set|repos`, `bay_ws` (the bay's `ws`: `checkout --cr`, `build`, `test`, `review checks`, `review comment`), `report.sh render <jobdir>` (Task 10; overridable by `NAUST_REPORT_SCRIPT`), `notify.sh say`; profile keys `component`, `steps.compile_all`, `steps.headless`, `steps.smoke`, `report.comment`; adapter keys `provision.remote` (optional), `provision.known_dirt`.
 - Produces: `naust job <bay> <jobfile>`; exit 0 when every step that ran passed, 1 otherwise. The job directory `<bay>/.outputs/naust/<jobid>/` holds `job.yaml` (`repo number head base merge_base author head_repo with bay started`, plus `head_fetched` when it differs), `steps.tsv` (`id<TAB>name<TAB>status<TAB>seconds`, status `pass|fail|skipped`), `diff.txt`, `diff-stat.txt`, `scope.txt` (lines `class <Name> [integrationTest]` and/or `default`), `baseline/` and `reports/` (flattened JUnit XML plus `runs.tsv`: `command<TAB>exit`), `build.log`, `compile-all.log`, `headless.log`, `smoke.log`, `screenshot.png` (from the profile's scripts), `tree.txt`, `checks.txt`, `report.md`, `comment.md`. A copy lands in `state/jobs/<jobid>/`. The bay ends `ready` (or stays `broken` after a failed reset).
 - Step ids: `1 reset`, `2 checkout`, `3 scope`, `4 baseline`, `5 build`, `5b compile-all`, `5c tests`, `6 headless`, `7 smoke`, `8 tree`, `9 report`. A failed `1` skips `2`–`8`; a failed `2` (fetch failed, or the fetched head is not the head the gate admitted) skips `3`–`8`; a failed `5` skips `5b`, `5c`, `6`, `7`.
-- Environment for profile scripts (from `bay.sh env`) plus `NAUST_JOB_DIR`, `NAUST_PR_NUMBER`, `NAUST_PR_HEAD`, and `GH_TOKEN` from the workspace `.env`'s `NAUST_GITHUB_TOKEN` when set.
+- Environment for profile scripts (from `bay.sh env`) plus `NAUST_JOB_DIR`, `NAUST_PR_NUMBER`, `NAUST_PR_HEAD`. Never `GH_TOKEN`: the job unsets whatever it inherited, and only the report step's `ws review checks` and `ws review comment` run with the machine account's token.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3081,12 +3091,14 @@ case "$1 $2" in
     [ "$3" = --cr ] || exit 1
     git -C "$comp" fetch -q origin "refs/pull/$4/head" && git -C "$comp" switch -q -C "cr/$4" FETCH_HEAD ;;
   "checkout terasology/modules/Cooking") ;;
-  "build terasology") exit "${WS_BUILD_EXIT:-0}" ;;
+  "build terasology") echo "build GH_TOKEN=${GH_TOKEN:-unset}" >> "$STUB_LOG"; exit "${WS_BUILD_EXIT:-0}" ;;
   "test terasology")
     mkdir -p "$comp/engine-tests/build/test-results/unitTest"
     printf '<testsuite name="%s" tests="1" failures="0" errors="0" skipped="0"><testcase name="t" classname="%s"/></testsuite>\n' "${3:-all}" "${3:-all}" \
       > "$comp/engine-tests/build/test-results/unitTest/TEST-${3:-all}.xml" ;;
-  "review terasology") case "$3" in checks) echo "Checks: 1 pass, 0 fail, 0 pending" ;; comment) ;; esac ;;
+  "review terasology")
+    echo "review GH_TOKEN=${GH_TOKEN:-unset}" >> "$STUB_LOG"
+    case "$3" in checks) echo "Checks: 1 pass, 0 fail, 0 pending" ;; comment) ;; esac ;;
 esac
 EOF
 chmod +x "$BAY_DIR/scripts/ws"
@@ -3120,9 +3132,10 @@ setup() {
     make_stub compile-all-stub
     make_stub after-reset-stub
     make_stub headless-stub 'printf "Server started\n" > "$NAUST_JOB_DIR/headless.log"'
-    make_stub smoke-stub 'touch "$NAUST_JOB_DIR/screenshot.png"'
+    make_stub smoke-stub 'touch "$NAUST_JOB_DIR/screenshot.png"; echo "smoke GH_TOKEN=${GH_TOKEN:-unset}" >> "$STUB_LOG"'
     make_stub curl
     printf 'NAUST_DISCORD_WEBHOOK=https://discord.invalid/hook\nNAUST_GITHUB_TOKEN=tok\n' > "$NAUST_ENV_FILE"
+    export GH_TOKEN=leaked-from-the-tick             # what a real tick's environment carries into the job
     export NAUST_REPORT_SCRIPT="$BATS_TEST_TMPDIR/report-stub.sh"
     printf '#!/usr/bin/env bash\necho "report $*" >> "$STUB_LOG"\nprintf "# report\\n" > "$2/report.md"\nprintf "comment\\n" > "$2/comment.md"\n' > "$NAUST_REPORT_SCRIPT"
     make_bay bay-1 busy
@@ -3167,6 +3180,11 @@ bay_state() { sed -n 's/^state=//p' "$NAUST_DIR/state/bays/bay-1.state"; }
     [ -f "$NAUST_DIR/state/jobs/MovingBlocks__Terasology-7-${PR_SHA:0:7}/report.md" ]
     [ "$(bay_state)" = "ready" ]
     grep -q "Checks: 1 pass" "$JOB/checks.txt"
+    # the machine account's token reaches the report's review calls and nothing the PR controls
+    grep -q '^build GH_TOKEN=unset$' "$STUB_LOG"
+    grep -q '^smoke GH_TOKEN=unset$' "$STUB_LOG"
+    [ "$(grep -c '^review GH_TOKEN=tok$' "$STUB_LOG")" -eq 2 ]
+    ! grep -q 'leaked-from-the-tick' "$STUB_LOG"
 }
 
 @test "a PR that moved after the gate stops at checkout and says so" {
@@ -3262,8 +3280,12 @@ JOBID="$(basename "$JOBFILE" .job)"
 JOB="$NAUST_BAY_DIR/.outputs/naust/$JOBID"
 STEPS="$JOB/steps.tsv"
 
+# The tick runs with the machine account's token for its own gh calls and this
+# job inherits it. Nothing the PR controls may see it, so it goes first thing;
+# the report step hands it back to its two ws review calls only.
+unset GH_TOKEN
 token="$(env_value NAUST_GITHUB_TOKEN)"
-[ -n "$token" ] && export GH_TOKEN="$token"
+with_token() { if [ -n "$token" ]; then GH_TOKEN="$token" "$@"; else "$@"; fi; }
 export NAUST_JOB_DIR="$JOB" NAUST_PR_NUMBER="$number" NAUST_PR_HEAD="$head"
 
 FAILED=0
@@ -3403,10 +3425,10 @@ step_tree() {
 }
 
 step_report() {
-  in_bay review "$COMP" checks "$number" > "$JOB/checks.txt" 2>&1 || true
+  with_token in_bay review "$COMP" checks "$number" > "$JOB/checks.txt" 2>&1 || true
   bash "$REPORT_SCRIPT" render "$JOB"
   if [ "$(prof "$NAUST_PROFILE" .report.comment on)" = on ]; then
-    in_bay review "$COMP" comment "$number" ".outputs/naust/$JOBID/comment.md"
+    with_token in_bay review "$COMP" comment "$number" ".outputs/naust/$JOBID/comment.md"
   fi
   if [ -f "$JOB/screenshot.png" ]; then
     bash "$HERE/notify.sh" say "$(head -c 1500 "$JOB/report.md")" --file "$JOB/screenshot.png" || true
