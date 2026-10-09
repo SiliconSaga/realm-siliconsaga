@@ -127,7 +127,7 @@ A tick, for each repository the profile watches:
 3. The trust gate (next section) decides whether the candidate becomes a job or a notice.
 4. If the queue has a job and a `free` bay with the right profile exists, the tick runs that job to completion and exits. A job already queued for the same PR is replaced by the newer head; a job already running finishes, and the newer head queues behind it.
 
-`naust run terasology 5400 [--with terasology/modules/Health#12] [--bay bay-2]` enqueues by hand with priority. It skips the debounce, not the trust gate.
+`naust run terasology 5400 [--with terasology/modules/Health#12] [--bay bay-2]` enqueues by hand with priority. It skips the debounce, not the trust gate; the gate covers the PR, and a `--with` target is the operator's own vouch, fetched and built as given, until linked PRs get their own handling in Phase 3.
 
 ### The trust gate
 
