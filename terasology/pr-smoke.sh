@@ -22,17 +22,26 @@ if [ ! -f saves/naust-seed/manifest.json ]; then
   exit 1
 fi
 rm -rf logs "$SHOT"
+before="$(terasology_jvms --no-save-games | tr '\n' ' ')"
 ./gradlew game --args="--create-last-game --no-splash --no-crash-report --no-save-games" > "$LOG" 2>&1 &
 pid=$!
+# Whatever ends this script, the game it started does not outlive it.
+trap 'stop_game "$pid" --no-save-games "$before"' EXIT INT TERM
 rc=0
 if wait_for_marker "$LOG" "Initialising rendering class" "$TIMEOUT" "$pid"; then
   sleep "$SETTLE"
-  screenshot "$SHOT" || { echo "smoke: screenshot failed" >&2; rc=1; }
+  if kill -0 "$pid" 2>/dev/null; then
+    screenshot "$SHOT" || { echo "smoke: screenshot failed" >&2; rc=1; }
+  else
+    echo "smoke: the game exited during the ${SETTLE}s settle; last lines:" >&2
+    tail -n 5 "$LOG" >&2 || true
+    rc=1
+  fi
 else
   rc=1
   grep -F 'last game not found' "$LOG" >&2 || true
 fi
-stop_game "$pid"
+stop_game "$pid" --no-save-games "$before"
 if [ -d logs ]; then rm -rf "$JOB/game-logs"; cp -r logs "$JOB/game-logs"; fi
 [ -f "$SHOT" ] || rc=1
 [ "$rc" -eq 0 ] && echo "smoke: renderer up, screenshot at $SHOT, game stopped"

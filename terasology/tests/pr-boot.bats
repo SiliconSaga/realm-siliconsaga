@@ -22,6 +22,7 @@ case "$1" in
   server) mkdir -p terasology-server/logs; echo "$MARKER_HEADLESS" ;;
   game)   mkdir -p logs/run; echo "menu"; [ -n "${NO_MARKER:-}" ] || echo "$MARKER_RENDER" ;;
 esac
+[ -z "${EXIT_AFTER_MARKER:-}" ] || exit 0      # a crash right after the marker
 sleep 120
 EOF
     chmod +x "$ENGINE/gradlew"
@@ -67,6 +68,22 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     [ -f "$NAUST_JOB_DIR/screenshot.png" ]
     [ -d "$NAUST_JOB_DIR/game-logs/run" ]
     gradlew_stopped
+}
+
+@test "smoke fails when the game exits right after the renderer line" {
+    mkdir -p saves/naust-seed; printf '{"title":"naust-seed"}\n' > saves/naust-seed/manifest.json
+    export EXIT_AFTER_MARKER=1
+    run bash "$REALM/terasology/pr-smoke.sh"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"exited"* ]]
+    [ ! -e "$NAUST_JOB_DIR/screenshot.png" ]
+}
+
+@test "headless fails when the server exits right after Server started" {
+    export EXIT_AFTER_MARKER=1
+    run bash "$REALM/terasology/pr-headless.sh"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"exited"* ]]
 }
 
 @test "smoke fails when the renderer line never comes, keeping the log tail" {

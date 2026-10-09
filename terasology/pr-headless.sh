@@ -15,11 +15,14 @@ TIMEOUT="${NAUST_HEADLESS_TIMEOUT:-900}"
 LOG="$JOB/headless.log"
 
 rm -rf terasology-server
+before="$(terasology_jvms --headless | tr '\n' ' ')"
 ./gradlew server > "$LOG" 2>&1 &
 pid=$!
+# Whatever ends this script, the server it started does not outlive it.
+trap 'stop_game "$pid" --headless "$before"' EXIT INT TERM
 rc=0
 wait_for_marker "$LOG" "Server started" "$TIMEOUT" "$pid" || rc=1
-stop_game "$pid"
+stop_game "$pid" --headless "$before"
 if [ -d terasology-server/logs ]; then rm -rf "$JOB/headless-logs"; cp -r terasology-server/logs "$JOB/headless-logs"; fi
 [ "$rc" -eq 0 ] && echo "headless: server started and stopped cleanly"
 exit "$rc"
