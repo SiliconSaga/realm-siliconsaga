@@ -4,7 +4,7 @@
 
 **Goal:** A scheduled script on Dionysus notices a maintainer's Terasology PR, runs it through a warm bay (checkout, build, every-module compile, scoped tests against PR and base, headless boot, windowed boot with a screenshot, clean-tree check) and leaves a report in the bay, on Discord and on the PR, with nobody at a keyboard.
 
-**Architecture:** Three repositories, three CRs, in order. yggdrasil gains `ws checkout <target> --pr <N>`. A new SiliconSaga component `naust` holds the bay machinery as bash scripts: a tick that polls, gates, queues and runs one job; bays that are sibling yggdrasil workspaces reset between jobs; a report renderer; a Discord webhook notifier. This realm holds the Terasology profile, the trust list, and the Terasology-specific boot scripts the profile points at.
+**Architecture:** Three repositories, three CRs, in order. yggdrasil gains `bays/`, the `ws bay` verbs that make, list, reset and drive a child workspace, and `ws checkout <target> --cr <N>`. A new SiliconSaga component `naust` holds what is about time and trust, as bash scripts: a tick that polls, gates, queues and runs one job; the bay states; a report renderer; a Discord webhook notifier. This realm holds the Terasology profile, the trust list, a `provision:` block in the Terasology adapter, and the Terasology-specific boot scripts the profile points at.
 
 **Tech Stack:** bash (Git Bash on Windows, `set -euo pipefail`), `yq` v4 for YAML, `gh` with `--jq` for every JSON read (no host `jq`), `git`, `curl`, bats-core (workspace-vendored) with PATH stubs for tests, PowerShell only inside `screenshot.ps1`.
 
@@ -13,60 +13,62 @@
 ## Global Constraints
 
 - Every script starts `#!/usr/bin/env bash` and `set -euo pipefail`; no `make`, no Python, no `jq` on the host. JSON from `gh` is shaped with `gh … --jq`; YAML with `yq` (present already, `ws hoard lint` needs it).
-- Inside a bay, every build, test, checkout, review and status call goes through that bay's own `scripts/ws` (`bash "$WS" …`); naust never runs Gradle itself. Profile commands may, and they run with the component directory as cwd.
-- Secrets come from `<naust root>/.env`, read literally (never sourced): `GDD_GITHUB_TOKEN` (machine account, exported to subprocesses as `GH_TOKEN`), `NAUST_DISCORD_WEBHOOK`. Personal tokens never reach a bay.
-- A nod counts only from a login in `maintainers`; the actor of a `labeled` event or the author of a comment is checked, never the label's presence alone.
+- A bay is `bays/<name>/` under the operator's workspace: a complete yggdrasil clone with its own realm checkout and components. Everything that runs inside a bay goes through `ws bay exec <name> …`, which runs that bay's own `scripts/ws` from the bay with the parent's `ROOT_DIR`, `ECOSYSTEM`, `ECOSYSTEM_LOCAL`, `REALMS_DIR`, `COMPONENTS_DIR`, `HOARDS_DIR` and `BAYS_DIR` unset. Naust never runs Gradle itself; profile commands may, and they run with the component directory as cwd.
+- Naust's machine-local config and state live in `bays/.naust/` (`naust.yaml`, `state/`, `gradle-home/`). Profiles and the trust list are read from the parent's realm checkout; a bay's own realm clone serves the bay's `ws`.
+- Secrets come from the workspace's own `.env`, read literally (never sourced): `NAUST_GITHUB_TOKEN` (the machine account, exported to jobs as `GH_TOKEN`) and `NAUST_DISCORD_WEBHOOK`. A bay holds no `.env`.
+- A nod is a PR review by a login in `maintainers`: state `APPROVED`, or any review that is not `DISMISSED` whose body contains `nod_phrase`. It admits exactly the commit GitHub recorded the review against (`commit.oid`); a newer head needs a new review. Labels are never read.
+- A job stops at checkout unless the head it fetched is the head the gate admitted.
 - PR comments go through `ws review <comp> comment`, which prepends the GDD banner; the text is in the `oss-wide` register: what was observed, what decision it needs, no characterisation of the contribution.
 - Prose in docs, READMEs and commit bodies is one line per paragraph and per bullet; never hard-wrapped.
 - Commits go through `ws commit <target> <bodyfile>` with a bodyfile under `.commits/`; the bodyfile's `add:` list is the staging list. Commit subjects use conventional prefixes.
-- Bay reset keeps Gradle outputs (`build/`, `.gradle/`) so compiles stay incremental: `git clean -fd` plus explicit removal of the profile's `runtime_dirs`. `--deep` is `git clean -fdx`.
-- Tests never touch the network: `gh`, `curl`, `git clone` and Gradle are PATH stubs; real `git` is used only on temp repositories.
+- `ws bay reset` keeps Gradle outputs (`build/`, `.gradle/`): `git clean -fd` on every repository plus explicit removal of the adapter's `provision.runtime_dirs`. `--deep` is `git clean -fdx` on component and nested repositories only, never on the bay's own root or realm, whose ignored paths are the clones themselves.
+- Tests never touch the network: `gh`, `curl` and Gradle are PATH stubs, the bay's `ws` is a recorder, and real `git` is used only on temporary repositories.
 
 ## Review Focus
 
-1. **A PR force-pushed between poll and fetch.** The job must record the SHA it actually fetched, not the one polled, and the next tick must queue the newer head. Pinned in Task 6 (replace on newer head) and Task 8 (`job.yaml` holds `git rev-parse HEAD` after checkout).
-2. **A label applied by someone outside `maintainers`.** The gate ignores it and names the actor in its reason, so a self-labelled PR never runs. Pinned in Task 5.
-3. **One nested module whose fetch fails during reset.** The bay goes `broken`, the job does not run, and the tick logs which repository failed. Pinned in Task 4.
-4. **A game that never logs the renderer line.** The smoke step times out, stops the JVM, exits non-zero and leaves the log tail in the job directory; the report shows the step as failed, not skipped. Pinned in Task 14.
-5. **A tick that fires while the previous tick's job is still running.** The second tick exits 0 with a "busy" line and runs nothing; a lock older than `lock_stale_hours` is treated as abandoned. Pinned in Task 7.
+1. **A PR pushed between the nod and the fetch.** Step 2 compares `git rev-parse HEAD` with the head the gate admitted; a mismatch fails the step, skips 3–8 and the report says *head moved, a new nod is needed*. The next tick sees the newer head as a new candidate and asks the gate again. Pinned in Task 9 (the checkout test with a moved PR) and Task 7 (a moved head restarts the debounce).
+2. **A review from outside `maintainers`, or a maintainer's review on an older commit.** Neither admits the PR; both are named in the gate's reason, as *ignored* and *stale*. Pinned in Task 6.
+3. **The bay's `ws` running against the parent.** `ws` honours a pre-set `ROOT_DIR` and exports `ECOSYSTEM_LOCAL`, so a bay driven from the parent without clearing those would build and reset the parent. `ws bay exec` clears them; the test asserts the bay's `ws` saw no `ROOT_DIR` and ran from the bay. Pinned in Task 2.
+4. **One nested module whose fetch fails during reset.** `ws bay reset` exits 1 naming the repository (Task 2); naust marks the bay `broken` and the job does not run (Task 5).
+5. **A game that never logs the renderer line.** The smoke step times out, stops the JVM, exits non-zero and leaves the log tail in the job directory; the report shows the step as failed, not skipped. Pinned in Task 14.
+6. **A tick that fires while the previous tick's job is still running.** The second tick exits 0 with a "busy" line and runs nothing; a lock older than `lock_stale_hours` is treated as abandoned. Pinned in Task 8 and Task 3.
 
 ---
 
 ## File structure
 
-**yggdrasil** (Task 1)
-- Modify: `scripts/ws` — `ws_checkout()` gains `--pr <N> [--remote <name>]`; header comment line 32 and help text.
-- Modify: `tests/ws-checkout/test_helper.bash` — `setup_pr_fixture`, `publish_pr_head`.
-- Modify: `tests/ws-checkout/checkout.bats` — six `--pr` cases.
-- Modify: `docs/gdd/features.md:23`, `CHANGELOG.md` Unreleased → Added.
+**yggdrasil** (Tasks 1–2)
+- Modify: `scripts/ws` — `ws_checkout()` gains `--cr <N> [--remote <name>]` with `--pr` and `--mr` as aliases; `bay)` dispatch; the header reference and the `ws help` screen.
+- Create: `scripts/ws-bay.sh`, `bays/.gitkeep`, `tests/ws-bay/test_helper.bash`, `tests/ws-bay/bay.bats`.
+- Modify: `.gitignore`, `.claude/hooks/hook-rules` (`[ask-commands]`), `tests/ws-checkout/test_helper.bash`, `tests/ws-checkout/checkout.bats`, `docs/gdd/features.md`, `CHANGELOG.md`.
 
-**naust** (Tasks 2–11), new repository `SiliconSaga/naust`, checked out at `components/naust`
+**naust** (Tasks 3–11), new repository `SiliconSaga/naust`, checked out at `components/naust`
 - `bin/naust` — dispatcher: `naust tick|bay|run|job|report|notify`.
-- `bin/lib.sh` — logging, config (`cfg`, `prof`, `trust`), `.env` reading, lock, key=value state files.
+- `bin/lib.sh` — logging, config (`cfg`, `prof`, `trust`, `adapter`), `.env` reading, lock, key=value state files, `bay_ws`.
 - `bin/notify.sh` — Discord webhook: `say <text> [--file <path>]`.
-- `bin/bay.sh` — `add`, `reset`, `list`, `release`, `claim`, `set`.
-- `bin/gate.sh` — trust decision for one PR.
+- `bin/bay.sh` — the states (`free busy ready held broken`), `add` and `reset` as wrappers over `ws bay` plus the profile's hooks.
+- `bin/gate.sh` — trust decision for one PR head, from its reviews.
 - `bin/poll.sh` — one profile's open PRs → candidate lines, with seen-state and debounce.
 - `bin/queue.sh` — `put`, `next`, `drop`, `list`.
-- `bin/tick.sh` — the scheduled entry point; also `naust run`.
+- `bin/tick.sh` — the scheduled entry point; `bin/run.sh` — `naust run`.
 - `bin/job.sh` — the nine steps.
 - `bin/report.sh` — `report.md` and `comment.md` from a job directory.
 - `tests/run.sh`, `tests/helpers/stub.bash`, one `tests/<script>.bats` per script.
-- `README.md`, `AGENTS.md`, `naust.example.yaml`, `.env.example`, `.gitignore`.
+- `README.md`, `AGENTS.md`, `naust.example.yaml`.
 
-**realm-siliconsaga** (Tasks 12–14)
-- `naust/terasology.yaml` — the profile. `naust/trust.yaml` — maintainers and nod rules.
+**realm-siliconsaga** (Tasks 12–15)
+- `naust/terasology.yaml` — the profile. `naust/trust.yaml` — maintainers and the nod phrase.
+- `adapters/terasology.yaml` — gains `provision:` (`init`, `runtime_dirs`, `known_dirt`). `adapters/naust.yaml`, `ecosystem.yaml` entry.
 - `terasology/pr-lib.sh` — `wait_for_marker`, `stop_game`, `screenshot`.
 - `terasology/pr-seed.sh` — `generate` and `restore` the seed manifest; `terasology/seed-manifest.template.json`.
 - `terasology/pr-headless.sh`, `terasology/pr-smoke.sh`, `terasology/screenshot.ps1`.
-- `terasology/tests/run.sh`, `terasology/tests/*.bats`.
-- `adapters/naust.yaml`, `ecosystem.yaml` entry, `terasology/README.md` section.
+- `terasology/tests/run.sh`, `terasology/tests/*.bats`, `terasology/README.md` section.
 
-**Dionysus** (Task 15) — operator runbook, no code.
+**Dionysus** (Task 16) — operator runbook, no code.
 
 ---
 
-### Task 1: `ws checkout <target> --pr <N>` (yggdrasil)
+### Task 1: `ws checkout <target> --cr <N>` (yggdrasil)
 
 **Files:**
 - Modify: `scripts/ws:460-540` (`ws_checkout`), `scripts/ws:32` (header comment)
@@ -75,56 +77,67 @@
 - Modify: `docs/gdd/features.md:23`, `CHANGELOG.md`
 
 **Interfaces:**
-- Produces: `ws checkout <target> --pr <N> [--remote <name>]`. Fetches `refs/pull/<N>/head` from the one remote that has it (or `--remote`), resets local branch `pr/<N>` to it and switches there. Prints `pr/<N> → <short sha> (pull request #<N> on <remote>)`. Exit 1 when no remote or several remotes have the PR, when `--pr` is combined with a branch or `-b`, or when `<N>` is not a positive integer. Nested targets (`terasology/modules/Health`) work unchanged.
+- Produces: `ws checkout <target> --cr <N> [--remote <name>]`, with `--pr` and `--mr` accepted as aliases of `--cr`. Fetches the change request's head ref from the one remote that has it (or `--remote`): `refs/pull/<N>/head` on a GitHub remote, `refs/merge-requests/<N>/head` on a GitLab one, the provider detected from the remote's URL as every other verb does it. Resets local branch `cr/<N>` to it and switches there. Prints `cr/<N> → <short sha> (change request #<N> on <remote>, <ref>)`. Exit 1 when no remote or several remotes have it, when the flag is combined with a branch or `-b`, or when `<N>` is not a positive integer. Nested targets (`terasology/modules/Health`) work unchanged.
 
 - [ ] **Step 1: Branch**
 
 Run from the yggdrasil root:
 
 ```bash
-ws checkout yggdrasil feat/ws-checkout-pr -b
+ws checkout yggdrasil feat/ws-bays -b
 ```
 
-- [ ] **Step 2: Add the PR fixture to the test helper**
+- [ ] **Step 2: Add the change-request fixture to the test helper**
 
 Append to `tests/ws-checkout/test_helper.bash`:
 
 ```bash
-# A component whose "remote" is a local bare repository carrying a pull-request
-# head ref, the shape GitHub exposes as refs/pull/<n>/head. The work branch that
-# made the commit is deleted again, so the only way to reach PR_SHA is the ref.
-setup_pr_fixture() {
+# A component whose "remote" is a local bare repository carrying a change
+# request head ref, the shape GitHub exposes as refs/pull/<n>/head. The work
+# branch that made the commit is deleted again, so the only way to reach
+# CR_SHA is the ref.
+setup_cr_fixture() {
     setup_component_repo
-    PR_REMOTE="$BATS_TEST_TMPDIR/remote.git"
-    git init -q --bare "$PR_REMOTE"
-    git -C "$COMPONENTS_DIR/terasology" remote add origin "$PR_REMOTE"
+    CR_REMOTE="$BATS_TEST_TMPDIR/remote.git"
+    git init -q --bare "$CR_REMOTE"
+    git -C "$COMPONENTS_DIR/terasology" remote add origin "$CR_REMOTE"
     git -C "$COMPONENTS_DIR/terasology" push -q origin main
-    publish_pr_head "$COMPONENTS_DIR/terasology" 7 "first change"
+    publish_cr_head "$COMPONENTS_DIR/terasology" 7 "first change"
 }
 
-# Add a commit on top of main and publish it only as refs/pull/<n>/head on the
-# repo's origin. Sets PR_SHA. Calling it again for the same number moves the PR.
-publish_pr_head() {
-    local repo="$1" number="$2" text="$3"
-    git -C "$repo" switch -q -c pr-work
-    printf '%s\n' "$text" >> "$repo/pr.txt"
-    git -C "$repo" add pr.txt
+# Add a commit on top of main and publish it only as <ref> on the repo's
+# origin (default: the GitHub pull-request ref). Sets CR_SHA. Calling it again
+# for the same number moves the change request.
+publish_cr_head() { # <repo> <number> <text> [<ref>]
+    local repo="$1" number="$2" text="$3" ref="${4:-refs/pull/$2/head}"
+    git -C "$repo" switch -q -c cr-work
+    printf '%s\n' "$text" >> "$repo/cr.txt"
+    git -C "$repo" add cr.txt
     git -C "$repo" commit -qm "$text"
-    PR_SHA="$(git -C "$repo" rev-parse HEAD)"
-    git -C "$repo" push -q -f origin "HEAD:refs/pull/$number/head"
+    CR_SHA="$(git -C "$repo" rev-parse HEAD)"
+    git -C "$repo" push -q -f origin "HEAD:$ref"
     git -C "$repo" switch -q main
-    git -C "$repo" branch -q -D pr-work
+    git -C "$repo" branch -q -D cr-work
 }
 
-# The nested shape with a PR on the module's own origin.
-setup_nested_pr_fixture() {
+# The nested shape with a change request on the module's own origin.
+setup_nested_cr_fixture() {
     setup_nested_component
     local mod="$COMPONENTS_DIR/terasology/modules/Cooking"
     MOD_REMOTE="$BATS_TEST_TMPDIR/cooking.git"
     git init -q --bare "$MOD_REMOTE"
     git -C "$mod" remote add origin "$MOD_REMOTE"
     git -C "$mod" push -q origin main
-    publish_pr_head "$mod" 3 "module change"
+    publish_cr_head "$mod" 3 "module change"
+}
+
+# Make the fixture's origin look like a GitLab remote without any network: the
+# remote URL says gitlab.com, and git's url.<base>.insteadOf rewrites it to the
+# local bare repo for every fetch. Provider detection reads the URL; git reads
+# the rewrite.
+make_origin_gitlab() { # <repo>
+    git -C "$1" remote set-url origin "https://gitlab.com/group/terasology.git"
+    git -C "$1" config url."$CR_REMOTE".insteadOf "https://gitlab.com/group/terasology.git"
 }
 ```
 
@@ -133,66 +146,92 @@ setup_nested_pr_fixture() {
 Append to `tests/ws-checkout/checkout.bats`:
 
 ```bash
-@test "--pr fetches a pull request head into pr/<n> and switches to it" {
-    setup_pr_fixture
+@test "--cr fetches a change request head into cr/<n> and switches to it" {
+    setup_cr_fixture
 
-    run_ws checkout terasology --pr 7
+    run_ws checkout terasology --cr 7
 
     [ "$status" -eq 0 ]
-    [ "$(current_branch "$COMPONENTS_DIR/terasology")" = "pr/7" ]
-    [ "$(git -C "$COMPONENTS_DIR/terasology" rev-parse HEAD)" = "$PR_SHA" ]
-    [[ "$output" == *"pull request #7 on origin"* ]]
+    [ "$(current_branch "$COMPONENTS_DIR/terasology")" = "cr/7" ]
+    [ "$(git -C "$COMPONENTS_DIR/terasology" rev-parse HEAD)" = "$CR_SHA" ]
+    [[ "$output" == *"change request #7 on origin, refs/pull/7/head"* ]]
 }
 
-@test "--pr run again follows a moved pull request" {
-    setup_pr_fixture
-    run_ws checkout terasology --pr 7
-    [ "$status" -eq 0 ]
-    publish_pr_head "$COMPONENTS_DIR/terasology" 7 "second change"
+@test "--pr and --mr are aliases of --cr" {
+    setup_cr_fixture
 
     run_ws checkout terasology --pr 7
-
     [ "$status" -eq 0 ]
-    [ "$(current_branch "$COMPONENTS_DIR/terasology")" = "pr/7" ]
-    [ "$(git -C "$COMPONENTS_DIR/terasology" rev-parse HEAD)" = "$PR_SHA" ]
+    [ "$(current_branch "$COMPONENTS_DIR/terasology")" = "cr/7" ]
+
+    run_ws checkout terasology main
+    run_ws checkout terasology --mr 7
+    [ "$status" -eq 0 ]
+    [ "$(current_branch "$COMPONENTS_DIR/terasology")" = "cr/7" ]
 }
 
-@test "--pr works on a nested module repo" {
-    setup_nested_pr_fixture
+@test "--cr run again follows a moved change request" {
+    setup_cr_fixture
+    run_ws checkout terasology --cr 7
+    [ "$status" -eq 0 ]
+    publish_cr_head "$COMPONENTS_DIR/terasology" 7 "second change"
 
-    run_ws checkout terasology/modules/Cooking --pr 3
+    run_ws checkout terasology --cr 7
 
     [ "$status" -eq 0 ]
-    [ "$(current_branch "$COMPONENTS_DIR/terasology/modules/Cooking")" = "pr/3" ]
-    [ "$(git -C "$COMPONENTS_DIR/terasology/modules/Cooking" rev-parse HEAD)" = "$PR_SHA" ]
+    [ "$(current_branch "$COMPONENTS_DIR/terasology")" = "cr/7" ]
+    [ "$(git -C "$COMPONENTS_DIR/terasology" rev-parse HEAD)" = "$CR_SHA" ]
+}
+
+@test "--cr works on a nested module repo" {
+    setup_nested_cr_fixture
+
+    run_ws checkout terasology/modules/Cooking --cr 3
+
+    [ "$status" -eq 0 ]
+    [ "$(current_branch "$COMPONENTS_DIR/terasology/modules/Cooking")" = "cr/3" ]
+    [ "$(git -C "$COMPONENTS_DIR/terasology/modules/Cooking" rev-parse HEAD)" = "$CR_SHA" ]
     [ "$(current_branch "$COMPONENTS_DIR/terasology")" = "main" ]
 }
 
-@test "--pr fails when no remote carries the pull request" {
-    setup_pr_fixture
+@test "--cr fetches a merge request ref from a GitLab remote" {
+    setup_cr_fixture
+    make_origin_gitlab "$COMPONENTS_DIR/terasology"
+    publish_cr_head "$COMPONENTS_DIR/terasology" 9 "mr change" refs/merge-requests/9/head
 
-    run_ws checkout terasology --pr 99
+    run_ws checkout terasology --cr 9
+
+    [ "$status" -eq 0 ]
+    [ "$(current_branch "$COMPONENTS_DIR/terasology")" = "cr/9" ]
+    [ "$(git -C "$COMPONENTS_DIR/terasology" rev-parse HEAD)" = "$CR_SHA" ]
+    [[ "$output" == *"refs/merge-requests/9/head"* ]]
+}
+
+@test "--cr fails when no remote carries the change request" {
+    setup_cr_fixture
+
+    run_ws checkout terasology --cr 99
 
     [ "$status" -ne 0 ]
     [[ "$output" == *"No remote"*"#99"* ]]
 }
 
-@test "--pr refuses a branch argument and -b" {
-    setup_pr_fixture
+@test "--cr refuses a branch argument and -b" {
+    setup_cr_fixture
 
-    run_ws checkout terasology main --pr 7
+    run_ws checkout terasology main --cr 7
     [ "$status" -ne 0 ]
-    [[ "$output" == *"--pr takes no branch"* ]]
+    [[ "$output" == *"--cr takes no branch"* ]]
 
-    run_ws checkout terasology --pr 7 -b
+    run_ws checkout terasology --cr 7 -b
     [ "$status" -ne 0 ]
-    [[ "$output" == *"--pr takes no branch"* ]]
+    [[ "$output" == *"--cr takes no branch"* ]]
 }
 
-@test "--pr rejects a non-numeric number" {
-    setup_pr_fixture
+@test "--cr rejects a non-numeric number" {
+    setup_cr_fixture
 
-    run_ws checkout terasology --pr seven
+    run_ws checkout terasology --cr seven
 
     [ "$status" -ne 0 ]
     [[ "$output" == *"positive integer"* ]]
@@ -202,21 +241,21 @@ Append to `tests/ws-checkout/checkout.bats`:
 - [ ] **Step 4: Run the tests to verify they fail**
 
 Run: `ws test yggdrasil tests/ws-checkout/checkout.bats`
-Expected: the six new tests fail with `Unknown option '--pr'`; the existing eight pass.
+Expected: the eight new tests fail with `Unknown option '--cr'` (or `--pr`, `--mr`); the existing eight pass.
 
-- [ ] **Step 5: Implement `--pr` in `ws_checkout`**
+- [ ] **Step 5: Implement `--cr` in `ws_checkout`**
 
 In `scripts/ws`, replace the body of `ws_checkout()` from `local create="" target="" branch=""` to the end of the function with:
 
 ```bash
-    local create="" target="" branch="" pr="" remote=""
+    local create="" target="" branch="" cr="" remote=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -b|--create) create="yes"; shift ;;
-            --pr)
-                [[ $# -ge 2 ]] || { echo "ERROR: --pr needs a pull request number." >&2; exit 1; }
-                pr="$2"; shift 2 ;;
-            --pr=*) pr="${1#--pr=}"; shift ;;
+            --cr|--pr|--mr)
+                [[ $# -ge 2 ]] || { echo "ERROR: $1 needs a change request number." >&2; exit 1; }
+                cr="$2"; shift 2 ;;
+            --cr=*|--pr=*|--mr=*) cr="${1#--??=}"; shift ;;
             --remote)
                 [[ $# -ge 2 ]] || { echo "ERROR: --remote needs a remote name." >&2; exit 1; }
                 remote="$2"; shift 2 ;;
@@ -242,23 +281,23 @@ In `scripts/ws`, replace the body of `ws_checkout()` from `local create="" targe
         esac
     done
 
-    if [[ -n "$pr" ]]; then
+    if [[ -n "$cr" ]]; then
         if [[ -n "$branch" || -n "$create" ]]; then
-            echo "ERROR: --pr takes no branch and no -b; the branch is always pr/<n>." >&2
+            echo "ERROR: --cr takes no branch and no -b; the branch is always cr/<n>." >&2
             exit 1
         fi
-        if [[ ! "$pr" =~ ^[1-9][0-9]*$ ]]; then
-            echo "ERROR: --pr needs a positive integer, got '$pr'." >&2
+        if [[ ! "$cr" =~ ^[1-9][0-9]*$ ]]; then
+            echo "ERROR: --cr needs a positive integer, got '$cr'." >&2
             exit 1
         fi
         if [[ -n "$remote" && ! "$remote" =~ ^[A-Za-z0-9._/-]+$ ]]; then
             echo "ERROR: Invalid remote name '$remote'." >&2
             exit 1
         fi
-        [[ -n "$target" ]] || { echo "ERROR: ws checkout --pr requires a target." >&2; exit 1; }
+        [[ -n "$target" ]] || { echo "ERROR: ws checkout --cr requires a target." >&2; exit 1; }
         ws_resolve_target "$target"
         cd "$COMPONENT_DIR"
-        ws_checkout_pr "$pr" "$remote"
+        ws_checkout_cr "$cr" "$remote"
         return
     fi
 
@@ -288,42 +327,61 @@ In `scripts/ws`, replace the body of `ws_checkout()` from `local create="" targe
     fi
 }
 
-# Fetch a pull request's head into the local branch pr/<n> and switch to it.
+# The ref a change request's head lives at on <remote>. GitHub exposes pull
+# request heads as refs/pull/<n>/head, GitLab merge requests as
+# refs/merge-requests/<n>/head. The provider comes from the remote's URL the
+# way every other verb detects it; a URL nothing recognises (a local path in
+# tests, an unmapped self-hosted domain) gets the GitHub form.
+ws_cr_ref() { # <remote> <n>
+    local url provider eco
+    url="$(git remote get-url "$1" 2>/dev/null)" || url=""
+    eco="$(ws_resolve_ecosystem 2>/dev/null)" || eco=""
+    provider="$(gp_detect "$url" "$eco" 2>/dev/null)" || provider="github"
+    case "$provider" in
+        gitlab) printf 'refs/merge-requests/%s/head\n' "$2" ;;
+        *)      printf 'refs/pull/%s/head\n' "$2" ;;
+    esac
+}
+
+# Fetch a change request's head into the local branch cr/<n> and switch to it.
 #
-# The PR lives on exactly one remote, and the repo usually has two (the fork
-# and the source), so without --remote every remote is asked whether it has
-# refs/pull/<n>/head: one yes is the answer, none or several is an error. The
-# ref is fetched into FETCH_HEAD rather than straight into the branch, because
-# git refuses to fetch into a branch that is checked out — which pr/<n> is, the
+# The change request lives on exactly one remote, and the repo usually has two
+# (the fork and the source), so without --remote every remote is asked whether
+# it has the ref: one yes is the answer, none or several is an error. The ref
+# is fetched into FETCH_HEAD rather than straight into the branch, because git
+# refuses to fetch into a branch that is checked out — which cr/<n> is, the
 # second time. `switch -C` then moves the branch to the fetched head whether or
-# not it is current: pr/<n> mirrors the PR, and local commits on it are not
-# something this verb preserves.
-ws_checkout_pr() {
-    local pr="$1" remote="$2" ref="refs/pull/$1/head" r
+# not it is current: cr/<n> mirrors the change request, and local commits on
+# it are not something this verb preserves.
+ws_checkout_cr() {
+    local cr="$1" remote="$2" r ref
     local -a found=()
+    # shellcheck source=git-provider.sh
+    source "$SCRIPT_DIR/git-provider.sh"
     if [[ -z "$remote" ]]; then
         for r in $(git remote); do
-            if git ls-remote --exit-code "$r" "$ref" >/dev/null 2>&1; then
+            if git ls-remote --exit-code "$r" "$(ws_cr_ref "$r" "$cr")" >/dev/null 2>&1; then
                 found+=("$r")
             fi
         done
         case ${#found[@]} in
             0)
-                echo "ERROR: No remote of this repo has pull request #$pr (looked for $ref on: $(git remote | tr '\n' ' '))." >&2
+                echo "ERROR: No remote of this repo has change request #$cr (remotes: $(git remote | tr '\n' ' '))." >&2
                 exit 1 ;;
             1) remote="${found[0]}" ;;
             *)
-                echo "ERROR: Pull request #$pr exists on several remotes: ${found[*]}." >&2
+                echo "ERROR: Change request #$cr exists on several remotes: ${found[*]}." >&2
                 echo "  Use --remote <name> to pick one." >&2
                 exit 1 ;;
         esac
     fi
+    ref="$(ws_cr_ref "$remote" "$cr")"
     if ! git fetch --quiet "$remote" "$ref"; then
-        echo "ERROR: Could not fetch pull request #$pr from remote '$remote'." >&2
+        echo "ERROR: Could not fetch $ref from remote '$remote'." >&2
         exit 1
     fi
-    git switch -C "pr/$pr" FETCH_HEAD >/dev/null
-    echo "pr/$pr → $(git rev-parse --short HEAD) (pull request #$pr on $remote)"
+    git switch -C "cr/$cr" FETCH_HEAD >/dev/null
+    echo "cr/$cr → $(git rev-parse --short HEAD) (change request #$cr on $remote, $ref)"
 }
 ```
 
@@ -331,10 +389,10 @@ Then update the help text inside `ws_checkout` (the `HELP` heredoc) to:
 
 ```text
 Usage: ws checkout <target> <branch> [-b|--create]
-       ws checkout <target> --pr <n> [--remote <name>]
+       ws checkout <target> --cr <n> [--remote <name>]
 
 Switch a component, realm, hoard or nested repo to a branch, or to the head of
-a pull request.
+a change request (a GitHub pull request or a GitLab merge request).
 
 Branches only. This deliberately cannot restore paths the way `git checkout --
 <path>` does, because that silently discards working-tree changes; do that by
@@ -344,34 +402,36 @@ The target accepts the same names as every other repo-touching verb, so nested
 repos work here too: `ws checkout terasology/modules/Cooking fix/x -b` branches
 the module in place, inside the tree where it actually builds.
 
---pr <n> fetches refs/pull/<n>/head (GitHub) from the one remote that has it
-and resets the local branch pr/<n> to it, so running it again follows a PR
-that moved. Local commits on pr/<n> are not kept; branch off it if you need
-them. --remote picks the remote when more than one has the PR.
+--cr <n> fetches the change request's head ref (refs/pull/<n>/head on GitHub,
+refs/merge-requests/<n>/head on GitLab, by the remote's provider) from the one
+remote that has it and resets the local branch cr/<n> to it, so running it
+again follows a change request that moved. Local commits on cr/<n> are not
+kept; branch off it if you need them. --remote picks the remote when more than
+one has it. --pr and --mr are the same flag under the provider's own word.
 
 Options:
   -b, --create        Create the branch and switch to it
-  --pr <n>            Check out pull request <n> as branch pr/<n>
-  --remote <name>     With --pr: the remote to fetch the PR from
+  --cr <n>            Check out change request <n> as branch cr/<n> (--pr, --mr: aliases)
+  --remote <name>     With --cr: the remote to fetch from
 
 Examples:
   ws checkout yggdrasil main                        # the workspace root
   ws checkout terasology fix/assets -b              # a component
   ws checkout terasology/modules/Cooking fix/x -b   # a nested module repo
-  ws checkout terasology --pr 5400                  # a PR, as branch pr/5400
+  ws checkout terasology --cr 5400                  # a PR, as branch cr/5400
   ws checkout terasology/modules/Health --pr 12     # a PR on a nested module
 ```
 
 And change the header comment at `scripts/ws:32` to:
 
 ```text
-#   checkout <target> <branch> [-b|--create] | --pr <n>  Switch/create a branch, or check out a PR head (branches only, never paths)
+#   checkout <target> <branch> [-b|--create] | --cr <n>  Switch/create a branch, or check out a change request's head (branches only, never paths)
 ```
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `ws test yggdrasil tests/ws-checkout/checkout.bats`
-Expected: 14 tests, all pass.
+Expected: 16 tests, all pass.
 
 Run: `ws test yggdrasil tests/ws-target-resolution/`
 Expected: unchanged, all pass (the resolver is untouched).
@@ -379,29 +439,29 @@ Expected: unchanged, all pass (the resolver is untouched).
 - [ ] **Step 7: Lint**
 
 Run: `ws lint yggdrasil`
-Expected: clean. If shellcheck flags the `for r in $(git remote)` word-split, it is intended (remote names carry no spaces); keep the loop and add `# shellcheck disable=SC2046` above it only if the lint actually fails.
+Expected: clean. If shellcheck flags the `for r in $(git remote)` word-split, it is intended (remote names carry no spaces); add `# shellcheck disable=SC2046` above the loop only if the lint actually fails.
 
 - [ ] **Step 8: Docs and changelog**
 
 Replace `docs/gdd/features.md` line 23 with:
 
 ```markdown
-- `ws checkout <component> <branch> [-b]` / `ws checkout <component> --pr <n>` — Switch or create a branch, or check out a pull request's head as branch `pr/<n>`, refetched each time so it follows a PR that moved. Branches only; it has no path mode, so it cannot discard working-tree changes.
+- `ws checkout <component> <branch> [-b]` / `ws checkout <component> --cr <n>` — Switch or create a branch, or check out a change request's head (a pull request on GitHub, a merge request on GitLab; `--pr` and `--mr` are aliases) as branch `cr/<n>`, refetched each time so it follows a change request that moved. Branches only; it has no path mode, so it cannot discard working-tree changes.
 ```
 
 Add under `## [Unreleased]` → `### Added` in `CHANGELOG.md`, as the first bullet:
 
 ```markdown
-- **`ws checkout <target> --pr <n>`** — check out a pull request's head as the local branch `pr/<n>`, nested targets included. The PR is looked up on every remote (`refs/pull/<n>/head`) so a fork-plus-source checkout needs no `--remote` unless both have it; running it again resets `pr/<n>` to the PR's new head. The first piece of naust, the PR-bay runner, and useful on its own for reviewing a PR in place.
+- **`ws checkout <target> --cr <n>`** — check out a change request's head as the local branch `cr/<n>`, nested targets included; `--pr` and `--mr` are the same flag under each provider's word. The ref is looked up on every remote (`refs/pull/<n>/head` on GitHub, `refs/merge-requests/<n>/head` on GitLab, by the remote's provider) so a fork-plus-source checkout needs no `--remote` unless both have it; running it again resets `cr/<n>` to the new head. The first piece of naust, the PR-bay runner, and useful on its own for reviewing a change in place.
 ```
 
 - [ ] **Step 9: Commit**
 
-Write `.commits/ws-checkout-pr.md`:
+Write `.commits/ws-checkout-cr.md`:
 
 ```markdown
 ---
-message: "feat(ws): checkout --pr <n> fetches a pull request head into pr/<n>"
+message: "feat(ws): checkout --cr <n> fetches a change request's head into cr/<n>"
 add:
   - scripts/ws
   - tests/ws-checkout/test_helper.bash
@@ -410,26 +470,812 @@ add:
   - CHANGELOG.md
 ---
 
-Reviewing a PR in place meant hand-typing the refs/pull refspec, and a bay runner cannot. The verb asks every remote for refs/pull/<n>/head so a fork-plus-source checkout needs no flag, fetches into FETCH_HEAD because git refuses to fetch into the checked-out branch pr/<n> on the second run, and resets the branch with switch -C so it always mirrors the PR.
-
-GitHub refs only for now; GitLab's refs/merge-requests/<n>/head is a one-line follow-up when a GitLab component needs it.
+Reviewing a change in place meant hand-typing the refs/pull refspec, and a bay runner cannot. The verb asks every remote for the provider's head ref so a fork-plus-source checkout needs no flag, fetches into FETCH_HEAD because git refuses to fetch into the checked-out branch cr/<n> on the second run, and resets the branch with switch -C so it always mirrors the change request. GitLab's ref is tested through url.insteadOf: the URL says gitlab.com, the fetch goes to a local bare repo.
 ```
 
-Run: `ws commit yggdrasil .commits/ws-checkout-pr.md`
+Run: `ws commit yggdrasil .commits/ws-checkout-cr.md`
 
-Then `ws push yggdrasil` and `ws cr yggdrasil "ws checkout --pr <n>" .crs/ws-checkout-pr.md` with a change bodyfile from `templates/change.md` (summary: the verb, the remote probing, the reset semantics; test plan: the six bats cases). Review-bot rounds follow the usual `ws review` flow.
+The push and the CR come at the end of Task 2; both verbs ship in one CR.
 
-### Task 2: naust skeleton — dispatcher, `lib.sh`, test harness
+### Task 2: `bays/` and `ws bay` — child workspaces (yggdrasil)
+
+**Files:**
+- Create: `scripts/ws-bay.sh`, `bays/.gitkeep`, `tests/ws-bay/test_helper.bash`, `tests/ws-bay/bay.bats`
+- Modify: `scripts/ws` (dispatch, header comment, `ws_help` screen), `.gitignore`, `.claude/hooks/hook-rules`, `docs/gdd/features.md`, `CHANGELOG.md`
+
+**Interfaces:**
+- Produces: `ws bay add <name> [--with <component>]... [--realm <name>] [--hoard <url>] [--from <url>]`: clones the workspace into `bays/<name>` (from `--from`, else this checkout's one remote, else the remote `defaults.upstreamRemote` names), writes the bay's `ecosystem.local.yaml` from the parent's with `_gdd` dropped, `realm` set and `machine` set to `<parent machine>-<name>`, clones the realm from the parent's realm checkout's remote, trusts it inside the bay, clones each `--with` component and runs its adapter's `provision.init` in the component directory, clones `--hoard` if given.
+- Produces: `ws bay reset <name> [--deep]`: for the bay's root, its realm, every component and every nested repo the component's adapter declares: fetch, hard-reset, switch to the remote's default branch, `git clean -fd`; then removes each component's `provision.runtime_dirs`; exit 1 naming every repository that failed or is still dirty. `--deep` cleans with `-x` in component and nested repos only. A component's remote is its one remote, else `defaults.upstreamRemote` from the bay's ecosystem files, else the adapter's `provision.remote`; its branch is the remote's HEAD unless `provision.branch` says otherwise.
+- Produces: `ws bay list` (tab-separated `name realm components`), `ws bay dir <name>`, `ws bay exec <name> <ws args...>` (the bay's own `scripts/ws`, run from the bay, with `ROOT_DIR ECOSYSTEM ECOSYSTEM_LOCAL REALMS_DIR COMPONENTS_DIR HOARDS_DIR BAYS_DIR` unset), `ws bay rm <name> [--force]` (refuses uncommitted work without `--force`).
+- Adapter keys read, all optional: `provision.init` (a command, run after clone with the component directory as cwd), `provision.runtime_dirs` (relative paths removed on reset), `provision.remote`, `provision.branch`; `nested` (globs, already defined). A component with no `provision:` block needs no configuration at all.
+- Environment: `BAYS_DIR` (default `$ROOT_DIR/bays`), `WS_BAY_RESET_PARALLEL` (default 8).
+
+- [ ] **Step 1: `bays/` in the tree**
+
+Create an empty `bays/.gitkeep`. Add to `.gitignore` after the hoards block:
+
+```gitignore
+# Bays — child workspaces made by `ws bay add`, each a complete yggdrasil clone
+# with its own realm and components, ignored by this clone's Git. Only
+# .gitkeep is tracked. Naust keeps its machine-local state in bays/.naust/.
+/bays/*
+!/bays/.gitkeep
+```
+
+In `.claude/hooks/hook-rules`, under `[ask-commands]` after the `ws exec *` line:
+
+```text
+ws bay reset*
+ws bay rm*
+```
+
+- [ ] **Step 2: Test helper**
+
+Create `tests/ws-bay/test_helper.bash`:
+
+```bash
+REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+WS_BIN="$REPO_ROOT/scripts/ws"
+
+run_ws() {
+    run bash "$WS_BIN" "$@"
+}
+
+make_repo() {
+    local dir="$1"
+    mkdir -p "$dir"
+    git -C "$dir" init -q -b main
+    git -C "$dir" config user.email "test@example.invalid"
+    git -C "$dir" config user.name "Test"
+    printf 'seed\n' > "$dir/seed.txt"
+    git -C "$dir" add seed.txt
+    git -C "$dir" commit -qm "seed"
+}
+
+# A bare repository that clones and fetches like a hosted one: its HEAD names
+# the branch that was pushed, so a clone checks something out.
+make_bare() { # <path> <branch>
+    git init -q --bare "$1"
+    git -C "$1" symbolic-ref HEAD "refs/heads/$2"
+}
+
+# A real repo on <branch> whose origin is a bare repo already holding it, with
+# origin/HEAD recorded the way git clone records it. The bare repo lives under
+# $REMOTES, outside every working tree a reset will clean.
+make_remote_repo() { # <dir> <branch>
+    local dir="$1" branch="$2" bare="$REMOTES/$(basename "$1").git"
+    make_repo "$dir"
+    git -C "$dir" branch -q -m main "$branch"
+    make_bare "$bare" "$branch"
+    git -C "$dir" remote add origin "$bare"
+    git -C "$dir" push -q -u origin "$branch"
+    git -C "$dir" remote set-head origin --auto
+}
+
+# The parent workspace: a clone of a stub yggdrasil whose scripts/ws records
+# every call with the ROOT_DIR it saw and fakes realm, clone and hoard by
+# making what they would make; one active realm checkout with a
+# Terasology-shaped adapter; an empty bays/.
+init_parent() {
+    WORK="$BATS_TEST_TMPDIR/work"
+    REMOTES="$BATS_TEST_TMPDIR/remotes"
+    mkdir -p "$REMOTES"
+    export BAY_WS_LOG="$BATS_TEST_TMPDIR/bay-ws.log"
+    : > "$BAY_WS_LOG"
+
+    local src="$BATS_TEST_TMPDIR/ygg-src"
+    make_repo "$src"
+    mkdir -p "$src/scripts" "$src/components" "$src/realms" "$src/hoards" "$src/bays"
+    cat > "$src/scripts/ws" <<'EOF'
+#!/usr/bin/env bash
+# A stand-in for a bay's ws: records every call with the ROOT_DIR it saw and
+# the directory it ran from, and fakes the verbs bay add relies on.
+here="$(cd "$(dirname "$0")/.." && pwd)"
+printf '%s|root=%s|cwd=%s\n' "$*" "${ROOT_DIR:-unset}" "$PWD" >> "$BAY_WS_LOG"
+case "$1" in
+  realm)
+    case "$2" in
+      use) ;;
+      *) git clone -q "$2" "$here/realms/$(basename "${2%.git}")" ;;
+    esac ;;
+  clone)
+    mkdir -p "$here/components/$2"
+    git -C "$here/components/$2" init -q -b main
+    printf 'c\n' > "$here/components/$2/c.txt"
+    git -C "$here/components/$2" add c.txt
+    git -C "$here/components/$2" -c user.email=t@example.invalid -c user.name=T commit -qm c ;;
+  hoard) mkdir -p "$here/hoards/$(basename "${2%.git}")" ;;
+esac
+EOF
+    chmod +x "$src/scripts/ws"
+    touch "$src/components/.gitkeep" "$src/realms/.gitkeep" "$src/hoards/.gitkeep" "$src/bays/.gitkeep"
+    printf '/components/*\n!/components/.gitkeep\n/realms/*\n!/realms/.gitkeep\n/hoards/*\n!/hoards/.gitkeep\n/bays/*\n!/bays/.gitkeep\n/ecosystem.local.yaml\n/.tmp/\n/.outputs/\n' > "$src/.gitignore"
+    git -C "$src" add -A
+    git -C "$src" commit -qm "ws stub"
+    make_bare "$REMOTES/ygg.git" main
+    git -C "$src" remote add origin "$REMOTES/ygg.git"
+    git -C "$src" push -q origin main
+
+    git clone -q "$REMOTES/ygg.git" "$WORK"
+    export ROOT_DIR="$WORK" COMPONENTS_DIR="$WORK/components" REALMS_DIR="$WORK/realms" HOARDS_DIR="$WORK/hoards" BAYS_DIR="$WORK/bays"
+    export ECOSYSTEM="$WORK/ecosystem.yaml" ECOSYSTEM_LOCAL="$WORK/ecosystem.local.yaml" WS_FOOTER_DISABLE=1
+    printf 'identity: {}\ncomponents: {}\n' > "$ECOSYSTEM"
+    cat > "$ECOSYSTEM_LOCAL" <<'YAML'
+identity:
+  human_account: tester
+realm: community
+machine: Parent
+_gdd:
+  realmTrust:
+    realm: community
+    fingerprint: deadbeef
+YAML
+
+    local rsrc="$BATS_TEST_TMPDIR/realm-src"
+    make_repo "$rsrc"
+    mkdir -p "$rsrc/adapters"
+    printf 'components: {}\n' > "$rsrc/ecosystem.yaml"
+    cat > "$rsrc/adapters/terasology.yaml" <<'YAML'
+nested:
+  - "modules/*"
+provision:
+  init: "touch provisioned.marker"
+  runtime_dirs: [logs, saves]
+YAML
+    git -C "$rsrc" add -A
+    git -C "$rsrc" commit -qm adapter
+    make_bare "$REMOTES/community.git" main
+    git -C "$rsrc" remote add origin "$REMOTES/community.git"
+    git -C "$rsrc" push -q origin main
+    git clone -q "$REMOTES/community.git" "$REALMS_DIR/community"
+}
+
+# Change the realm's Terasology adapter at its source, so a bay's realm reset
+# picks it up rather than reverting it.
+realm_adapter_append() { # <text>
+    local rsrc="$BATS_TEST_TMPDIR/realm-src"
+    printf '%s\n' "$1" >> "$rsrc/adapters/terasology.yaml"
+    git -C "$rsrc" add -A
+    git -C "$rsrc" commit -qm "adapter change"
+    git -C "$rsrc" push -q origin main
+    git -C "$REALMS_DIR/community" pull -q
+}
+
+# A bay built by hand, the shape `ws bay add` leaves: a clone of the stub
+# yggdrasil, the realm cloned in, a real component with a real nested module,
+# each tracking its own bare remote.
+make_bay() { # <name>
+    local dir="$BAYS_DIR/$1"
+    git clone -q "$REMOTES/ygg.git" "$dir"
+    printf 'realm: community\nmachine: Parent-%s\n' "$1" > "$dir/ecosystem.local.yaml"
+    git clone -q "$REMOTES/community.git" "$dir/realms/community"
+    make_remote_repo "$dir/components/terasology" develop
+    printf '/build/\n/logs/\n/saves/\n/modules/\n' > "$dir/components/terasology/.gitignore"
+    git -C "$dir/components/terasology" add .gitignore
+    git -C "$dir/components/terasology" commit -qm gitignore
+    git -C "$dir/components/terasology" push -q origin develop
+    make_remote_repo "$dir/components/terasology/modules/Cooking" develop
+    BAY="$dir"
+}
+```
+
+- [ ] **Step 3: Write the failing tests**
+
+Create `tests/ws-bay/bay.bats`:
+
+```bash
+#!/usr/bin/env bats
+load test_helper
+
+setup() { init_parent; }
+
+@test "add clones the workspace, names its machine, gives it the realm and the components" {
+    run_ws bay add bay-1 --with terasology
+
+    [ "$status" -eq 0 ]
+    [ -f "$BAYS_DIR/bay-1/scripts/ws" ]
+    [ "$(yq -r '.machine' "$BAYS_DIR/bay-1/ecosystem.local.yaml")" = "Parent-bay-1" ]
+    [ "$(yq -r '.realm' "$BAYS_DIR/bay-1/ecosystem.local.yaml")" = "community" ]
+    [ "$(yq -r '.identity.human_account' "$BAYS_DIR/bay-1/ecosystem.local.yaml")" = "tester" ]
+    [ "$(yq -r '._gdd // "gone"' "$BAYS_DIR/bay-1/ecosystem.local.yaml")" = "gone" ]
+    grep -q "^realm $REMOTES/community.git|" "$BAY_WS_LOG"
+    grep -q '^realm use community --trust|' "$BAY_WS_LOG"
+    grep -q '^clone terasology|' "$BAY_WS_LOG"
+    [ -f "$BAYS_DIR/bay-1/realms/community/adapters/terasology.yaml" ]
+    [ -f "$BAYS_DIR/bay-1/components/terasology/provisioned.marker" ]
+}
+
+@test "the bay's ws runs from the bay with none of the parent's roots" {
+    run_ws bay add bay-1
+    [ "$status" -eq 0 ]
+    run_ws bay exec bay-1 status --nested
+    [ "$status" -eq 0 ]
+    grep -q '^status --nested|root=unset|cwd=.*/bay-1$' "$BAY_WS_LOG"
+    grep -q '^realm use community --trust|root=unset|' "$BAY_WS_LOG"
+}
+
+@test "add refuses an existing bay and a bad name" {
+    mkdir -p "$BAYS_DIR/bay-1"
+    run_ws bay add bay-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"already exists"* ]]
+    run_ws bay add "../x"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Invalid bay name"* ]]
+}
+
+@test "add takes --hoard and --from" {
+    make_bare "$REMOTES/thalami.git" main
+    run_ws bay add bay-1 --hoard "$REMOTES/thalami.git" --from "$REMOTES/ygg.git"
+    [ "$status" -eq 0 ]
+    grep -q "^hoard $REMOTES/thalami.git|" "$BAY_WS_LOG"
+}
+
+@test "add needs --from when the parent has several remotes and no upstreamRemote" {
+    git -C "$WORK" remote add other "$REMOTES/ygg.git"
+    run_ws bay add bay-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--from"* ]]
+    printf 'defaults:\n  upstreamRemote: other\n' >> "$ECOSYSTEM_LOCAL"
+    run_ws bay add bay-1
+    [ "$status" -eq 0 ]
+}
+
+@test "reset returns root, realm, component and module to their remotes' default branches, clean" {
+    make_bay bay-1
+    comp="$BAY/components/terasology"
+    git -C "$comp" switch -q -c cr/7
+    printf 'x\n' > "$comp/cr.txt"; git -C "$comp" add cr.txt; git -C "$comp" commit -qm cr
+    printf 'edited\n' >> "$comp/seed.txt"
+    printf 'stray\n' > "$comp/stray.txt"
+    mkdir -p "$comp/logs/run1" "$comp/build/classes"; touch "$comp/logs/run1/a.log" "$comp/build/classes/A.class"
+    printf 'lb\n' > "$comp/modules/Cooking/src.txt"
+    printf 'local\n' >> "$BAY/realms/community/ecosystem.yaml"
+    printf 'hack\n' >> "$BAY/scripts/ws"
+
+    run_ws bay reset bay-1
+
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$comp" rev-parse --abbrev-ref HEAD)" = "develop" ]
+    [ "$(git -C "$comp" rev-parse HEAD)" = "$(git -C "$comp" rev-parse origin/develop)" ]
+    [ -z "$(git -C "$comp" status --porcelain)" ]
+    [ ! -e "$comp/stray.txt" ]
+    [ ! -e "$comp/logs" ]
+    [ -e "$comp/build/classes/A.class" ]                  # Gradle output survives a plain reset
+    [ -z "$(git -C "$comp/modules/Cooking" status --porcelain)" ]
+    [ -z "$(git -C "$BAY/realms/community" status --porcelain)" ]
+    [ -z "$(git -C "$BAY" status --porcelain)" ]
+    [ -d "$BAY/components/terasology/.git" ]
+    [ -d "$BAY/realms/community/.git" ]
+    [[ "$output" == *"clean in"* ]]
+}
+
+@test "reset --deep drops ignored output in components and never touches the bay's own clones" {
+    make_bay bay-1
+    comp="$BAY/components/terasology"
+    mkdir -p "$comp/build/classes"; touch "$comp/build/classes/A.class"
+    run_ws bay reset bay-1 --deep
+    [ "$status" -eq 0 ]
+    [ ! -e "$comp/build" ]
+    [ -d "$BAY/components/terasology/.git" ]
+    [ -d "$BAY/components/terasology/modules/Cooking/.git" ]
+    [ -d "$BAY/realms/community/.git" ]
+}
+
+@test "reset fails and names the repository when a nested fetch fails" {
+    make_bay bay-1
+    git -C "$BAY/components/terasology/modules/Cooking" remote set-url origin "$BATS_TEST_TMPDIR/does-not-exist.git"
+    run_ws bay reset bay-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"FAILED in "*"modules/Cooking"* ]]
+}
+
+@test "reset needs provision.remote when a component has several remotes" {
+    make_bay bay-1
+    comp="$BAY/components/terasology"
+    make_bare "$REMOTES/fork.git" develop
+    git -C "$comp" remote add fork "$REMOTES/fork.git"
+    git -C "$comp" push -q fork develop
+    run_ws bay reset bay-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"remotes and none is named"* ]]
+    realm_adapter_append $'  remote: origin\n  branch: develop'
+    run_ws bay reset bay-1
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$comp" rev-parse --abbrev-ref HEAD)" = "develop" ]
+}
+
+@test "list and dir" {
+    make_bay bay-1
+    run_ws bay list
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = $'bay-1\tcommunity\tterasology' ]
+    run_ws bay dir bay-1
+    [ "$status" -eq 0 ]
+    [ "$output" = "$BAYS_DIR/bay-1" ]
+}
+
+@test "rm refuses uncommitted work unless forced" {
+    make_bay bay-1
+    printf 'wip\n' > "$BAY/components/terasology/wip.txt"
+    run_ws bay rm bay-1
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"uncommitted work"* ]]
+    [ -d "$BAY" ]
+    run_ws bay rm bay-1 --force
+    [ "$status" -eq 0 ]
+    [ ! -e "$BAY" ]
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they fail**
+
+Run: `ws test yggdrasil tests/ws-bay/bay.bats`
+Expected: all fail (`ws bay` is not a verb yet).
+
+- [ ] **Step 5: Implement `scripts/ws-bay.sh`**
+
+```bash
+#!/usr/bin/env bash
+# ws-bay.sh — bays: child workspaces under bays/, each a complete yggdrasil clone
+# ws:use-when making, resetting or driving a second workspace on this machine
+#
+# Usage:
+#   ws-bay.sh add <name> [--with <component>]... [--realm <name>] [--hoard <url>] [--from <url>]
+#   ws-bay.sh list
+#   ws-bay.sh reset <name> [--deep]
+#   ws-bay.sh dir <name>
+#   ws-bay.sh exec <name> <ws-args...>
+#   ws-bay.sh rm <name> [--force]
+#
+# A bay is a workspace first. A human uses one for a parallel session: its own
+# copy of the ws scripts, its own realm trust, its own machine name so a hoard
+# there never shares a Thalamus file with the parent. Naust uses bays to run
+# pull requests. Nothing here knows what a job is.
+
+set -euo pipefail
+
+for _arg in "$@"; do
+    if [[ "$_arg" == "--help" || "$_arg" == "-h" ]]; then
+        cat <<'HELP'
+Usage: ws bay add <name> [--with <component>]... [--realm <name>] [--hoard <url>] [--from <url>]
+       ws bay list
+       ws bay reset <name> [--deep]
+       ws bay dir <name>
+       ws bay exec <name> <ws-args...>
+       ws bay rm <name> [--force]
+
+A bay is a second, complete workspace under bays/<name>/: a clone of this
+workspace's yggdrasil, its own realm checkout (trusted inside the bay), the
+components you ask for, and a hoard if you want one. Use one for a parallel
+session that must not share your scripts or your Thalamus file, or let naust
+run pull requests through it.
+
+add      Clone from --from, else this checkout's one remote, else the remote
+         defaults.upstreamRemote names. The realm is the parent's active one
+         unless --realm. Each --with component is cloned with the bay's own ws
+         and then its adapter's provision.init runs in the component directory.
+reset    Fetch, hard-reset and clean every repository in the bay (root, realm,
+         components, nested repos the adapters declare) back to its remote's
+         default branch, then remove each adapter's provision.runtime_dirs.
+         Gradle output under build/ and .gradle/ survives; --deep removes it
+         too (component and nested repos only). Exit 1 names every repository
+         that failed or is still dirty.
+exec     Run the bay's own ws, from the bay, with this workspace's roots unset.
+rm       Remove the bay. Refuses uncommitted work unless --force.
+
+Adapter keys (all optional, under provision:): init, runtime_dirs, remote, branch.
+HELP
+        exit 0
+    fi
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+: "${ROOT_DIR:="$(cd "$SCRIPT_DIR/.." && pwd)"}"
+: "${ECOSYSTEM:="$ROOT_DIR/ecosystem.yaml"}"
+: "${ECOSYSTEM_LOCAL:="$ROOT_DIR/ecosystem.local.yaml"}"
+: "${REALMS_DIR:="$ROOT_DIR/realms"}"
+: "${BAYS_DIR:="$ROOT_DIR/bays"}"
+RESET_PARALLEL="${WS_BAY_RESET_PARALLEL:-8}"
+
+command -v yq >/dev/null 2>&1 || { echo "ERROR: ws bay needs yq (ws preflight)." >&2; exit 1; }
+
+bay_name_ok() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && "$1" != *..* ]]; }
+bay_dir() { printf '%s/%s\n' "$BAYS_DIR" "$1"; }
+bay_require() {
+    bay_name_ok "$1" || { echo "ERROR: Invalid bay name '$1'." >&2; exit 1; }
+    [[ -f "$(bay_dir "$1")/scripts/ws" ]] || { echo "ERROR: No bay named '$1' under $BAYS_DIR." >&2; exit 1; }
+}
+
+# Run the bay's own ws, from the bay, with none of this workspace's roots in
+# the environment: ws honours a pre-set ROOT_DIR and exports ECOSYSTEM_LOCAL,
+# so an inherited value would point the bay's ws straight back at the parent.
+bay_ws() { # <name> <args...>
+    local dir; dir="$(bay_dir "$1")"; shift
+    (cd "$dir" && env -u ROOT_DIR -u ECOSYSTEM -u ECOSYSTEM_LOCAL -u REALMS_DIR -u COMPONENTS_DIR -u HOARDS_DIR -u BAYS_DIR bash scripts/ws "$@")
+}
+
+yq_scalar() { # <file> <path> → the value, empty when absent or null
+    local v=""
+    [[ -f "$1" ]] && { v="$(yq -r "$2 // \"\"" "$1" 2>/dev/null)" || v=""; }
+    [[ "$v" != "null" ]] || v=""
+    printf '%s\n' "$v"
+}
+yq_list() { # <file> <path> → one item per line
+    [[ -f "$1" ]] || return 0
+    yq -r "($2 // [])[]" "$1" 2>/dev/null || true
+}
+
+bay_realm() { yq_scalar "$(bay_dir "$1")/ecosystem.local.yaml" .realm; }
+bay_adapter_file() { # <name> <component>
+    local realm; realm="$(bay_realm "$1")"
+    [[ -n "$realm" ]] && printf '%s\n' "$(bay_dir "$1")/realms/$realm/adapters/$2.yaml"
+}
+
+# The one remote to clone from or reset to. One remote is no choice; with
+# several, defaults.upstreamRemote (in any of the ecosystem files given)
+# names it; otherwise an explicit <override> must, or the caller is told.
+repo_remote() { # <dir> <override> <eco-file>...
+    local dir="$1" want="$2" n up f
+    shift 2
+    if [[ -n "$want" ]]; then
+        git -C "$dir" remote get-url "$want" >/dev/null 2>&1 || { echo "ERROR: $dir has no remote '$want'." >&2; return 1; }
+        printf '%s\n' "$want"; return 0
+    fi
+    n="$(git -C "$dir" remote | wc -l | tr -d ' ')"
+    if [[ "$n" -eq 1 ]]; then git -C "$dir" remote; return 0; fi
+    for f in "$@"; do
+        up="$(yq_scalar "$f" .defaults.upstreamRemote)"
+        if [[ -n "$up" ]] && git -C "$dir" remote get-url "$up" >/dev/null 2>&1; then printf '%s\n' "$up"; return 0; fi
+    done
+    echo "ERROR: $dir has $n remotes and none is named by defaults.upstreamRemote: $(git -C "$dir" remote | tr '\n' ' ')" >&2
+    return 1
+}
+
+# The remote's default branch, from the remote-tracking HEAD git records at
+# clone time; a remote added later gets it fetched once with set-head.
+remote_default_branch() { # <dir> <remote>
+    local b
+    b="$(git -C "$1" symbolic-ref -q --short "refs/remotes/$2/HEAD" 2>/dev/null)" || b=""
+    if [[ -z "$b" ]]; then
+        git -C "$1" remote set-head "$2" --auto >/dev/null 2>&1 || return 1
+        b="$(git -C "$1" symbolic-ref -q --short "refs/remotes/$2/HEAD" 2>/dev/null)" || return 1
+    fi
+    printf '%s\n' "${b#"$2/"}"
+}
+
+# The machine name this workspace goes by, the way ws hoard resolves it:
+# `machine:` in ecosystem.local.yaml, else the short hostname, made safe.
+parent_machine() {
+    local raw
+    raw="$(yq_scalar "$ECOSYSTEM_LOCAL" .machine)"
+    [[ -n "$raw" ]] || { raw="${HOSTNAME:-$(hostname)}"; raw="${raw%%.*}"; }
+    raw="$(printf '%s' "$raw" | tr -cs 'A-Za-z0-9._-' '-')"
+    printf '%s\n' "${raw:-unknown}"
+}
+
+# Every git repository a reset or a dirt check touches, one per line: each
+# component, then the nested repos its adapter declares by glob.
+bay_component_repos() { # <name>
+    local dir c g d
+    dir="$(bay_dir "$1")"
+    for c in "$dir"/components/*/; do
+        c="${c%/}"
+        [[ -d "$c/.git" ]] || continue
+        printf '%s\n' "$c"
+        while IFS= read -r g; do
+            [[ -n "$g" ]] || continue
+            for d in "$c"/$g; do [[ -d "$d/.git" ]] && printf '%s\n' "$d"; done
+        done < <(yq_list "$(bay_adapter_file "$1" "$(basename "$c")")" .nested)
+    done
+}
+
+cmd_add() {
+    local name="$1" realm="" hoard="" from="" dir src url comp init r
+    local -a with=()
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --with)  [[ $# -ge 2 ]] || { echo "ERROR: --with needs a component." >&2; exit 1; }; with+=("$2"); shift 2 ;;
+            --realm) [[ $# -ge 2 ]] || { echo "ERROR: --realm needs a name." >&2; exit 1; }; realm="$2"; shift 2 ;;
+            --hoard) [[ $# -ge 2 ]] || { echo "ERROR: --hoard needs a URL." >&2; exit 1; }; hoard="$2"; shift 2 ;;
+            --from)  [[ $# -ge 2 ]] || { echo "ERROR: --from needs a URL." >&2; exit 1; }; from="$2"; shift 2 ;;
+            *) echo "ERROR: Unknown option '$1'." >&2; exit 1 ;;
+        esac
+    done
+    bay_name_ok "$name" || { echo "ERROR: Invalid bay name '$name' (letters, digits, . _ -; no leading dot)." >&2; exit 1; }
+    dir="$(bay_dir "$name")"
+    [[ ! -e "$dir" ]] || { echo "ERROR: $dir already exists." >&2; exit 1; }
+    mkdir -p "$BAYS_DIR"
+
+    # The realm first, because the bay's local config names it: the parent's
+    # active one unless --realm, and it must be checked out here so its remote
+    # URL is known.
+    [[ -n "$realm" ]] || realm="$(yq_scalar "$ECOSYSTEM_LOCAL" .realm)"
+    if [[ -z "$realm" ]]; then
+        local -a realms=()
+        for r in "$REALMS_DIR"/*/; do [[ -d "$r/.git" ]] && realms+=("$(basename "$r")"); done
+        [[ ${#realms[@]} -eq 1 ]] && realm="${realms[0]}"
+    fi
+    [[ -n "$realm" ]] || { echo "ERROR: No active realm to give the bay; pass --realm <name>." >&2; exit 1; }
+    [[ -d "$REALMS_DIR/$realm/.git" ]] || { echo "ERROR: Realm '$realm' is not checked out at $REALMS_DIR/$realm." >&2; exit 1; }
+    src="$(repo_remote "$REALMS_DIR/$realm" "" "$ECOSYSTEM_LOCAL" "$REALMS_DIR/$realm/ecosystem.yaml")" || exit 1
+    url="$(git -C "$REALMS_DIR/$realm" remote get-url "$src")"
+
+    # Where the workspace itself comes from.
+    if [[ -z "$from" ]]; then
+        if ! src="$(repo_remote "$ROOT_DIR" "" "$ECOSYSTEM_LOCAL" "$ECOSYSTEM")"; then
+            echo "  Pass --from <url> to say which yggdrasil the bay clones." >&2
+            exit 1
+        fi
+        from="$(git -C "$ROOT_DIR" remote get-url "$src")"
+    fi
+    echo "bay add $name: cloning $from"
+    git clone --quiet "$from" "$dir"
+
+    # Machine-local config: this workspace's identity and overrides, no realm
+    # trust (the bay approves its own realm below), the realm named, and a
+    # machine name of its own so a hoard here gets its own Thalamus file.
+    local machine; machine="$(parent_machine)-$name"
+    if [[ -f "$ECOSYSTEM_LOCAL" ]]; then
+        BAY_REALM="$realm" BAY_MACHINE="$machine" yq 'del(._gdd) | .realm = strenv(BAY_REALM) | .machine = strenv(BAY_MACHINE)' "$ECOSYSTEM_LOCAL" > "$dir/ecosystem.local.yaml"
+    else
+        BAY_REALM="$realm" BAY_MACHINE="$machine" yq -n '.realm = strenv(BAY_REALM) | .machine = strenv(BAY_MACHINE)' > "$dir/ecosystem.local.yaml"
+    fi
+
+    echo "bay add $name: realm $realm from $url"
+    bay_ws "$name" realm "$url"
+    bay_ws "$name" realm use "$realm" --trust
+
+    for comp in "${with[@]}"; do
+        echo "bay add $name: cloning $comp"
+        bay_ws "$name" clone "$comp"
+        init="$(yq_scalar "$(bay_adapter_file "$name" "$comp")" .provision.init)"
+        if [[ -n "$init" ]]; then
+            echo "bay add $name: provisioning $comp: $init"
+            (cd "$dir/components/$comp" && bash -c "$init")
+        fi
+    done
+    if [[ -n "$hoard" ]]; then
+        echo "bay add $name: hoard $hoard"
+        bay_ws "$name" hoard "$hoard"
+    fi
+    echo "bay add $name: ready at $dir (realm $realm${with[*]:+, components ${with[*]}}, machine $machine)"
+}
+
+# Fetch, hard-reset and switch one repository to <remote>'s default branch (or
+# <branch>), then clean. Records the directory under <fails> on any failure so
+# the parallel caller can name it.
+reset_one() { # <dir> <remote> <branch-or-empty> <deep:yes|no> <fails-dir>
+    local d="$1" remote="$2" branch="$3" deep="$4" fails="$5" key clean="-qfd"
+    key="$(printf '%s' "$d" | tr '/:\\' '___')"
+    [[ "$deep" == yes ]] && clean="-qfdx"
+    if [[ -z "$branch" ]] && ! branch="$(remote_default_branch "$d" "$remote")"; then
+        printf '%s (no default branch on remote %s)\n' "$d" "$remote" > "$fails/$key"
+        return 0
+    fi
+    if git -C "$d" fetch --quiet "$remote" \
+        && git -C "$d" reset -q --hard \
+        && git -C "$d" switch -q -C "$branch" "$remote/$branch" \
+        && git -C "$d" clean $clean; then
+        return 0
+    fi
+    printf '%s\n' "$d" > "$fails/$key"
+    return 0
+}
+
+cmd_reset() {
+    local name="$1" deep=no dir realm fails running=0 failed=0 started r comp adapter
+    local t td tdeep tcomp remote override obranch rd c
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --deep) deep=yes; shift ;;
+            *) echo "ERROR: Unknown option '$1'." >&2; exit 1 ;;
+        esac
+    done
+    bay_require "$name"
+    dir="$(bay_dir "$name")"; realm="$(bay_realm "$name")"
+    started="$(date +%s)"
+    fails="$(mktemp -d)"
+
+    # What to reset, with its remote and branch settled up front: the bay's
+    # root and its realm never deep-clean (their ignored paths are the clones
+    # themselves); components read their adapter's provision overrides before
+    # anything moves, since the realm reset may change that file.
+    local -a plan=()
+    [[ -d "$dir/.git" ]] && plan+=("$dir"$'\t'no$'\t'$'\t')
+    [[ -n "$realm" && -d "$dir/realms/$realm/.git" ]] && plan+=("$dir/realms/$realm"$'\t'no$'\t'$'\t')
+    while IFS= read -r r; do
+        [[ -n "$r" ]] || continue
+        comp="${r#"$dir"/components/}"; comp="${comp%%/*}"
+        override=""; obranch=""
+        if [[ "$r" == "$dir/components/$comp" ]]; then
+            adapter="$(bay_adapter_file "$name" "$comp")"
+            override="$(yq_scalar "$adapter" .provision.remote)"
+            obranch="$(yq_scalar "$adapter" .provision.branch)"
+        fi
+        plan+=("$r"$'\t'"$deep"$'\t'"$override"$'\t'"$obranch")
+    done < <(bay_component_repos "$name")
+    echo "reset $name: ${#plan[@]} repositories (deep=$deep)"
+
+    for t in "${plan[@]}"; do
+        IFS=$'\t' read -r td tdeep override obranch <<< "$t"
+        if ! remote="$(repo_remote "$td" "$override" "$dir/ecosystem.local.yaml" "$dir/realms/$realm/ecosystem.yaml")"; then
+            printf '%s\n' "$td" > "$fails/$(printf '%s' "$td" | tr '/:\\' '___')"
+            continue
+        fi
+        reset_one "$td" "$remote" "$obranch" "$tdeep" "$fails" &
+        running=$((running + 1))
+        if [[ "$running" -ge "$RESET_PARALLEL" ]]; then wait -n; running=$((running - 1)); fi
+    done
+    wait
+    for r in "$fails"/*; do
+        [[ -e "$r" ]] || continue
+        echo "reset $name: FAILED in $(cat "$r")" >&2
+        failed=1
+    done
+    rm -rf "$fails"
+    if [[ "$failed" -ne 0 ]]; then
+        echo "ERROR: reset $name: some repositories could not be reset; runtime directories were left alone." >&2
+        exit 1
+    fi
+
+    # Runtime directories the adapter names: ignored by git, written by the
+    # program, not part of any known state. Relative to the component.
+    for c in "$dir"/components/*/; do
+        c="${c%/}"
+        [[ -d "$c/.git" ]] || continue
+        while IFS= read -r rd; do
+            [[ -n "$rd" ]] || continue
+            case "$rd" in
+                /*|*..*|"") echo "ERROR: provision.runtime_dirs entry '$rd' must be a relative path inside the component." >&2; exit 1 ;;
+            esac
+            rm -rf "${c:?}/$rd"
+        done < <(yq_list "$(bay_adapter_file "$name" "$(basename "$c")")" .provision.runtime_dirs)
+    done
+
+    # Every repository must now be clean, or the reset did not do its job.
+    for t in "${plan[@]}"; do
+        IFS=$'\t' read -r td tdeep override obranch <<< "$t"
+        if [[ -n "$(git -C "$td" status --porcelain)" ]]; then
+            echo "reset $name: $td is still dirty" >&2
+            failed=1
+        fi
+    done
+    [[ "$failed" -eq 0 ]] || exit 1
+    echo "reset $name: clean in $(( $(date +%s) - started )) s"
+}
+
+cmd_list() {
+    local d name realm comps c
+    for d in "$BAYS_DIR"/*/; do
+        [[ -f "$d/scripts/ws" ]] || continue
+        name="$(basename "$d")"
+        realm="$(bay_realm "$name")"
+        comps=""
+        for c in "$d"components/*/; do
+            [[ -d "$c/.git" ]] && comps="${comps:+$comps,}$(basename "$c")"
+        done
+        printf '%s\t%s\t%s\n' "$name" "${realm:--}" "$comps"
+    done
+}
+
+cmd_rm() {
+    local name="$1" force="${2:-}" dir r dirty=0
+    bay_require "$name"
+    dir="$(bay_dir "$name")"
+    [[ -z "$force" || "$force" == "--force" ]] || { echo "ERROR: Unknown option '$force'." >&2; exit 1; }
+    while IFS= read -r r; do
+        [[ -n "$r" && -d "$r/.git" ]] || continue
+        if [[ -n "$(git -C "$r" status --porcelain)" ]]; then
+            echo "bay rm $name: $r has uncommitted work" >&2
+            dirty=1
+        fi
+    done < <(printf '%s\n' "$dir"; bay_component_repos "$name")
+    if [[ "$dirty" -ne 0 && "$force" != "--force" ]]; then
+        echo "ERROR: Refusing to remove a bay with uncommitted work; commit or push it first, or pass --force." >&2
+        exit 1
+    fi
+    case "$dir" in "$BAYS_DIR"/?*) ;; *) echo "ERROR: $dir is not under $BAYS_DIR." >&2; exit 1 ;; esac
+    rm -rf "$dir"
+    echo "bay rm $name: removed $dir"
+}
+
+case "${1:-}" in
+    add)   shift; [[ $# -ge 1 ]] || { echo "ERROR: ws bay add <name> [...]" >&2; exit 1; }; cmd_add "$@" ;;
+    reset) shift; [[ $# -ge 1 ]] || { echo "ERROR: ws bay reset <name> [--deep]" >&2; exit 1; }; cmd_reset "$@" ;;
+    list)  cmd_list ;;
+    dir)   shift; [[ $# -eq 1 ]] || { echo "ERROR: ws bay dir <name>" >&2; exit 1; }; bay_require "$1"; bay_dir "$1" ;;
+    exec)  shift; [[ $# -ge 2 ]] || { echo "ERROR: ws bay exec <name> <ws-args...>" >&2; exit 1; }; bay_require "$1"; bay_ws "$@" ;;
+    rm)    shift; [[ $# -ge 1 ]] || { echo "ERROR: ws bay rm <name> [--force]" >&2; exit 1; }; cmd_rm "$@" ;;
+    *) echo "ERROR: ws bay {add|list|reset|dir|exec|rm} ...; see ws bay --help" >&2; exit 1 ;;
+esac
+```
+
+- [ ] **Step 6: Dispatch, header and help screen in `scripts/ws`**
+
+In the `case "$COMMAND"` block, after the `hoard)` entry:
+
+```bash
+    bay)
+        bash "$SCRIPT_DIR/ws-bay.sh" "$@"
+        ;;
+```
+
+In the header reference, after the `hoard lock` line:
+
+```text
+#   bay add <name> [--with <comp>]... [--realm <name>] [--hoard <url>] [--from <url>]  Make a child workspace under bays/
+#   bay list | reset <name> [--deep] | dir <name> | exec <name> <ws-args...> | rm <name> [--force]
+```
+
+In `ws_help`, change the "get code" row to:
+
+```text
+  clone  clone-fork  pull  checkout  log  vscode  bay           ← get code
+```
+
+The help smoke suite derives the expected verb list from the case statement, so the screen must list `bay` or it fails.
+
+- [ ] **Step 7: Run the tests to verify they pass**
+
+Run: `ws test yggdrasil tests/ws-bay/bay.bats`
+Expected: 11 pass. If the `add` test's `realm` call does not create the adapter, the stub cloned a URL that ends in `.git`; the stub strips it. If the reset test's `cd` into `modules/Cooking` fails after a plain reset, the component's `.gitignore` is missing `/modules/`, and `git clean -fd` removed the module directory (a nested repo is skipped only when git sees its `.git`).
+
+Run: `ws test yggdrasil` and `ws lint yggdrasil`
+Expected: everything green, including the help smoke suite.
+
+- [ ] **Step 8: Docs and changelog**
+
+In `docs/gdd/features.md`, after the `ws checkout` bullet:
+
+```markdown
+- `ws bay add <name> [--with <component>]…` / `ws bay reset <name> [--deep]` / `ws bay exec <name> <verb…>` — A bay is a second, complete workspace under `bays/<name>/`: its own clone of yggdrasil, its own realm checkout and trust, the components you name, optionally a hoard with its own machine name so Thalamus files never collide. Use one for a parallel session that must not share your scripts, or let naust run pull requests through it. `reset` brings every repository in it back to base and keeps build output; `exec` runs the bay's own `ws`.
+```
+
+Add under `## [Unreleased]` → `### Added` in `CHANGELOG.md`, after the `--cr` bullet:
+
+```markdown
+- **`ws bay` — child workspaces under `bays/`.** `ws bay add <name>` clones this workspace's yggdrasil into `bays/<name>/`, gives it the parent's identity with a machine name of its own, clones and trusts the realm, clones each `--with` component and runs the adapter's new `provision.init` in it; `ws bay reset` brings the root, the realm, every component and every nested repo back to its remote's default branch and clean, removing the adapter's `provision.runtime_dirs` while keeping build output (`--deep` drops that too); `ws bay exec` runs the bay's own `ws` with this workspace's roots unset; `ws bay rm` refuses uncommitted work. A second session on the same machine no longer shares your scripts or your Thalamus file, and naust runs pull requests through bays without owning the workspace mechanics.
+```
+
+- [ ] **Step 9: Commit, push, open the CR**
+
+Write `.commits/ws-bay.md`:
+
+```markdown
+---
+message: "feat(ws): bays — child workspaces under bays/, with add, reset, exec and rm"
+add:
+  - scripts/ws
+  - scripts/ws-bay.sh
+  - bays/.gitkeep
+  - .gitignore
+  - .claude/hooks/hook-rules
+  - tests/ws-bay/test_helper.bash
+  - tests/ws-bay/bay.bats
+  - docs/gdd/features.md
+  - CHANGELOG.md
+---
+
+A bay is a workspace first and a PR runner's tool second, so the mechanics live where the other roots live. exec unsets the parent's ROOT_DIR and the exported ECOSYSTEM_LOCAL before running the bay's ws, because an inherited one points the bay back at the parent; the test asserts the bay's ws saw neither. reset settles every repository's remote and branch before any of them moves, since the realm reset can rewrite the adapter that says which; --deep never touches the root or the realm, whose ignored paths are the clones.
+```
+
+Run: `ws commit yggdrasil .commits/ws-bay.md`, then `ws push yggdrasil`, then `ws cr yggdrasil "ws checkout --cr and ws bay: change requests by number, child workspaces" .crs/ws-bays.md` with a change bodyfile from `templates/change.md` (summary: the two verbs, the provider-aware ref, the exec hygiene, the reset contract; test plan: the 16 checkout cases and the 11 bay cases, `ws test yggdrasil` green). Review-bot rounds follow the usual `ws review` flow.
+
+### Task 3: naust skeleton — dispatcher, `lib.sh`, test harness
 
 **Files:**
 - Create: `components/naust/bin/naust`, `components/naust/bin/lib.sh`
 - Create: `components/naust/tests/run.sh`, `components/naust/tests/helpers/stub.bash`, `components/naust/tests/lib.bats`
-- Create: `components/naust/naust.example.yaml`, `components/naust/.env.example`, `components/naust/.gitignore`
+- Create: `components/naust/naust.example.yaml`
 
 **Interfaces:**
-- Produces, in `lib.sh` (sourced by every other script): `log <msg>`, `die <msg>` (exit 1), `now` (epoch, overridable by `NAUST_NOW` for tests), `require_tool <name>`, `load_config` (sets `WORKSPACE REALM BAYS_ROOT STATE_DIR GRADLE_HOME REALM_DIR PROFILE_DIR` and creates `STATE_DIR/{queue,seen,jobs}` and `BAYS_ROOT`), `cfg <yq-path> [default]`, `prof <profile> <yq-path> [default]`, `trust <profile> <yq-path>`, `env_value <KEY>`, `kv_get <file> <key>`, `kv_set <file> <key> <value>`, `with_lock` (returns 1 when another tick holds the lock), `json_escape <text>`.
+- Produces, in `lib.sh` (sourced by every other script): `log <msg>`, `die <msg>` (exit 1), `now` (epoch, overridable by `NAUST_NOW` for tests), `require_tool <name>`, `load_config` (sets `WORKSPACE WS REALM REALM_DIR PROFILE_DIR ADAPTER_DIR BAYS_DIR STATE_DIR GRADLE_HOME LOCK_STALE_HOURS` and creates `STATE_DIR/{queue,seen,jobs,bays}`), `cfg <yq-path> [default]`, `cfg_list`, `prof <profile> <yq-path> [default]`, `prof_list`, `trust <profile> <yq-path> [default]`, `trust_list`, `adapter <component> <yq-path> [default]`, `adapter_list`, `env_value <KEY>`, `kv_get <file> <key>`, `kv_set <file> <key> <value>`, `with_lock` (returns 1 when another tick holds the lock), `json_escape <text>`, `bay_ws <bay> <ws-args...>` (the parent's `ws bay exec`).
 - Produces: `bin/naust <command> [args]` dispatching to `bin/<command>.sh` for `tick bay run job report notify`; `naust --help`.
-- Config file `naust.yaml` keys: `workspace`, `realm`, `bays_root`, `state_dir`, `gradle_home`, `profiles` (list), `yggdrasil_repo`, `realm_repo`, `lock_stale_hours`.
+- Locations: the workspace is the one naust is cloned into (`bin/../../..`), overridable by `NAUST_WORKSPACE`; config at `<workspace>/bays/.naust/naust.yaml` (`NAUST_CONFIG`); secrets in `<workspace>/.env` (`NAUST_ENV_FILE`); state and the Gradle home under `<workspace>/bays/.naust/`.
+- Config file `naust.yaml` keys: `realm` (optional; default the workspace's active realm), `profiles` (list), `lock_stale_hours`, `workspace_repo` (optional; the yggdrasil URL `ws bay add` clones, for a workspace whose own checkout has several remotes).
 
 - [ ] **Step 1: Create the repository and declare it locally**
 
@@ -447,16 +1293,6 @@ components:
   naust:
     repo: https://github.com/SiliconSaga/naust.git
     tier: supporting
-```
-
-Create `components/naust/.gitignore`:
-
-```gitignore
-/naust.yaml
-/.env
-/state/
-/bays/
-/gradle-home/
 ```
 
 - [ ] **Step 2: Test harness**
@@ -503,7 +1339,7 @@ esac
 Create `components/naust/tests/helpers/stub.bash`:
 
 ```bash
-# Fake executables on PATH so bats can assert how scripts call gh/git/curl/ws.
+# Fake executables on PATH so bats can assert how scripts call gh/git/curl.
 # Each stub appends its argv to "$STUB_LOG" and runs the provided body.
 make_stub() {
   local name="$1"; shift
@@ -525,43 +1361,58 @@ stub_setup() {
   PATH="$STUB_BIN:$PATH"
 }
 
-# A naust home with a config, a workspace holding a realm with one profile and
-# a trust list, and empty state. Every bats file starts here.
+# A workspace with a recording ws, naust's config under bays/.naust, a realm
+# holding one profile, a trust list and a Terasology-shaped adapter, and empty
+# state. Every bats file starts here.
+#
+# The parent's ws is a recorder; `bay exec <name> …` hands off to the bay's own
+# scripts/ws when the bay has one, the way the real verb does, so a test can
+# put whatever ws it needs inside a bay. WS_EXIT sets the exit status of every
+# other call.
 naust_setup() {
   stub_setup
-  export NAUST_HOME="$BATS_TEST_TMPDIR/naust"
-  export NAUST_CONFIG="$NAUST_HOME/naust.yaml"
-  export NAUST_ENV_FILE="$NAUST_HOME/.env"
+  export NAUST_WORKSPACE="$BATS_TEST_TMPDIR/ws"
+  export NAUST_DIR="$NAUST_WORKSPACE/bays/.naust"
+  export NAUST_CONFIG="$NAUST_DIR/naust.yaml"
+  export NAUST_ENV_FILE="$NAUST_WORKSPACE/.env"
   export NAUST_LOG="$BATS_TEST_TMPDIR/naust.log"
   export NAUST_NOW=1760000000
-  WORKSPACE="$BATS_TEST_TMPDIR/ws"
-  mkdir -p "$NAUST_HOME" "$WORKSPACE/realms/realm-test/naust"
-  cat > "$NAUST_CONFIG" <<YAML
-workspace: $WORKSPACE
-realm: realm-test
-bays_root: $NAUST_HOME/bays
-state_dir: $NAUST_HOME/state
-gradle_home: $NAUST_HOME/gradle-home
+  WORKSPACE="$NAUST_WORKSPACE"
+  mkdir -p "$NAUST_DIR" "$WORKSPACE/scripts" "$WORKSPACE/bays" "$WORKSPACE/realms/realm-test/naust" "$WORKSPACE/realms/realm-test/adapters"
+  cat > "$WORKSPACE/scripts/ws" <<'EOF'
+#!/usr/bin/env bash
+echo "ws $*" >> "$STUB_LOG"
+case "$1 $2" in
+  "bay exec")
+    bay="$3"; shift 3
+    ws="$NAUST_WORKSPACE/bays/$bay/scripts/ws"
+    [ -x "$ws" ] || exit "${WS_EXIT:-0}"
+    cd "$NAUST_WORKSPACE/bays/$bay" && exec bash "$ws" "$@" ;;
+  "bay add")
+    # The shape ws bay add leaves: a workspace with a ws, the realm, and a
+    # directory per --with component.
+    dir="$NAUST_WORKSPACE/bays/$3"; shift 3
+    mkdir -p "$dir/scripts" "$dir/components" "$dir/realms/realm-test"
+    printf '#!/usr/bin/env bash\necho "bayws $*" >> "$STUB_LOG"\n' > "$dir/scripts/ws"; chmod +x "$dir/scripts/ws"
+    while [ $# -gt 0 ]; do [ "$1" = --with ] && mkdir -p "$dir/components/$2"; shift; done ;;
+esac
+exit "${WS_EXIT:-0}"
+EOF
+  chmod +x "$WORKSPACE/scripts/ws"
+  printf 'realm: realm-test\n' > "$WORKSPACE/ecosystem.local.yaml"
+  cat > "$NAUST_CONFIG" <<'YAML'
 profiles: [terasology]
 lock_stale_hours: 6
 YAML
   cat > "$WORKSPACE/realms/realm-test/naust/terasology.yaml" <<'YAML'
 component: terasology
 repo: MovingBlocks/Terasology
-upstream_remote: MovingBlocks
-default_branch: develop
-nested:
-  - "modules/*"
-nested_default_branch: develop
 persona: Gooey
 poll:
   debounce_minutes: 10
   skip_drafts: true
 bay:
   ready_ttl_days: 7
-runtime_dirs: [logs, saves, terasology-server, .outputs]
-known_dirt:
-  - "src/test/resources/logback-test.xml"
 steps:
   compile_all: "compile-all-stub"
   headless: "headless-stub"
@@ -576,8 +1427,19 @@ YAML
 terasology:
   maintainers: [Cervator, jdrueckert]
   trusted: [SiliconSaga/Terasology, trustedbot]
-  nod_label: ok-to-test
   nod_phrase: "ok to test"
+YAML
+  cat > "$WORKSPACE/realms/realm-test/adapters/terasology.yaml" <<'YAML'
+commands:
+  build: "./gradlew :facades:PC:build"
+  test: "./gradlew :engine-tests:unitTest"
+nested:
+  - "modules/*"
+provision:
+  init: "groovyw-stub module init omega"
+  runtime_dirs: [logs, saves, terasology-server]
+  known_dirt:
+    - "src/test/resources/logback-test.xml"
 YAML
   NAUST="$(cd "$BATS_TEST_DIRNAME/.." && pwd)/bin/naust"
 }
@@ -595,47 +1457,68 @@ load helpers/stub
 
 setup() { naust_setup; }
 
+lib() { run bash -c "source '$(dirname "$NAUST")/lib.sh'; $*"; }
+
 @test "naust --help lists the commands" {
     run_naust --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"tick"*"bay"*"run"* ]]
 }
 
-@test "load_config reads naust.yaml and creates the state directories" {
-    run bash -c "source '$(dirname "$NAUST")/lib.sh'; load_config; echo \"\$STATE_DIR|\$PROFILE_DIR\""
+@test "load_config finds the workspace, the realm and the state under bays/.naust" {
+    lib 'load_config; echo "$WORKSPACE|$REALM|$STATE_DIR|$PROFILE_DIR|$ADAPTER_DIR"'
     [ "$status" -eq 0 ]
-    [[ "$output" == "$NAUST_HOME/state|$BATS_TEST_TMPDIR/ws/realms/realm-test/naust" ]]
-    [ -d "$NAUST_HOME/state/queue" ]
-    [ -d "$NAUST_HOME/state/seen" ]
-    [ -d "$NAUST_HOME/state/jobs" ]
+    [ "$output" = "$NAUST_WORKSPACE|realm-test|$NAUST_DIR/state|$NAUST_WORKSPACE/realms/realm-test/naust|$NAUST_WORKSPACE/realms/realm-test/adapters" ]
+    for d in queue seen jobs bays; do [ -d "$NAUST_DIR/state/$d" ]; done
 }
 
-@test "load_config fails without a workspace" {
-    printf 'realm: x\n' > "$NAUST_CONFIG"
-    run bash -c "source '$(dirname "$NAUST")/lib.sh'; load_config"
+@test "load_config takes the realm from naust.yaml over the workspace's active one" {
+    mkdir -p "$NAUST_WORKSPACE/realms/other/naust"
+    printf 'realm: other\nprofiles: []\n' > "$NAUST_CONFIG"
+    lib 'load_config; echo "$REALM"'
+    [ "$output" = "other" ]
+}
+
+@test "load_config fails without a workspace ws or a realm" {
+    rm "$NAUST_WORKSPACE/scripts/ws"
+    lib 'load_config'
     [ "$status" -ne 0 ]
-    grep -q "workspace is required" "$NAUST_LOG"
+    grep -q "no scripts/ws" "$NAUST_LOG"
+    naust_setup
+    printf '{}\n' > "$NAUST_WORKSPACE/ecosystem.local.yaml"
+    lib 'load_config'
+    [ "$status" -ne 0 ]
+    grep -q "realm is required" "$NAUST_LOG"
 }
 
-@test "prof and trust read the realm files with defaults" {
-    run bash -c "source '$(dirname "$NAUST")/lib.sh'; load_config; prof terasology .repo; prof terasology .missing fallback; trust terasology .nod_label"
+@test "prof, trust and adapter read the realm files with defaults" {
+    lib 'load_config; prof terasology .repo; prof terasology .missing fallback; trust terasology .nod_phrase; adapter terasology .provision.init; adapter_list terasology .provision.runtime_dirs'
     [ "$status" -eq 0 ]
     [ "${lines[0]}" = "MovingBlocks/Terasology" ]
     [ "${lines[1]}" = "fallback" ]
-    [ "${lines[2]}" = "ok-to-test" ]
+    [ "${lines[2]}" = "ok to test" ]
+    [ "${lines[3]}" = "groovyw-stub module init omega" ]
+    [ "${lines[4]}" = "logs" ]
+    [ "${lines[6]}" = "terasology-server" ]
 }
 
-@test "env_value reads .env literally and never evaluates it" {
+@test "env_value reads the workspace .env literally and never evaluates it" {
     printf 'export NAUST_DISCORD_WEBHOOK="https://example.invalid/$(touch %s/boom)"\n' "$BATS_TEST_TMPDIR" > "$NAUST_ENV_FILE"
-    run bash -c "source '$(dirname "$NAUST")/lib.sh'; env_value NAUST_DISCORD_WEBHOOK"
+    lib 'env_value NAUST_DISCORD_WEBHOOK'
     [ "$status" -eq 0 ]
     [[ "$output" == 'https://example.invalid/$(touch '* ]]
     [ ! -e "$BATS_TEST_TMPDIR/boom" ]
 }
 
+@test "bay_ws goes through the parent's ws bay exec" {
+    lib 'load_config; bay_ws bay-9 build terasology'
+    [ "$status" -eq 0 ]
+    grep -q '^ws bay exec bay-9 build terasology$' "$STUB_LOG"
+}
+
 @test "kv_set and kv_get round-trip and overwrite" {
     f="$BATS_TEST_TMPDIR/kv"
-    run bash -c "source '$(dirname "$NAUST")/lib.sh'; kv_set '$f' state free; kv_set '$f' job none; kv_set '$f' state busy; kv_get '$f' state; kv_get '$f' job; kv_get '$f' absent"
+    lib "kv_set '$f' state free; kv_set '$f' job none; kv_set '$f' state busy; kv_get '$f' state; kv_get '$f' job; kv_get '$f' absent"
     [ "$status" -eq 0 ]
     [ "${lines[0]}" = "busy" ]
     [ "${lines[1]}" = "none" ]
@@ -643,22 +1526,20 @@ setup() { naust_setup; }
 }
 
 @test "with_lock is exclusive and a stale lock is reclaimed" {
-    run bash -c "source '$(dirname "$NAUST")/lib.sh'; load_config; with_lock && echo first; mkdir -p '$NAUST_HOME/state'; "
+    lib 'load_config; with_lock && echo first'
     [ "$status" -eq 0 ]
     [[ "$output" == *"first"* ]]
-    # A lock left by a dead tick
-    mkdir -p "$NAUST_HOME/state/lock"
-    printf '%s\n' 1 > "$NAUST_HOME/state/lock/pid"
-    run bash -c "source '$(dirname "$NAUST")/lib.sh'; load_config; if with_lock; then echo got; else echo busy; fi"
+    mkdir -p "$NAUST_DIR/state/lock"
+    printf '%s\n' 1 > "$NAUST_DIR/state/lock/pid"
+    lib 'load_config; if with_lock; then echo got; else echo busy; fi'
     [[ "$output" == *"busy"* ]]
-    # Older than lock_stale_hours: reclaimed
-    touch -d '@1759970000' "$NAUST_HOME/state/lock"
-    run bash -c "source '$(dirname "$NAUST")/lib.sh'; load_config; if with_lock; then echo got; else echo busy; fi"
+    touch -d '@1759970000' "$NAUST_DIR/state/lock"
+    lib 'load_config; if with_lock; then echo got; else echo busy; fi'
     [[ "$output" == *"got"* ]]
 }
 
 @test "json_escape handles quotes, backslashes and newlines" {
-    run bash -c "source '$(dirname "$NAUST")/lib.sh'; json_escape \$'a \"b\" \\\\ c\nd'"
+    lib "json_escape \$'a \"b\" \\\\ c\nd'"
     [ "$status" -eq 0 ]
     [ "$output" = 'a \"b\" \\ c\nd' ]
 }
@@ -675,10 +1556,15 @@ Expected: every test fails (no `bin/naust`, no `lib.sh`).
 #!/usr/bin/env bash
 # Shared helpers for naust: logging, config, state files, the tick lock.
 # Sourced, never executed. Every script that sources it calls load_config.
+#
+# naust lives in a yggdrasil workspace at components/naust and keeps its
+# machine-local config and state in that workspace's bays/.naust/. Profiles,
+# the trust list and the adapters come from the workspace's realm checkout.
 
-NAUST_HOME="${NAUST_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-NAUST_CONFIG="${NAUST_CONFIG:-$NAUST_HOME/naust.yaml}"
-NAUST_ENV_FILE="${NAUST_ENV_FILE:-$NAUST_HOME/.env}"
+NAUST_WORKSPACE="${NAUST_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+NAUST_DIR="${NAUST_DIR:-$NAUST_WORKSPACE/bays/.naust}"
+NAUST_CONFIG="${NAUST_CONFIG:-$NAUST_DIR/naust.yaml}"
+NAUST_ENV_FILE="${NAUST_ENV_FILE:-$NAUST_WORKSPACE/.env}"
 
 # Log lines go to stderr, or to NAUST_LOG when set (the tests set it, so a
 # script's stdout stays an exact contract and the log is grepped on its own).
@@ -693,12 +1579,13 @@ require_tool() { command -v "$1" >/dev/null 2>&1 || die "'$1' is required but no
 
 # One scalar from a YAML file, with a default when absent or null.
 _yq_scalar() { # <file> <path> [default]
-  local v
-  v="$(yq "$2 // \"\"" "$1" 2>/dev/null)" || v=""
+  local v=""
+  [ -f "$1" ] && { v="$(yq "$2 // \"\"" "$1" 2>/dev/null)" || v=""; }
   if [ -z "$v" ] || [ "$v" = "null" ]; then printf '%s\n' "${3:-}"; else printf '%s\n' "$v"; fi
 }
 # A YAML list, one item per line (empty when absent).
 _yq_list() { # <file> <path>
+  [ -f "$1" ] || return 0
   yq "($2 // [])[]" "$1" 2>/dev/null || true
 }
 
@@ -708,24 +1595,38 @@ prof() { _yq_scalar "$PROFILE_DIR/$1.yaml" "$2" "${3:-}"; }
 prof_list() { _yq_list "$PROFILE_DIR/$1.yaml" "$2"; }
 trust() { _yq_scalar "$PROFILE_DIR/trust.yaml" ".$1$2" "${3:-}"; }
 trust_list() { _yq_list "$PROFILE_DIR/trust.yaml" ".$1$2"; }
+adapter() { _yq_scalar "$ADAPTER_DIR/$1.yaml" "$2" "${3:-}"; }
+adapter_list() { _yq_list "$ADAPTER_DIR/$1.yaml" "$2"; }
 
 load_config() {
-  [ -f "$NAUST_CONFIG" ] || die "no config at $NAUST_CONFIG (copy naust.example.yaml to naust.yaml)"
+  [ -f "$NAUST_CONFIG" ] || die "no config at $NAUST_CONFIG (copy naust.example.yaml there)"
   require_tool yq; require_tool git
-  WORKSPACE="$(cfg .workspace)"; [ -n "$WORKSPACE" ] || die "naust.yaml: workspace is required"
-  REALM="$(cfg .realm)"; [ -n "$REALM" ] || die "naust.yaml: realm is required"
-  BAYS_ROOT="$(cfg .bays_root "$NAUST_HOME/bays")"
-  STATE_DIR="$(cfg .state_dir "$NAUST_HOME/state")"
-  GRADLE_HOME="$(cfg .gradle_home "$NAUST_HOME/gradle-home")"
-  LOCK_STALE_HOURS="$(cfg .lock_stale_hours 6)"
+  WORKSPACE="$NAUST_WORKSPACE"
+  WS="$WORKSPACE/scripts/ws"
+  [ -f "$WS" ] || die "no scripts/ws at $WORKSPACE; naust must sit in a yggdrasil workspace (or set NAUST_WORKSPACE)"
+  REALM="$(cfg .realm)"
+  [ -n "$REALM" ] || REALM="$(_yq_scalar "$WORKSPACE/ecosystem.local.yaml" .realm)"
+  [ -n "$REALM" ] || die "realm is required: set realm: in $NAUST_CONFIG or activate one with ws realm use"
   REALM_DIR="$WORKSPACE/realms/$REALM"
   PROFILE_DIR="$REALM_DIR/naust"
+  ADAPTER_DIR="$REALM_DIR/adapters"
   [ -d "$PROFILE_DIR" ] || die "no profiles at $PROFILE_DIR"
-  mkdir -p "$STATE_DIR/queue" "$STATE_DIR/seen" "$STATE_DIR/jobs" "$BAYS_ROOT"
-  export WORKSPACE REALM BAYS_ROOT STATE_DIR GRADLE_HOME REALM_DIR PROFILE_DIR LOCK_STALE_HOURS
+  BAYS_DIR="$WORKSPACE/bays"
+  STATE_DIR="$NAUST_DIR/state"
+  GRADLE_HOME="$NAUST_DIR/gradle-home"
+  LOCK_STALE_HOURS="$(cfg .lock_stale_hours 6)"
+  mkdir -p "$STATE_DIR/queue" "$STATE_DIR/seen" "$STATE_DIR/jobs" "$STATE_DIR/bays" "$GRADLE_HOME"
+  export WORKSPACE WS REALM REALM_DIR PROFILE_DIR ADAPTER_DIR BAYS_DIR STATE_DIR GRADLE_HOME LOCK_STALE_HOURS
 }
 
-# Read one value out of the operator's .env, literally: the optional `export `
+# Everything that runs inside a bay goes through the parent's `ws bay exec`,
+# which runs the bay's own ws from the bay with this workspace's roots unset.
+bay_ws() { # <bay> <ws-args...>
+  local bay="$1"; shift
+  bash "$WS" bay exec "$bay" "$@"
+}
+
+# Read one value out of the workspace's .env, literally: the optional `export `
 # prefix is stripped, surrounding quotes are removed, nothing is evaluated.
 env_value() {
   local key="$1" line
@@ -787,8 +1688,8 @@ json_escape() {
 
 ```bash
 #!/usr/bin/env bash
-# naust — the boathouse. Keeps bays (sibling yggdrasil workspaces) and runs
-# pull requests through them. `naust tick` is what the scheduler calls.
+# naust — the boathouse. Keeps bays (child workspaces under bays/) busy with
+# pull requests. `naust tick` is what the scheduler calls.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -797,7 +1698,7 @@ usage() {
 Usage: naust <command> [args]
 
   tick                         poll, gate, queue, run one job, exit (the scheduled entry point)
-  bay add <name> --profile <p> provision a bay
+  bay add <name> --profile <p> make a bay (ws bay add, then warm it for the profile)
   bay reset <name> [--deep]    reset a bay to base; --deep also drops Gradle outputs
   bay list                     every bay with its state
   bay release <name>           hand a ready or held bay back to the pool
@@ -807,8 +1708,8 @@ Usage: naust <command> [args]
   notify say <text> [--file <path>]
                                post to the Discord webhook
 
-Config: naust.yaml beside this directory's parent (see naust.example.yaml);
-secrets in .env (GDD_GITHUB_TOKEN, NAUST_DISCORD_WEBHOOK).
+Config: bays/.naust/naust.yaml in this workspace (see naust.example.yaml);
+secrets in the workspace .env (NAUST_GITHUB_TOKEN, NAUST_DISCORD_WEBHOOK).
 USAGE
 }
 
@@ -827,31 +1728,21 @@ Until the other scripts exist, `naust tick` fails with "No such file"; that is f
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `bash components/naust/tests/run.sh test tests/lib.bats`
-Expected: 8 tests pass.
+Expected: 10 tests pass.
 
-- [ ] **Step 8: Example config and env**
+- [ ] **Step 8: Example config**
 
 Create `components/naust/naust.example.yaml`:
 
 ```yaml
-# Copy to naust.yaml beside bin/. Machine-local; never committed.
-workspace: D:/Dev/GitWS/yggdrasil        # the dev workspace whose realm holds naust/ profiles
-realm: realm-siliconsaga
-bays_root: D:/Dev/GitWS/naust/bays
-state_dir: D:/Dev/GitWS/naust/state
-gradle_home: D:/Dev/GitWS/naust/gradle-home
+# Copy to bays/.naust/naust.yaml in the workspace naust is cloned into.
+# Machine-local; never committed. Secrets go in the workspace's .env:
+#   NAUST_GITHUB_TOKEN=github_pat_...   the machine account; pull-requests: write on the watched repo
+#   NAUST_DISCORD_WEBHOOK=https://discord.com/api/webhooks/...
+# realm: realm-siliconsaga              # defaults to the workspace's active realm
+# workspace_repo: https://github.com/SiliconSaga/yggdrasil.git   # what ws bay add clones, when this checkout has several remotes
 profiles: [terasology]
-yggdrasil_repo: https://github.com/SiliconSaga/yggdrasil.git
-realm_repo: https://github.com/SiliconSaga/realm-siliconsaga.git
 lock_stale_hours: 6
-```
-
-Create `components/naust/.env.example`:
-
-```bash
-# Copy to .env. Read literally by naust (never sourced). Secrets only.
-GDD_GITHUB_TOKEN=github_pat_...   # the machine account; pull-requests: write on the watched repo
-NAUST_DISCORD_WEBHOOK=https://discord.com/api/webhooks/...
 ```
 
 - [ ] **Step 9: Commit**
@@ -868,16 +1759,14 @@ add:
   - tests/helpers/stub.bash
   - tests/lib.bats
   - naust.example.yaml
-  - .env.example
-  - .gitignore
 ---
 
-The library is the contract every later script relies on: config through yq, state as key=value files, a mkdir lock with stale reclaim, and a literal .env reader lifted from gdd-sandbox so a secret file is never evaluated.
+The library is the contract every later script relies on: config through yq, state as key=value files under the workspace's bays/.naust, a mkdir lock with stale reclaim, a literal .env reader lifted from gdd-sandbox so a secret file is never evaluated, and bay_ws, the one way into a bay, which is the parent's ws bay exec.
 ```
 
 Run: `ws commit naust .commits/naust-skeleton.md`
 
-### Task 3: `notify.sh` — the Discord webhook
+### Task 4: `notify.sh` — the Discord webhook
 
 **Files:**
 - Create: `components/naust/bin/notify.sh`, `components/naust/tests/notify.bats`
@@ -1014,27 +1903,26 @@ A webhook rather than a bot: no token with chat scope on the bay machine, no ses
 
 Run: `ws commit naust .commits/naust-notify.md`
 
-### Task 4: `bay.sh` — provision, reset, states
+### Task 5: `bay.sh` — states, and `add` and `reset` over `ws bay`
 
 **Files:**
 - Create: `components/naust/bin/bay.sh`, `components/naust/tests/bay.bats`
 - Modify: `components/naust/tests/helpers/stub.bash` (add `make_bay_repo`, `make_bay`)
 
 **Interfaces:**
-- Consumes: `lib.sh`; profile keys `component`, `repo`, `upstream_remote`, `default_branch`, `nested` (globs), `nested_default_branch`, `init.modules` (optional distro name for `groovyw module init`), `runtime_dirs` (relative to the component dir), `steps.compile_all`, `hooks.after_add`, `hooks.after_reset`, `bay.ready_ttl_days`.
-- Produces: `naust bay add <name> --profile <p>`, `naust bay reset <name> [--deep]` (exit 1 and state `broken` when any repository fails), `naust bay list` (tab-separated `name state profile job age_seconds`), `naust bay release <name>`, and the internal `naust bay claim <name> <jobid>` (exit 1 unless `free`), `naust bay set <name> <state>`, `naust bay free-for <profile>` (prints a bay name or exits 1; expires `ready` bays past the TTL first), `naust bay repos <name>` (the component dir and every nested repo, one per line), `naust bay dir <name>`.
-- Bay state file `<bays_root>/<name>/bay.state`: `state`, `profile`, `job`, `since`. States: `provisioning free busy ready held broken`.
-- Environment every hook and profile command receives: `NAUST_BAY_DIR`, `NAUST_BAY_NAME`, `NAUST_WS_DIR` (`<bay>/yggdrasil`), `NAUST_COMP_DIR`, `NAUST_REALM_DIR`, `NAUST_PROFILE`, `GRADLE_USER_HOME`; cwd is `NAUST_COMP_DIR`.
+- Consumes: `lib.sh`; the parent's `ws bay add|reset|exec`; profile keys `component`, `steps.compile_all`, `hooks.after_add`, `hooks.after_reset`, `bay.ready_ttl_days`; adapter key `nested` (globs) for `repos`.
+- Produces: `naust bay add <name> --profile <p>` (runs `ws bay add <name> --with <component> --realm <realm>`, warms the bay with `ws build` and the profile's `compile_all`, runs `after_add`, then resets; ends `free`), `naust bay reset <name> [--deep] [--keep <jobid>]` (runs `ws bay reset`; exit 1 and state `broken` when it fails; removes every previous job directory under the bay's `.outputs/naust` except `<jobid>`, the job that is resetting; runs `after_reset`; ends `free`), `naust bay list` (tab-separated `name state profile job age_seconds`), `naust bay release <name>`, and the internal `naust bay claim <name> <jobid>` (exit 1 unless `free`), `naust bay set <name> <state>`, `naust bay free-for <profile>` (prints a bay name or exits 1; expires `ready` bays past the TTL first), `naust bay repos <name>` (the component dir and every nested repo, one per line), `naust bay dir <name>`, `naust bay env <name>` (export lines).
+- Bay state file `<state>/bays/<name>.state`: `state`, `profile`, `job`, `since`. States: `provisioning free busy ready held broken`.
+- Environment every hook and profile command receives: `NAUST_BAY_DIR` (`<workspace>/bays/<name>`), `NAUST_BAY_NAME`, `NAUST_COMP_DIR`, `NAUST_REALM_DIR` (the bay's own realm clone), `NAUST_PROFILE`, `GRADLE_USER_HOME`; cwd is `NAUST_COMP_DIR`.
 
 - [ ] **Step 1: Fixture helpers**
 
 Append to `components/naust/tests/helpers/stub.bash`:
 
 ```bash
-# A real repository on <branch> whose remote <remote> is a local bare repo that
-# already holds the branch. Reset tests need both ends to be real git.
-make_bay_repo() { # <dir> <remote-name> <branch>
-  local dir="$1" remote="$2" branch="$3" bare="$1.git"
+# A real repository on <branch> with one commit. Job tests add a remote.
+make_bay_repo() { # <dir> <branch>
+  local dir="$1" branch="$2"
   mkdir -p "$dir"
   git -C "$dir" init -q -b "$branch"
   git -C "$dir" config user.email t@example.invalid
@@ -1042,24 +1930,19 @@ make_bay_repo() { # <dir> <remote-name> <branch>
   printf 'seed\n' > "$dir/seed.txt"
   git -C "$dir" add seed.txt
   git -C "$dir" commit -qm seed
-  git init -q --bare "$bare"
-  git -C "$dir" remote add "$remote" "$bare"
-  git -C "$dir" push -q "$remote" "$branch"
 }
 
-# A bay directory with a state file and a real component repo (MovingBlocks
-# remote, develop) holding one real nested module (origin remote, develop).
+# A bay the shape ws bay add leaves, with a naust state file: a ws that
+# records calls as "bayws …", the realm directory, a real component repo
+# holding one real nested module.
 make_bay() { # <name> <state>
-  local dir="$NAUST_HOME/bays/$1"
-  mkdir -p "$dir/yggdrasil/scripts" "$dir/yggdrasil/components"
-  cp "$STUB_BIN/ws" "$dir/yggdrasil/scripts/ws" 2>/dev/null || printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/yggdrasil/scripts/ws"
-  printf 'state=%s\nprofile=terasology\njob=\nsince=%s\n' "$2" "$NAUST_NOW" > "$dir/bay.state"
-  make_bay_repo "$dir/yggdrasil/components/terasology" MovingBlocks develop
-  make_bay_repo "$dir/yggdrasil/components/terasology/modules/Cooking" origin develop
-  printf '/build/\n' > "$dir/yggdrasil/components/terasology/.gitignore"
-  git -C "$dir/yggdrasil/components/terasology" add .gitignore
-  git -C "$dir/yggdrasil/components/terasology" commit -qm gitignore
-  git -C "$dir/yggdrasil/components/terasology" push -q MovingBlocks develop
+  local dir="$NAUST_WORKSPACE/bays/$1"
+  mkdir -p "$dir/scripts" "$dir/components" "$dir/realms/realm-test" "$NAUST_DIR/state/bays"
+  printf '#!/usr/bin/env bash\necho "bayws $*" >> "$STUB_LOG"\n' > "$dir/scripts/ws"
+  chmod +x "$dir/scripts/ws"
+  printf 'state=%s\nprofile=terasology\njob=\nsince=%s\n' "$2" "$NAUST_NOW" > "$NAUST_DIR/state/bays/$1.state"
+  make_bay_repo "$dir/components/terasology" develop
+  make_bay_repo "$dir/components/terasology/modules/Cooking" develop
   BAY_DIR="$dir"
 }
 ```
@@ -1079,79 +1962,58 @@ setup() {
     make_stub after-reset-stub
 }
 
-@test "add provisions in order and leaves the bay free" {
-    make_stub ws 'case "$1" in clone) mkdir -p "$(dirname "$0")/../components/$2" ;; esac'
-    # clone creates the workspace skeleton with the ws stub inside; every other
-    # git call is a silent success so the closing reset passes on empty repos.
-    make_stub git 'if [ "$1" = clone ]; then d="${@: -1}"; mkdir -p "$d/scripts"; cp "$STUB_BIN/ws" "$d/scripts/ws"; fi; exit 0'
+state_of() { sed -n 's/^state=//p' "$NAUST_DIR/state/bays/$1.state"; }
 
+@test "add provisions through ws bay add, warms, hooks, resets, and leaves the bay free" {
     run_naust bay add bay-1 --profile terasology
 
     [ "$status" -eq 0 ]
-    grep -n '' "$STUB_LOG" >&2
-    [[ "$(sed -n 1p "$STUB_LOG")" == git\ clone* ]]
-    grep -q '^ws realm ' "$STUB_LOG"
-    grep -q '^ws realm use realm-test --trust' "$STUB_LOG"
-    grep -q '^ws clone terasology' "$STUB_LOG"
-    grep -q '^ws build terasology' "$STUB_LOG"
+    [ "$(sed -n 1p "$STUB_LOG")" = "ws bay add bay-1 --with terasology --realm realm-test" ]
+    grep -q '^bayws build terasology$' "$STUB_LOG"
     grep -q '^compile-all-stub' "$STUB_LOG"
     grep -q '^after-add-stub' "$STUB_LOG"
+    grep -q '^ws bay reset bay-1$' "$STUB_LOG"
     grep -q '^after-reset-stub' "$STUB_LOG"
-    [ "$(sed -n 's/^state=//p' "$NAUST_HOME/bays/bay-1/bay.state")" = "free" ]
-    [ "$(sed -n 's/^profile=//p' "$NAUST_HOME/bays/bay-1/bay.state")" = "terasology" ]
+    [ "$(state_of bay-1)" = "free" ]
+    [ "$(sed -n 's/^profile=//p' "$NAUST_DIR/state/bays/bay-1.state")" = "terasology" ]
 }
 
-@test "add refuses an existing bay" {
+@test "add passes workspace_repo through as --from" {
+    printf 'profiles: [terasology]\nworkspace_repo: https://example.invalid/ygg.git\n' > "$NAUST_CONFIG"
+    run_naust bay add bay-1 --profile terasology
+    [ "$status" -eq 0 ]
+    [ "$(sed -n 1p "$STUB_LOG")" = "ws bay add bay-1 --with terasology --realm realm-test --from https://example.invalid/ygg.git" ]
+}
+
+@test "add refuses a bay naust already knows" {
     make_bay bay-1 free
     run_naust bay add bay-1 --profile terasology
     [ "$status" -ne 0 ]
-    [[ "$output" == *"already exists"* ]]
+    [[ "$output" == *"already"* ]]
 }
 
-@test "reset returns engine and module to their remote default branch, clean" {
+@test "reset runs ws bay reset, clears the old job outputs but keeps the current job's, runs the hook and frees the bay" {
     make_bay bay-1 ready
-    comp="$BAY_DIR/yggdrasil/components/terasology"
-    # dirt of every kind: a local branch with a commit, a tracked edit, an
-    # untracked file, a runtime dir, an ignored build dir, module dirt
-    git -C "$comp" switch -q -c pr/7
-    printf 'x\n' > "$comp/pr.txt"; git -C "$comp" add pr.txt; git -C "$comp" commit -qm pr
-    printf 'edited\n' >> "$comp/seed.txt"
-    printf 'stray\n' > "$comp/stray.txt"
-    mkdir -p "$comp/logs/run1" "$comp/build/classes"; touch "$comp/logs/run1/a.log" "$comp/build/classes/A.class"
-    printf 'lb\n' > "$comp/modules/Cooking/src.txt"
-    mkdir -p "$BAY_DIR/yggdrasil/.outputs/naust/old"; touch "$BAY_DIR/yggdrasil/.outputs/naust/old/report.md"
-
-    run_naust bay reset bay-1
-
+    mkdir -p "$BAY_DIR/.outputs/naust/old" "$BAY_DIR/.outputs/naust/current"
+    touch "$BAY_DIR/.outputs/naust/old/report.md" "$BAY_DIR/.outputs/naust/current/reset.log"
+    run_naust bay reset bay-1 --deep --keep current
     [ "$status" -eq 0 ]
-    [ "$(git -C "$comp" rev-parse --abbrev-ref HEAD)" = "develop" ]
-    [ "$(git -C "$comp" rev-parse HEAD)" = "$(git -C "$comp" rev-parse MovingBlocks/develop)" ]
-    [ -z "$(git -C "$comp" status --porcelain)" ]
-    [ ! -e "$comp/stray.txt" ]
-    [ ! -e "$comp/logs" ]
-    [ -e "$comp/build/classes/A.class" ]          # Gradle output survives a plain reset
-    [ -z "$(git -C "$comp/modules/Cooking" status --porcelain)" ]
-    [ ! -e "$BAY_DIR/yggdrasil/.outputs/naust/old" ]
+    grep -q '^ws bay reset bay-1 --deep$' "$STUB_LOG"
+    [ ! -e "$BAY_DIR/.outputs/naust/old" ]
+    [ -f "$BAY_DIR/.outputs/naust/current/reset.log" ]
     grep -q '^after-reset-stub' "$STUB_LOG"
-    [ "$(sed -n 's/^state=//p' "$BAY_DIR/bay.state")" = "free" ]
+    [ "$(state_of bay-1)" = "free" ]
+    run_naust bay reset bay-1
+    [ ! -e "$BAY_DIR/.outputs/naust/current" ]
 }
 
-@test "reset --deep also drops ignored files" {
+@test "a failed ws bay reset marks the bay broken and skips the hook" {
     make_bay bay-1 ready
-    comp="$BAY_DIR/yggdrasil/components/terasology"
-    mkdir -p "$comp/build/classes"; touch "$comp/build/classes/A.class"
-    run_naust bay reset bay-1 --deep
-    [ "$status" -eq 0 ]
-    [ ! -e "$comp/build" ]
-}
-
-@test "reset marks the bay broken and names the repo when a nested fetch fails" {
-    make_bay bay-1 ready
-    git -C "$BAY_DIR/yggdrasil/components/terasology/modules/Cooking" remote set-url origin "$BATS_TEST_TMPDIR/does-not-exist.git"
+    export WS_EXIT=1
     run_naust bay reset bay-1
     [ "$status" -ne 0 ]
-    grep -q "FAILED in .*modules/Cooking" "$NAUST_LOG"
-    [ "$(sed -n 's/^state=//p' "$BAY_DIR/bay.state")" = "broken" ]
+    grep -q "reset bay-1: ws bay reset failed" "$NAUST_LOG"
+    [ "$(state_of bay-1)" = "broken" ]
     ! grep -q '^after-reset-stub' "$STUB_LOG"
 }
 
@@ -1159,14 +2021,14 @@ setup() {
     make_bay bay-1 free
     run_naust bay claim bay-1 job-1
     [ "$status" -eq 0 ]
-    [ "$(sed -n 's/^state=//p' "$BAY_DIR/bay.state")" = "busy" ]
-    [ "$(sed -n 's/^job=//p' "$BAY_DIR/bay.state")" = "job-1" ]
+    [ "$(state_of bay-1)" = "busy" ]
+    [ "$(sed -n 's/^job=//p' "$NAUST_DIR/state/bays/bay-1.state")" = "job-1" ]
     run_naust bay claim bay-1 job-2
     [ "$status" -ne 0 ]
     run_naust bay set bay-1 ready
     run_naust bay release bay-1
     [ "$status" -eq 0 ]
-    [ "$(sed -n 's/^state=//p' "$BAY_DIR/bay.state")" = "free" ]
+    [ "$(state_of bay-1)" = "free" ]
     run_naust bay set bay-1 busy
     run_naust bay release bay-1
     [ "$status" -ne 0 ]
@@ -1177,8 +2039,7 @@ setup() {
     make_bay bay-2 held
     run_naust bay free-for terasology
     [ "$status" -ne 0 ]
-    # ready for 8 days with a 7-day TTL: back in the pool
-    printf 'state=ready\nprofile=terasology\njob=old\nsince=%s\n' $((NAUST_NOW - 8*86400)) > "$NAUST_HOME/bays/bay-1/bay.state"
+    printf 'state=ready\nprofile=terasology\njob=old\nsince=%s\n' $((NAUST_NOW - 8*86400)) > "$NAUST_DIR/state/bays/bay-1.state"
     run_naust bay free-for terasology
     [ "$status" -eq 0 ]
     [ "$output" = "bay-1" ]
@@ -1195,12 +2056,22 @@ setup() {
     [[ "${lines[1]}" == bay-2$'\t'busy* ]]
 }
 
-@test "repos lists the component and its nested repos" {
+@test "repos lists the component and the nested repos the adapter declares" {
     make_bay bay-1 free
     run_naust bay repos bay-1
     [ "$status" -eq 0 ]
-    [ "${lines[0]}" = "$BAY_DIR/yggdrasil/components/terasology" ]
-    [ "${lines[1]}" = "$BAY_DIR/yggdrasil/components/terasology/modules/Cooking" ]
+    [ "${lines[0]}" = "$BAY_DIR/components/terasology" ]
+    [ "${lines[1]}" = "$BAY_DIR/components/terasology/modules/Cooking" ]
+}
+
+@test "env prints the bay environment as export lines" {
+    make_bay bay-1 free
+    run_naust bay env bay-1
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"export NAUST_BAY_DIR=$BAY_DIR"* ]]
+    [[ "$output" == *"export NAUST_COMP_DIR=$BAY_DIR/components/terasology"* ]]
+    [[ "$output" == *"export NAUST_REALM_DIR=$BAY_DIR/realms/realm-test"* ]]
+    [[ "$output" == *"export GRADLE_USER_HOME=$NAUST_DIR/gradle-home"* ]]
 }
 ```
 
@@ -1213,26 +2084,27 @@ Expected: all fail (`bay.sh` missing).
 
 ```bash
 #!/usr/bin/env bash
-# Bays: sibling yggdrasil workspaces, provisioned once and reset between jobs.
+# naust's view of a bay: its state, and add/reset as the profile's hooks
+# wrapped around what `ws bay` does. The workspace mechanics (clone, trust,
+# fetch, reset, clean) are ws's; what a bay is *for* is here.
 #
-#   bay.sh add <name> --profile <p>     bay.sh reset <name> [--deep]
+#   bay.sh add <name> --profile <p>     bay.sh reset <name> [--deep] [--keep <jobid>]
 #   bay.sh list                         bay.sh release <name>
 #   bay.sh claim <name> <jobid>         bay.sh set <name> <state>
-#   bay.sh free-for <profile>           bay.sh repos <name>      bay.sh dir <name>
+#   bay.sh free-for <profile>           bay.sh repos <name>
+#   bay.sh dir <name>                   bay.sh env <name>
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/lib.sh
 . "$HERE/lib.sh"
 load_config
 
-RESET_PARALLEL="${NAUST_RESET_PARALLEL:-8}"
-
-bay_dir() { printf '%s/%s\n' "$BAYS_ROOT" "$1"; }
-bay_state_file() { printf '%s/%s/bay.state\n' "$BAYS_ROOT" "$1"; }
+bay_dir() { printf '%s/%s\n' "$BAYS_DIR" "$1"; }
+bay_state_file() { printf '%s/bays/%s.state\n' "$STATE_DIR" "$1"; }
 bay_state() { kv_get "$(bay_state_file "$1")" state; }
 bay_profile() { kv_get "$(bay_state_file "$1")" profile; }
-bay_exists() { [ -f "$(bay_state_file "$1")" ]; }
-bay_require() { bay_exists "$1" || die "no bay named '$1' under $BAYS_ROOT"; }
+bay_known() { [ -f "$(bay_state_file "$1")" ]; }
+bay_require() { bay_known "$1" || die "no bay named '$1' (naust bay list)"; }
 
 bay_set_state() { # <name> <state> [job]
   local f; f="$(bay_state_file "$1")"
@@ -1241,18 +2113,16 @@ bay_set_state() { # <name> <state> [job]
   kv_set "$f" since "$(now)"
 }
 
-# Export what hooks and profile commands rely on, and cd to the component.
+# Export what hooks and profile commands rely on.
 bay_env() { # <name>
   local dir profile comp
   dir="$(bay_dir "$1")"; profile="$(bay_profile "$1")"
   comp="$(prof "$profile" .component)"
   [ -n "$comp" ] || die "profile $profile has no component"
   export NAUST_BAY_DIR="$dir" NAUST_BAY_NAME="$1" NAUST_PROFILE="$profile"
-  export NAUST_WS_DIR="$dir/yggdrasil"
-  export NAUST_COMP_DIR="$dir/yggdrasil/components/$comp"
-  export NAUST_REALM_DIR="$dir/yggdrasil/realms/$REALM"
+  export NAUST_COMP_DIR="$dir/components/$comp"
+  export NAUST_REALM_DIR="$dir/realms/$REALM"
   export GRADLE_USER_HOME="$GRADLE_HOME"
-  WS="$NAUST_WS_DIR/scripts/ws"
 }
 
 # Run a profile command or hook in the component dir; empty means skip.
@@ -1264,85 +2134,56 @@ bay_run_in_comp() { # <label> <command>
 
 cmd_repos() {
   bay_require "$1"; bay_env "$1"
-  local g d
+  local g d comp
+  comp="$(basename "$NAUST_COMP_DIR")"
   printf '%s\n' "$NAUST_COMP_DIR"
   while IFS= read -r g; do
     [ -n "$g" ] || continue
     for d in "$NAUST_COMP_DIR"/$g; do
       [ -d "$d/.git" ] && printf '%s\n' "$d"
     done
-  done < <(prof_list "$NAUST_PROFILE" .nested)
+  done < <(adapter_list "$comp" .nested)
 }
 
-# Fetch, hard-reset and switch one repository to <remote>/<branch>, then clean.
-# Writes <fails>/<key> on any failure so the parallel caller can report it.
-reset_one() { # <dir> <remote> <branch> <deep:yes|no> <fails-dir>
-  local d="$1" remote="$2" branch="$3" deep="$4" fails="$5" key clean="-qfd"
-  key="$(printf '%s' "$d" | tr '/:' '__')"
-  [ "$deep" = yes ] && clean="-qfdx"
-  if git -C "$d" fetch --quiet "$remote" \
-     && git -C "$d" reset -q --hard \
-     && git -C "$d" switch -q -C "$branch" "$remote/$branch" \
-     && git -C "$d" clean $clean; then
-    return 0
-  fi
-  printf '%s\n' "$d" > "$fails/$key"
-  return 0
+cmd_env() {
+  bay_require "$1"; bay_env "$1"
+  local v
+  for v in NAUST_BAY_DIR NAUST_BAY_NAME NAUST_PROFILE NAUST_COMP_DIR NAUST_REALM_DIR GRADLE_USER_HOME; do
+    printf 'export %s=%q\n' "$v" "${!v}"
+  done
 }
 
 cmd_reset() {
-  local name="$1" deep=no
-  [ "${2:-}" = "--deep" ] && deep=yes
-  bay_require "$name"; bay_env "$name"
-  local up br nbr fails running=0 r failed=0 rd started
-  started="$(now)"
-  up="$(prof "$NAUST_PROFILE" .upstream_remote origin)"
-  br="$(prof "$NAUST_PROFILE" .default_branch main)"
-  nbr="$(prof "$NAUST_PROFILE" .nested_default_branch "$br")"
-  fails="$(mktemp -d)"
-  log "reset $name: $(cmd_repos "$name" | wc -l) repositories to $up/$br (modules: origin/$nbr), deep=$deep"
-  while IFS= read -r r; do
-    if [ "$r" = "$NAUST_COMP_DIR" ]; then
-      reset_one "$r" "$up" "$br" "$deep" "$fails" &
-    else
-      reset_one "$r" origin "$nbr" "$deep" "$fails" &
-    fi
-    running=$((running + 1))
-    if [ "$running" -ge "$RESET_PARALLEL" ]; then wait -n; running=$((running - 1)); fi
-  done < <(cmd_repos "$name")
-  wait
-  for r in "$fails"/*; do
-    [ -e "$r" ] || continue
-    log "reset $name: FAILED in $(cat "$r")"
-    failed=1
+  local name="$1" deep="" keep="" started d
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --deep) deep="--deep"; shift ;;
+      --keep) keep="$2"; shift 2 ;;
+      *) die "bay reset: unknown argument '$1'" ;;
+    esac
   done
-  rm -rf "$fails"
-  if [ "$failed" -ne 0 ]; then
+  bay_require "$name"; bay_env "$name"
+  started="$(now)"
+  log "reset $name: ws bay reset${deep:+ $deep}"
+  if ! bash "$WS" bay reset "$name" ${deep:+"$deep"}; then
     bay_set_state "$name" broken
-    die "reset $name: bay marked broken"
+    die "reset $name: ws bay reset failed; bay marked broken"
   fi
-  while IFS= read -r rd; do
-    [ -n "$rd" ] || continue
-    rm -rf "${NAUST_COMP_DIR:?}/$rd"
-  done < <(prof_list "$NAUST_PROFILE" .runtime_dirs)
-  rm -rf "$NAUST_WS_DIR/.outputs/naust"
+  # Previous jobs' outputs go. The job that is resetting keeps its own
+  # directory: its log of this very step is open there, and Windows refuses
+  # to delete a directory holding an open file.
+  for d in "$NAUST_BAY_DIR"/.outputs/naust/*/; do
+    [ -d "$d" ] || continue
+    [ "$(basename "$d")" = "$keep" ] || rm -rf "$d"
+  done
   bay_run_in_comp "after_reset" "$(prof "$NAUST_PROFILE" .hooks.after_reset)"
-  while IFS= read -r r; do
-    if [ -n "$(git -C "$r" status --porcelain)" ]; then
-      log "reset $name: $r is still dirty after reset"
-      failed=1
-    fi
-  done < <(cmd_repos "$name")
-  if [ "$failed" -ne 0 ]; then
-    bay_set_state "$name" broken
-    die "reset $name: bay marked broken"
-  fi
   bay_set_state "$name" free ""
   log "reset $name: free in $(( $(now) - started )) s"
 }
 
 cmd_add() {
-  local name="$1" profile="" dir comp repo distro
+  local name="$1" profile="" comp from
   shift
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -1352,29 +2193,16 @@ cmd_add() {
   done
   [ -n "$profile" ] || die "bay add: --profile <name> is required"
   [ -f "$PROFILE_DIR/$profile.yaml" ] || die "bay add: no profile $PROFILE_DIR/$profile.yaml"
-  dir="$(bay_dir "$name")"
-  [ ! -e "$dir" ] || die "bay add: $dir already exists"
-  mkdir -p "$dir" "$GRADLE_HOME"
-  printf 'state=provisioning\nprofile=%s\njob=\nsince=%s\n' "$profile" "$(now)" > "$dir/bay.state"
-  bay_env "$name"
+  ! bay_known "$name" || die "bay add: naust already has a bay named $name"
   comp="$(prof "$profile" .component)"
-  repo="$(prof "$profile" .repo)"
-  log "add $name: cloning yggdrasil"
-  git clone --quiet "$(cfg .yggdrasil_repo https://github.com/SiliconSaga/yggdrasil.git)" "$NAUST_WS_DIR"
-  (cd "$NAUST_WS_DIR" && bash "$WS" realm "$(cfg .realm_repo "https://github.com/SiliconSaga/$REALM.git")")
-  (cd "$NAUST_WS_DIR" && bash "$WS" realm use "$REALM" --trust)
-  (cd "$NAUST_WS_DIR" && bash "$WS" clone "$comp")
-  local up; up="$(prof "$profile" .upstream_remote origin)"
-  if ! git -C "$NAUST_COMP_DIR" remote get-url "$up" >/dev/null 2>&1; then
-    git -C "$NAUST_COMP_DIR" remote add "$up" "https://github.com/$repo.git"
-  fi
-  git -C "$NAUST_COMP_DIR" fetch --quiet "$up"
-  distro="$(prof "$profile" .init.modules)"
-  if [ -n "$distro" ]; then
-    log "add $name: module distro $distro"
-    (cd "$NAUST_COMP_DIR" && bash ./groovyw module init "$distro")
-  fi
-  (cd "$NAUST_WS_DIR" && bash "$WS" build "$comp")
+  [ -n "$comp" ] || die "profile $profile has no component"
+  from="$(cfg .workspace_repo)"
+  log "add $name: ws bay add --with $comp --realm $REALM${from:+ --from $from}"
+  bash "$WS" bay add "$name" --with "$comp" --realm "$REALM" ${from:+--from "$from"}
+  printf 'state=provisioning\nprofile=%s\njob=\nsince=%s\n' "$profile" "$(now)" > "$(bay_state_file "$name")"
+  bay_env "$name"
+  log "add $name: warming the Gradle cache"
+  bay_ws "$name" build "$comp"
   bay_run_in_comp "compile_all" "$(prof "$profile" .steps.compile_all)"
   bay_run_in_comp "after_add" "$(prof "$profile" .hooks.after_add)"
   cmd_reset "$name"
@@ -1382,9 +2210,9 @@ cmd_add() {
 
 cmd_list() {
   local f name state profile job since
-  for f in "$BAYS_ROOT"/*/bay.state; do
+  for f in "$STATE_DIR"/bays/*.state; do
     [ -f "$f" ] || continue
-    name="$(basename "$(dirname "$f")")"
+    name="$(basename "$f" .state)"
     state="$(kv_get "$f" state)"; profile="$(kv_get "$f" profile)"
     job="$(kv_get "$f" job)"; since="$(kv_get "$f" since)"
     printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$state" "$profile" "$job" "$(( $(now) - ${since:-$(now)} ))"
@@ -1414,10 +2242,10 @@ cmd_set() {
 cmd_free_for() {
   local profile="$1" f name ttl since
   ttl="$(prof "$profile" .bay.ready_ttl_days 7)"
-  for f in "$BAYS_ROOT"/*/bay.state; do
+  for f in "$STATE_DIR"/bays/*.state; do
     [ -f "$f" ] || continue
     [ "$(kv_get "$f" profile)" = "$profile" ] || continue
-    name="$(basename "$(dirname "$f")")"
+    name="$(basename "$f" .state)"
     if [ "$(kv_get "$f" state)" = ready ]; then
       since="$(kv_get "$f" since)"
       if [ $(( $(now) - since )) -gt $(( ttl * 86400 )) ]; then
@@ -1432,22 +2260,23 @@ cmd_free_for() {
 
 case "${1:-}" in
   add)      shift; [ $# -ge 1 ] || die "bay add <name> --profile <p>"; cmd_add "$@" ;;
-  reset)    shift; [ $# -ge 1 ] || die "bay reset <name> [--deep]"; cmd_reset "$@" ;;
+  reset)    shift; [ $# -ge 1 ] || die "bay reset <name> [--deep] [--keep <jobid>]"; cmd_reset "$@" ;;
   list)     cmd_list ;;
   release)  shift; cmd_release "$1" ;;
   claim)    shift; cmd_claim "$1" "$2" ;;
   set)      shift; cmd_set "$1" "$2" ;;
   free-for) shift; cmd_free_for "$1" ;;
   repos)    shift; cmd_repos "$1" ;;
+  env)      shift; cmd_env "$1" ;;
   dir)      shift; bay_require "$1"; bay_dir "$1" ;;
-  *) echo "usage: bay.sh {add|reset|list|release|claim|set|free-for|repos|dir} ..." >&2; exit 2 ;;
+  *) echo "usage: bay.sh {add|reset|list|release|claim|set|free-for|repos|env|dir} ..." >&2; exit 2 ;;
 esac
 ```
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `bash components/naust/tests/run.sh test tests/bay.bats`
-Expected: 9 pass. If the `add` test fails on `ws build`, the `ws` stub's `clone` case must create the component directory before `cd` reaches it; the stub body in the test does that via `$(dirname "$0")/../components/$2`.
+Expected: 10 pass.
 
 - [ ] **Step 6: Commit**
 
@@ -1455,27 +2284,27 @@ Expected: 9 pass. If the `add` test fails on `ws build`, the `ws` stub's `clone`
 
 ```markdown
 ---
-message: "feat: bays — provision once, reset to base in parallel, state machine"
+message: "feat: bay states, with add and reset wrapping ws bay and the profile's hooks"
 add:
   - bin/bay.sh
   - tests/bay.bats
   - tests/helpers/stub.bash
 ---
 
-A reset keeps Gradle outputs on purpose: with ~144 module subprojects a clean -fdx turns every job into a cold compile, and the thing a job must not inherit is tracked-tree state and runtime directories, which clean -fd plus the profile's runtime_dirs cover. --deep exists for the day a bay needs a cold start. Fetches run eight at a time; one failure anywhere marks the bay broken rather than running a job on a half-reset tree.
+Naust owns what a bay is for (free, busy, ready, held, broken) and leaves what a bay is to ws bay. add is ws bay add plus a warm build and the profile's after_add; reset is ws bay reset plus the previous job's outputs gone and after_reset run, and a failed ws reset marks the bay broken rather than running a job on a half-reset tree. State lives under bays/.naust/state so a bay's tree stays a plain workspace.
 ```
 
 Run: `ws commit naust .commits/naust-bay.md`
 
-### Task 5: `gate.sh` — the trust decision
+### Task 6: `gate.sh` — the trust decision
 
 **Files:**
 - Create: `components/naust/bin/gate.sh`, `components/naust/tests/gate.bats`
 - Modify: `components/naust/bin/naust` (dispatch `gate poll queue` as internal commands)
 
 **Interfaces:**
-- Consumes: `lib.sh` (`trust`, `trust_list`); `gh api` for the PR's `labeled` events and comments.
-- Produces: `naust gate decide <profile> <repo> <number> <author> <head_repo> <labels-csv>` printing one line, `run<TAB><reason>` or `nod<TAB><reason>`, exit 0 either way. A label nod requires the label to be present now and its most recent `labeled` event's actor to be in `maintainers`; a comment nod requires a comment containing `nod_phrase` (case-insensitive) by a maintainer. Non-maintainer nods are named in the reason after `ignored:`.
+- Consumes: `lib.sh` (`trust`, `trust_list`); `gh pr view <n> --repo <repo> --json reviews` for the PR's reviews, each with `author.login`, `state`, `commit.oid` and `body`.
+- Produces: `naust gate decide <profile> <repo> <number> <author> <head_repo> <head>` printing one line, `run<TAB><reason>` or `nod<TAB><reason>`, exit 0 either way. A nod is a review by a login in `maintainers`, not `DISMISSED`, that is `APPROVED` or contains `nod_phrase` (case-insensitive), and it admits only `<head>` equal to the review's `commit.oid`. A maintainer's nod on another commit is reported after `stale:`; a nod from anyone else after `ignored:`.
 
 - [ ] **Step 1: Dispatch the internal commands**
 
@@ -1489,57 +2318,64 @@ Create `components/naust/tests/gate.bats`:
 #!/usr/bin/env bats
 load helpers/stub
 
+# GATE_REVIEWS: one review per line, tab-separated login, state, commit, and
+# whether the body carries the phrase (true/false), the shape the gate's --jq
+# produces.
 setup() {
     naust_setup
-    export GATE_EVENTS="" GATE_COMMENTS=""
-    make_stub gh 'case "$*" in *events*) printf "%s\n" "$GATE_EVENTS" ;; *comments*) printf "%s\n" "$GATE_COMMENTS" ;; esac'
+    export GATE_REVIEWS=""
+    make_stub gh 'case "$*" in *"--json reviews"*) printf "%s\n" "$GATE_REVIEWS" ;; esac'
 }
 
 decide() { run_naust gate decide terasology MovingBlocks/Terasology 7 "$@"; }
+review() { printf '%s\t%s\t%s\t%s' "$1" "$2" "$3" "${4:-false}"; }
 
 @test "a maintainer's own PR runs" {
-    decide Cervator Cervator/Terasology ""
+    decide Cervator Cervator/Terasology abc1234abc
     [ "$status" -eq 0 ]
     [ "$output" = $'run\tauthor Cervator is a maintainer' ]
 }
 
 @test "a trusted login or a trusted head repository runs" {
-    decide trustedbot trustedbot/Terasology ""
+    decide trustedbot trustedbot/Terasology abc1234abc
     [ "$output" = $'run\tauthor trustedbot is trusted' ]
-    decide stranger siliconsaga/terasology ""
+    decide stranger siliconsaga/terasology abc1234abc
     [ "$output" = $'run\thead repository siliconsaga/terasology is trusted' ]
 }
 
-@test "an unknown author with no nod needs one" {
-    decide stranger stranger/Terasology "Category: Doc"
+@test "an unknown author with no reviews needs a nod" {
+    decide stranger stranger/Terasology abc1234abc
     [ "$output" = $'nod\tneeds a nod from a maintainer' ]
 }
 
-@test "the label counts only when a maintainer applied it, and only while present" {
-    export GATE_EVENTS=$'stranger\njdrueckert'
-    decide stranger stranger/Terasology "Category: Doc,ok-to-test"
-    [ "$output" = $'run\tlabel ok-to-test applied by maintainer jdrueckert' ]
-    export GATE_EVENTS=$'jdrueckert\nstranger'
-    decide stranger stranger/Terasology "ok-to-test"
-    [[ "$output" == nod$'\t'*"ignored: label ok-to-test applied by stranger"* ]]
-    export GATE_EVENTS="jdrueckert"
-    decide stranger stranger/Terasology ""
+@test "a maintainer's approval admits exactly the commit it was given on" {
+    export GATE_REVIEWS="$(review jdrueckert APPROVED abc1234abc)"
+    decide stranger stranger/Terasology abc1234abc
+    [ "$output" = $'run\tapproved at abc1234 by maintainer jdrueckert' ]
+    decide stranger stranger/Terasology def5678def
+    [ "$output" = $'nod\tneeds a nod from a maintainer (stale: jdrueckert approved abc1234, head is def5678)' ]
+}
+
+@test "the phrase in a maintainer's review counts; a dismissed review and a bare request for changes do not" {
+    export GATE_REVIEWS="$(review Cervator COMMENTED abc1234abc true)"
+    decide stranger stranger/Terasology abc1234abc
+    [ "$output" = $'run\t"ok to test" at abc1234 from maintainer Cervator' ]
+    export GATE_REVIEWS="$(review Cervator DISMISSED abc1234abc)
+$(review Cervator CHANGES_REQUESTED abc1234abc)"
+    decide stranger stranger/Terasology abc1234abc
     [ "$output" = $'nod\tneeds a nod from a maintainer' ]
 }
 
-@test "the phrase counts from a maintainer, is ignored from anyone else" {
-    export GATE_COMMENTS="Cervator"
-    decide stranger stranger/Terasology ""
-    [ "$output" = $'run\t"ok to test" from maintainer Cervator' ]
-    export GATE_COMMENTS=$'stranger\nsomeoneelse'
-    decide stranger stranger/Terasology ""
-    [[ "$output" == nod$'\t'*'ignored: "ok to test" from stranger; "ok to test" from someoneelse'* ]]
+@test "a review from outside maintainers never admits, and is named" {
+    export GATE_REVIEWS="$(review stranger APPROVED abc1234abc)
+$(review someoneelse COMMENTED abc1234abc true)"
+    decide stranger stranger/Terasology abc1234abc
+    [ "$output" = $'nod\tneeds a nod from a maintainer (ignored: nod from stranger; nod from someoneelse)' ]
 }
 
-@test "the gate asks GitHub for the events and comments of the right PR" {
-    decide stranger stranger/Terasology ""
-    grep -q 'gh api repos/MovingBlocks/Terasology/issues/7/events --paginate' "$STUB_LOG"
-    grep -q 'gh api repos/MovingBlocks/Terasology/issues/7/comments --paginate' "$STUB_LOG"
+@test "the gate asks GitHub for the reviews of the right PR" {
+    decide stranger stranger/Terasology abc1234abc
+    grep -q 'gh pr view 7 --repo MovingBlocks/Terasology --json reviews' "$STUB_LOG"
 }
 ```
 
@@ -1552,14 +2388,14 @@ Expected: all fail.
 
 ```bash
 #!/usr/bin/env bash
-# The trust gate: may this pull request run in a bay, and why.
+# The trust gate: may this pull request head run in a bay, and why.
 #
-#   gate.sh decide <profile> <repo> <number> <author> <head_repo> <labels-csv>
+#   gate.sh decide <profile> <repo> <number> <author> <head_repo> <head>
 #
-# Prints "run<TAB>reason" or "nod<TAB>reason". A nod is a maintainer's act: the
-# label is read through the PR timeline so the actor is known, and the phrase
-# through the comments so the author is known. Presence of the label alone
-# proves nothing, since anyone with triage can apply one.
+# Prints "run<TAB>reason" or "nod<TAB>reason". A nod is a review, because
+# GitHub records the commit every review was submitted against: an approval
+# or an "ok to test" from a maintainer admits that commit and no other. A
+# label cannot say which commit it meant, so labels are never read.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/lib.sh
@@ -1571,8 +2407,8 @@ has_line() { grep -qxF -- "$1"; }          # stdin: one candidate per line
 has_line_ci() { grep -qxiF -- "$1"; }
 
 cmd_decide() {
-  local profile="$1" repo="$2" number="$3" author="$4" head_repo="$5" labels="${6:-}"
-  local maintainers trusted label phrase labeled_by commenters last a ignored=""
+  local profile="$1" repo="$2" number="$3" author="$4" head_repo="$5" head="$6"
+  local maintainers trusted phrase lphrase reviews login state oid has_phrase ignored="" stale="" why
   maintainers="$(trust_list "$profile" .maintainers)"
   trusted="$(trust_list "$profile" .trusted)"
   if printf '%s\n' "$maintainers" | has_line "$author"; then
@@ -1584,38 +2420,44 @@ cmd_decide() {
   if printf '%s\n' "$trusted" | has_line_ci "$head_repo"; then
     printf 'run\thead repository %s is trusted\n' "$head_repo"; return 0
   fi
-  label="$(trust "$profile" .nod_label ok-to-test)"
   phrase="$(trust "$profile" .nod_phrase 'ok to test')"
-  labeled_by="$(gh api "repos/$repo/issues/$number/events" --paginate \
-      --jq ".[] | select(.event == \"labeled\" and .label.name == \"$label\") | .actor.login" 2>/dev/null || true)"
-  commenters="$(gh api "repos/$repo/issues/$number/comments" --paginate \
-      --jq ".[] | select((.body | ascii_downcase) | contains(\"$(printf '%s' "$phrase" | tr '[:upper:]' '[:lower:]')\")) | .user.login" 2>/dev/null || true)"
-  if printf ',%s,' "$labels" | grep -qF -- ",$label,"; then
-    last="$(printf '%s\n' "$labeled_by" | grep -v '^$' | tail -n1 || true)"
-    if [ -n "$last" ] && printf '%s\n' "$maintainers" | has_line "$last"; then
-      printf 'run\tlabel %s applied by maintainer %s\n' "$label" "$last"; return 0
+  lphrase="$(printf '%s' "$phrase" | tr '[:upper:]' '[:lower:]')"
+  reviews="$(gh pr view "$number" --repo "$repo" --json reviews \
+      --jq ".reviews[] | [.author.login, .state, (.commit.oid // \"\"), (((.body // \"\") | ascii_downcase | contains(\"$lphrase\")) | tostring)] | @tsv" 2>/dev/null || true)"
+  while IFS=$'\t' read -r login state oid has_phrase; do
+    [ -n "$login" ] || continue
+    [ "$state" != DISMISSED ] || continue
+    if [ "$state" != APPROVED ] && [ "$has_phrase" != true ]; then continue; fi
+    if ! printf '%s\n' "$maintainers" | has_line "$login"; then
+      ignored="${ignored:+$ignored; }nod from $login"
+      continue
     fi
-    [ -n "$last" ] && ignored="label $label applied by $last"
-  fi
-  for a in $commenters; do
-    if printf '%s\n' "$maintainers" | has_line "$a"; then
-      printf 'run\t"%s" from maintainer %s\n' "$phrase" "$a"; return 0
+    if [ "$oid" = "$head" ]; then
+      if [ "$state" = APPROVED ]; then
+        printf 'run\tapproved at %s by maintainer %s\n' "${oid:0:7}" "$login"
+      else
+        printf 'run\t"%s" at %s from maintainer %s\n' "$phrase" "${oid:0:7}" "$login"
+      fi
+      return 0
     fi
-    ignored="${ignored:+$ignored; }\"$phrase\" from $a"
-  done
-  printf 'nod\tneeds a nod from a maintainer%s\n' "${ignored:+; ignored: $ignored}"
+    stale="${stale:+$stale; }$login approved ${oid:0:7}, head is ${head:0:7}"
+  done <<< "$reviews"
+  why="needs a nod from a maintainer"
+  [ -n "$stale" ] && why="$why (stale: $stale)"
+  [ -n "$ignored" ] && why="$why (ignored: $ignored)"
+  printf 'nod\t%s\n' "$why"
 }
 
 case "${1:-}" in
-  decide) shift; [ $# -ge 5 ] || die "gate decide <profile> <repo> <number> <author> <head_repo> [labels]"; cmd_decide "$@" ;;
-  *) echo "usage: gate.sh decide <profile> <repo> <number> <author> <head_repo> [labels-csv]" >&2; exit 2 ;;
+  decide) shift; [ $# -eq 6 ] || die "gate decide <profile> <repo> <number> <author> <head_repo> <head>"; cmd_decide "$@" ;;
+  *) echo "usage: gate.sh decide <profile> <repo> <number> <author> <head_repo> <head>" >&2; exit 2 ;;
 esac
 ```
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `bash components/naust/tests/run.sh test tests/gate.bats`
-Expected: 6 pass.
+Expected: 7 pass.
 
 - [ ] **Step 6: Commit**
 
@@ -1623,29 +2465,29 @@ Expected: 6 pass.
 
 ```markdown
 ---
-message: "feat: gate decide — maintainers, trusted logins and repos, nods by label or phrase"
+message: "feat: gate decide — maintainers, trusted logins and repos, nods as reviews bound to a commit"
 add:
   - bin/naust
   - bin/gate.sh
   - tests/gate.bats
 ---
 
-The nod is read as an act with an actor, not as a label's presence: the timeline says who applied it and the comments say who wrote the phrase, and only a login in maintainers counts. Anyone else's attempt is named in the reason so the notice on Discord says what was ignored.
+A review carries the commit it was submitted against, so a maintainer's approval or "ok to test" admits that head and nothing pushed after it. Stale nods and nods from outside the list are named in the reason so the notice on Discord says why a PR still waits.
 ```
 
 Run: `ws commit naust .commits/naust-gate.md`
 
-### Task 6: `poll.sh`, `queue.sh`, `run.sh` — candidates, debounce, the queue, manual runs
+### Task 7: `poll.sh`, `queue.sh`, `run.sh` — candidates, debounce, the queue, manual runs
 
 **Files:**
 - Create: `components/naust/bin/poll.sh`, `components/naust/bin/queue.sh`, `components/naust/bin/run.sh`
 - Create: `components/naust/tests/poll.bats`, `components/naust/tests/queue.bats`, `components/naust/tests/run.bats`
 
 **Interfaces:**
-- Consumes: `lib.sh`; `gate.sh decide`; profile keys `repo`, `poll.debounce_minutes`, `poll.skip_drafts`; trust key `nod_label`.
-- Produces: `naust poll candidates <profile>` printing tab-separated `profile repo number sha base author head_repo labels` for every open PR whose head is new or moved, older than the debounce, not yet queued at that sha, and not a draft (unless it carries the nod label). Seen state in `state/seen/<owner>__<repo>/<number>` with keys `sha first_seen queued notified`; closed PRs are forgotten and their queue entry dropped. `naust poll mark <profile> <number> queued|notified <sha>`.
+- Consumes: `lib.sh`; `gate.sh decide`; profile keys `repo`, `poll.debounce_minutes`, `poll.skip_drafts`.
+- Produces: `naust poll candidates <profile>` printing tab-separated `profile repo number sha base author head_repo` for every open PR whose head is new or moved, older than the debounce, not yet queued at that sha, and not a draft when `skip_drafts` is on (a draft is run by hand with `naust run`). Seen state in `state/seen/<owner>__<repo>/<number>` with keys `sha first_seen queued notified`; closed PRs are forgotten and their queue entry dropped. `naust poll mark <profile> <number> queued|notified <sha>`.
 - Produces: `naust queue put <profile> <repo> <number> <head> <base> <author> <head_repo> [--priority N] [--with <csv>] [--bay <name>]` (a newer head replaces the entry; the same head is a no-op), `naust queue next` (prints the path of the best job: highest priority, then oldest; exit 1 when empty), `naust queue drop <path>`, `naust queue list`. Job file keys: `profile repo number head base author head_repo priority with bay enqueued`.
-- Produces: `naust run <profile> <number> [--with <target>#<n>]... [--bay <name>]` — looks the PR up, gates it, queues it at priority 10; exit 1 with the gate's reason when a nod is needed.
+- Produces: `naust run <profile> <number> [--with <target>#<n>]... [--bay <name>]` — looks the PR up, gates its head, queues it at priority 10; exit 1 with the gate's reason when a nod is needed.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1662,22 +2504,22 @@ put() { run_naust queue put terasology MovingBlocks/Terasology "$@"; }
 @test "put writes a job file and the same head is a no-op" {
     put 7 abc123 develop stranger stranger/Terasology
     [ "$status" -eq 0 ]
-    f="$NAUST_HOME/state/queue/MovingBlocks__Terasology__7.job"
+    f="$NAUST_DIR/state/queue/MovingBlocks__Terasology__7.job"
     [ -f "$f" ]
     grep -q '^head=abc123$' "$f"
     grep -q '^priority=0$' "$f"
     grep -q "^enqueued=$NAUST_NOW$" "$f"
     put 7 abc123 develop stranger stranger/Terasology
-    [[ "$output" == *"already queued"* ]]
+    grep -q "already queued" "$NAUST_LOG"
 }
 
 @test "put with a newer head replaces the entry" {
     put 7 abc123 develop stranger stranger/Terasology
     put 7 def456 develop stranger stranger/Terasology
     [ "$status" -eq 0 ]
-    f="$NAUST_HOME/state/queue/MovingBlocks__Terasology__7.job"
+    f="$NAUST_DIR/state/queue/MovingBlocks__Terasology__7.job"
     grep -q '^head=def456$' "$f"
-    [ "$(ls "$NAUST_HOME/state/queue" | wc -l)" -eq 1 ]
+    [ "$(ls "$NAUST_DIR/state/queue" | wc -l)" -eq 1 ]
 }
 
 @test "next prefers priority, then the oldest; drop removes" {
@@ -1713,14 +2555,14 @@ setup() {
     make_stub gh 'case "$*" in *"pr list"*) printf "%s\n" "$POLL_PRS" ;; esac'
 }
 
-pr_line() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "$1" "$2" develop "$3" "$3/Terasology" "${4:-false}" "${5:-}" 2026-10-08T00:00:00Z; }
+pr_line() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$1" "$2" develop "$3" "$3/Terasology" "${4:-false}" 2026-10-08T00:00:00Z; }
 
 @test "a new PR is remembered and waits out the debounce" {
     export POLL_PRS="$(pr_line 7 abc123 stranger)"
     run_naust poll candidates terasology
     [ "$status" -eq 0 ]
     [ -z "$output" ]
-    f="$NAUST_HOME/state/seen/MovingBlocks__Terasology/7"
+    f="$NAUST_DIR/state/seen/MovingBlocks__Terasology/7"
     [ "$(sed -n 's/^sha=//p' "$f")" = "abc123" ]
     [ "$(sed -n 's/^first_seen=//p' "$f")" = "$NAUST_NOW" ]
     grep -q 'gh pr list --repo MovingBlocks/Terasology --state open --limit 100 --json' "$STUB_LOG"
@@ -1731,7 +2573,7 @@ pr_line() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "$1" "$2" develop "$3" "$3/T
     run_naust poll candidates terasology
     NAUST_NOW=$((NAUST_NOW + 11*60)) run_naust poll candidates terasology
     [ "$status" -eq 0 ]
-    [ "$output" = $'terasology\tMovingBlocks/Terasology\t7\tabc123\tdevelop\tstranger\tstranger/Terasology\t' ]
+    [ "$output" = $'terasology\tMovingBlocks/Terasology\t7\tabc123\tdevelop\tstranger\tstranger/Terasology' ]
     run_naust poll mark terasology 7 queued abc123
     NAUST_NOW=$((NAUST_NOW + 11*60)) run_naust poll candidates terasology
     [ -z "$output" ]
@@ -1748,13 +2590,16 @@ pr_line() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "$1" "$2" develop "$3" "$3/T
     [[ "$output" == *$'\t'def456$'\t'* ]]
 }
 
-@test "drafts are skipped unless they carry the nod label" {
+@test "drafts are skipped while skip_drafts is on" {
     export POLL_PRS="$(pr_line 7 abc123 stranger true)
-$(pr_line 8 bbb222 stranger true 'ok-to-test,Category: Doc')"
+$(pr_line 8 bbb222 stranger)"
     run_naust poll candidates terasology
     NAUST_NOW=$((NAUST_NOW + 11*60)) run_naust poll candidates terasology
     [[ "$output" != *$'\t7\t'* ]]
     [[ "$output" == *$'\t8\t'* ]]
+    yq -i '.poll.skip_drafts = false' "$NAUST_WORKSPACE/realms/realm-test/naust/terasology.yaml"
+    NAUST_NOW=$((NAUST_NOW + 11*60)) run_naust poll candidates terasology
+    [[ "$output" == *$'\t7\t'* ]]
 }
 
 @test "a closed PR is forgotten and its queued job dropped" {
@@ -1764,8 +2609,8 @@ $(pr_line 8 bbb222 stranger true 'ok-to-test,Category: Doc')"
     export POLL_PRS=""
     run_naust poll candidates terasology
     [ "$status" -eq 0 ]
-    [ ! -e "$NAUST_HOME/state/seen/MovingBlocks__Terasology/7" ]
-    [ ! -e "$NAUST_HOME/state/queue/MovingBlocks__Terasology__7.job" ]
+    [ ! -e "$NAUST_DIR/state/seen/MovingBlocks__Terasology/7" ]
+    [ ! -e "$NAUST_DIR/state/queue/MovingBlocks__Terasology__7.job" ]
 }
 ```
 
@@ -1775,34 +2620,35 @@ Create `components/naust/tests/run.bats`:
 #!/usr/bin/env bats
 load helpers/stub
 
+# Both the PR lookup and the gate call `gh pr view`; the gate's carries
+# `--json reviews`, so that case comes first.
 setup() {
     naust_setup
-    export GATE_EVENTS="" GATE_COMMENTS=""
+    export GATE_REVIEWS=""
     make_stub gh 'case "$*" in
+      *"--json reviews"*) printf "%s\n" "$GATE_REVIEWS" ;;
       *"pr view"*) printf "%s\n" "$RUN_PR" ;;
-      *events*) printf "%s\n" "$GATE_EVENTS" ;;
-      *comments*) printf "%s\n" "$GATE_COMMENTS" ;;
     esac'
 }
 
 @test "run queues a maintainer PR at priority 10 with its extras" {
-    export RUN_PR=$'abc123\tdevelop\tCervator\tCervator/Terasology\t'
+    export RUN_PR=$'abc123\tdevelop\tCervator\tCervator/Terasology'
     run_naust run terasology 7 --with terasology/modules/Health#12 --bay bay-2
     [ "$status" -eq 0 ]
-    f="$NAUST_HOME/state/queue/MovingBlocks__Terasology__7.job"
+    f="$NAUST_DIR/state/queue/MovingBlocks__Terasology__7.job"
     grep -q '^priority=10$' "$f"
     grep -q '^head=abc123$' "$f"
     grep -q '^with=terasology/modules/Health#12$' "$f"
     grep -q '^bay=bay-2$' "$f"
-    grep -q 'gh pr view 7 --repo MovingBlocks/Terasology --json' "$STUB_LOG"
+    grep -q 'gh pr view 7 --repo MovingBlocks/Terasology --json headRefOid' "$STUB_LOG"
 }
 
 @test "run refuses a PR that needs a nod and says why" {
-    export RUN_PR=$'abc123\tdevelop\tstranger\tstranger/Terasology\t'
+    export RUN_PR=$'abc123\tdevelop\tstranger\tstranger/Terasology'
     run_naust run terasology 7
     [ "$status" -ne 0 ]
     [[ "$output" == *"needs a nod from a maintainer"* ]]   # die echoes to stderr even when NAUST_LOG is set
-    [ ! -e "$NAUST_HOME/state/queue/MovingBlocks__Terasology__7.job" ]
+    [ ! -e "$NAUST_DIR/state/queue/MovingBlocks__Terasology__7.job" ]
 }
 ```
 
@@ -1885,7 +2731,7 @@ esac
 #!/usr/bin/env bash
 # Poll one profile's repository for open pull requests and emit the ones that
 # deserve a job: new or moved heads, past the debounce, not yet queued at that
-# head, not drafts unless nodded. Seen-state lives in state/seen/<repo>/<n>.
+# head, not drafts while skip_drafts is on. Seen-state lives in state/seen/<repo>/<n>.
 #
 #   poll.sh candidates <profile>
 #   poll.sh mark <profile> <number> queued|notified <sha>
@@ -1896,22 +2742,21 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 load_config
 require_tool gh
 
-PR_FIELDS='number,headRefOid,baseRefName,author,headRepositoryOwner,headRepository,isDraft,labels,updatedAt'
-PR_SHAPE='.[] | [.number, .headRefOid, .baseRefName, .author.login, ((.headRepositoryOwner.login // "") + "/" + (.headRepository.name // "")), (.isDraft|tostring), ((.labels // []) | map(.name) | join(",")), .updatedAt] | @tsv'
+PR_FIELDS='number,headRefOid,baseRefName,author,headRepositoryOwner,headRepository,isDraft,updatedAt'
+PR_SHAPE='.[] | [.number, .headRefOid, .baseRefName, .author.login, ((.headRepositoryOwner.login // "") + "/" + (.headRepository.name // "")), (.isDraft|tostring), .updatedAt] | @tsv'
 
 seen_dir() { printf '%s/seen/%s\n' "$STATE_DIR" "${1//\//__}"; }
 
 cmd_candidates() {
-  local profile="$1" repo debounce skip_drafts label dir tmp open=" "
-  local number sha base author head_repo draft labels updated f first_seen age
+  local profile="$1" repo debounce skip_drafts dir tmp open=" "
+  local number sha base author head_repo draft updated f first_seen age
   repo="$(prof "$profile" .repo)"; [ -n "$repo" ] || die "profile $profile has no repo"
   debounce="$(prof "$profile" .poll.debounce_minutes 10)"
   skip_drafts="$(prof "$profile" .poll.skip_drafts true)"
-  label="$(trust "$profile" .nod_label ok-to-test)"
   dir="$(seen_dir "$repo")"; mkdir -p "$dir"
   tmp="$(mktemp)"
   gh pr list --repo "$repo" --state open --limit 100 --json "$PR_FIELDS" --jq "$PR_SHAPE" > "$tmp"
-  while IFS=$'\t' read -r number sha base author head_repo draft labels updated; do
+  while IFS=$'\t' read -r number sha base author head_repo draft updated; do
     [ -n "$number" ] || continue
     open="$open$number "
     f="$dir/$number"
@@ -1920,7 +2765,7 @@ cmd_candidates() {
       kv_set "$f" first_seen "$(now)"
       log "poll: $repo#$number at ${sha:0:7} (${author}) seen"
     fi
-    if [ "$draft" = true ] && [ "$skip_drafts" = true ] && ! printf ',%s,' "$labels" | grep -qF -- ",$label,"; then
+    if [ "$draft" = true ] && [ "$skip_drafts" = true ]; then
       continue
     fi
     [ "$(kv_get "$f" queued)" = "$sha" ] && continue
@@ -1930,7 +2775,7 @@ cmd_candidates() {
       log "poll: $repo#$number debouncing (${age}s of $((debounce * 60))s)"
       continue
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$profile" "$repo" "$number" "$sha" "$base" "$author" "$head_repo" "$labels"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$profile" "$repo" "$number" "$sha" "$base" "$author" "$head_repo"
   done < "$tmp"
   rm -f "$tmp"
   for f in "$dir"/*; do
@@ -1963,7 +2808,7 @@ esac
 ```bash
 #!/usr/bin/env bash
 # Queue a pull request by hand, ahead of polled ones. The trust gate still
-# applies; the debounce does not.
+# applies to the head as it is now; the debounce does not.
 #
 #   run.sh <profile> <number> [--with <target>#<n>]... [--bay <name>]
 set -euo pipefail
@@ -1985,11 +2830,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 repo="$(prof "$profile" .repo)"; [ -n "$repo" ] || die "profile $profile has no repo"
-IFS=$'\t' read -r head base author head_repo labels < <(gh pr view "$number" --repo "$repo" \
-  --json headRefOid,baseRefName,author,headRepositoryOwner,headRepository,labels \
-  --jq '[.headRefOid, .baseRefName, .author.login, ((.headRepositoryOwner.login // "") + "/" + (.headRepository.name // "")), ((.labels // []) | map(.name) | join(","))] | @tsv')
+IFS=$'\t' read -r head base author head_repo < <(gh pr view "$number" --repo "$repo" \
+  --json headRefOid,baseRefName,author,headRepositoryOwner,headRepository \
+  --jq '[.headRefOid, .baseRefName, .author.login, ((.headRepositoryOwner.login // "") + "/" + (.headRepository.name // ""))] | @tsv')
 [ -n "$head" ] || die "naust run: could not read $repo#$number"
-IFS=$'\t' read -r decision reason < <(bash "$HERE/gate.sh" decide "$profile" "$repo" "$number" "$author" "$head_repo" "$labels")
+IFS=$'\t' read -r decision reason < <(bash "$HERE/gate.sh" decide "$profile" "$repo" "$number" "$author" "$head_repo" "$head")
 if [ "$decision" != run ]; then
   die "naust run: $repo#$number $reason"
 fi
@@ -2001,7 +2846,7 @@ bash "$HERE/poll.sh" mark "$profile" "$number" queued "$head"
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `bash components/naust/tests/run.sh test` (whole suite so far)
-Expected: lib 8, notify 5, bay 9, gate 6, queue 3, poll 5, run 2 — all pass.
+Expected: lib 10, notify 5, bay 10, gate 7, queue 3, poll 5, run 2 — all pass.
 
 - [ ] **Step 7: Commit**
 
@@ -2019,19 +2864,19 @@ add:
   - tests/run.bats
 ---
 
-Seen-state is one small file per PR so a moved head resets its own debounce without touching the others, and a PR that closes takes its queue entry with it. The queue is files too: a tick that dies leaves the job where the next tick finds it.
+Seen-state is one small file per PR so a moved head resets its own debounce without touching the others, and a PR that closes takes its queue entry with it. The queue is files too: a tick that dies leaves the job where the next tick finds it. The gate is asked about the exact head that will run.
 ```
 
 Run: `ws commit naust .commits/naust-poll-queue.md`
 
-### Task 7: `tick.sh` — the scheduled entry point
+### Task 8: `tick.sh` — the scheduled entry point
 
 **Files:**
 - Create: `components/naust/bin/tick.sh`, `components/naust/tests/tick.bats`
 
 **Interfaces:**
 - Consumes: `lib.sh` (`with_lock`, `cfg_list`), `poll.sh candidates|mark`, `gate.sh decide`, `queue.sh put|next`, `bay.sh free-for|claim`, `notify.sh say`, and the job runner `bin/job.sh <bay> <jobfile>` (overridable by `NAUST_JOB_SCRIPT` for tests).
-- Produces: `naust tick`. Exit 0 always except on a configuration error. One tick: take the lock or exit; for each profile, poll, gate each candidate, queue the runnable ones (marking them queued) and post one Discord notice per nod-needed head (marking it notified); take the best queued job, find a free bay (the job's pinned bay, else `free-for`), claim it, move the job file to `state/jobs/<jobid>.job`, run the job script, exit. Job id is `<owner>__<repo>-<number>-<7-char sha>`.
+- Produces: `naust tick`. Exit 0 always except on a configuration error. One tick: take the lock or exit; for each profile, poll, gate each candidate head, queue the runnable ones (marking them queued) and post one Discord notice per nod-needed head (marking it notified); take the best queued job, find a free bay (the job's pinned bay, else `free-for`), claim it, move the job file to `state/jobs/<jobid>.job`, run the job script, exit. Job id is `<owner>__<repo>-<number>-<7-char sha>`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2043,11 +2888,10 @@ load helpers/stub
 
 setup() {
     naust_setup
-    export POLL_PRS="" GATE_EVENTS="" GATE_COMMENTS=""
+    export POLL_PRS="" GATE_REVIEWS=""
     make_stub gh 'case "$*" in
       *"pr list"*) printf "%s\n" "$POLL_PRS" ;;
-      *events*) printf "%s\n" "$GATE_EVENTS" ;;
-      *comments*) printf "%s\n" "$GATE_COMMENTS" ;;
+      *"--json reviews"*) printf "%s\n" "$GATE_REVIEWS" ;;
     esac'
     make_stub curl
     printf 'NAUST_DISCORD_WEBHOOK=https://discord.invalid/hook\n' > "$NAUST_ENV_FILE"
@@ -2055,20 +2899,20 @@ setup() {
     printf '#!/usr/bin/env bash\necho "job $*" >> "$STUB_LOG"\n' > "$NAUST_JOB_SCRIPT"
 }
 
-pr_line() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "$1" "$2" develop "$3" "$3/Terasology" false "" 2026-10-08T00:00:00Z; }
-aged() { printf 'sha=%s\nfirst_seen=%s\n' "$2" $((NAUST_NOW - 3600)) > "$NAUST_HOME/state/seen/MovingBlocks__Terasology/$1"; }
+pr_line() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$1" "$2" develop "$3" "$3/Terasology" false 2026-10-08T00:00:00Z; }
+aged() { printf 'sha=%s\nfirst_seen=%s\n' "$2" $((NAUST_NOW - 3600)) > "$NAUST_DIR/state/seen/MovingBlocks__Terasology/$1"; }
 
 @test "a maintainer's PR is queued and marked; a stranger's gets one notice" {
-    mkdir -p "$NAUST_HOME/state/seen/MovingBlocks__Terasology"
+    mkdir -p "$NAUST_DIR/state/seen/MovingBlocks__Terasology"
     aged 7 abc123; aged 8 bbb222
     export POLL_PRS="$(pr_line 7 abc123 Cervator)
 $(pr_line 8 bbb222 stranger)"
     run_naust tick
     [ "$status" -eq 0 ]
-    [ -f "$NAUST_HOME/state/queue/MovingBlocks__Terasology__7.job" ] || [ -f "$NAUST_HOME/state/jobs/MovingBlocks__Terasology-7-abc123.job" ]
-    [ ! -e "$NAUST_HOME/state/queue/MovingBlocks__Terasology__8.job" ]
-    [ "$(sed -n 's/^queued=//p' "$NAUST_HOME/state/seen/MovingBlocks__Terasology/7")" = "abc123" ]
-    [ "$(sed -n 's/^notified=//p' "$NAUST_HOME/state/seen/MovingBlocks__Terasology/8")" = "bbb222" ]
+    [ -f "$NAUST_DIR/state/queue/MovingBlocks__Terasology__7.job" ] || [ -f "$NAUST_DIR/state/jobs/MovingBlocks__Terasology-7-abc123.job" ]
+    [ ! -e "$NAUST_DIR/state/queue/MovingBlocks__Terasology__8.job" ]
+    [ "$(sed -n 's/^queued=//p' "$NAUST_DIR/state/seen/MovingBlocks__Terasology/7")" = "abc123" ]
+    [ "$(sed -n 's/^notified=//p' "$NAUST_DIR/state/seen/MovingBlocks__Terasology/8")" = "bbb222" ]
     [ "$(grep -c '^curl ' "$STUB_LOG")" -eq 1 ]
     grep -q 'needs a nod' "$STUB_LOG"
     grep -q 'https://github.com/MovingBlocks/Terasology/pull/8' "$STUB_LOG"
@@ -2081,9 +2925,9 @@ $(pr_line 8 bbb222 stranger)"
     run_naust queue put terasology MovingBlocks/Terasology 7 abc1234 develop Cervator Cervator/Terasology
     run_naust tick
     [ "$status" -eq 0 ]
-    grep -q "^job bay-1 $NAUST_HOME/state/jobs/MovingBlocks__Terasology-7-abc1234.job" "$STUB_LOG"
-    [ ! -e "$NAUST_HOME/state/queue/MovingBlocks__Terasology__7.job" ]
-    [ "$(sed -n 's/^job=//p' "$BAY_DIR/bay.state")" = "MovingBlocks__Terasology-7-abc1234" ]
+    grep -q "^job bay-1 $NAUST_DIR/state/jobs/MovingBlocks__Terasology-7-abc1234.job" "$STUB_LOG"
+    [ ! -e "$NAUST_DIR/state/queue/MovingBlocks__Terasology__7.job" ]
+    [ "$(sed -n 's/^job=//p' "$NAUST_DIR/state/bays/bay-1.state")" = "MovingBlocks__Terasology-7-abc1234" ]
 }
 
 @test "no free bay: the job stays queued" {
@@ -2092,7 +2936,7 @@ $(pr_line 8 bbb222 stranger)"
     run_naust tick
     [ "$status" -eq 0 ]
     grep -q "no free bay" "$NAUST_LOG"
-    [ -f "$NAUST_HOME/state/queue/MovingBlocks__Terasology__7.job" ]
+    [ -f "$NAUST_DIR/state/queue/MovingBlocks__Terasology__7.job" ]
     ! grep -q '^job ' "$STUB_LOG"
 }
 
@@ -2102,13 +2946,13 @@ $(pr_line 8 bbb222 stranger)"
     run_naust queue put terasology MovingBlocks/Terasology 7 abc1234 develop Cervator Cervator/Terasology --bay bay-2
     run_naust tick
     [ "$status" -eq 0 ]
-    [ -f "$NAUST_HOME/state/queue/MovingBlocks__Terasology__7.job" ]
+    [ -f "$NAUST_DIR/state/queue/MovingBlocks__Terasology__7.job" ]
     ! grep -q '^job ' "$STUB_LOG"
 }
 
 @test "a tick that finds the lock held does nothing" {
-    mkdir -p "$NAUST_HOME/state/lock"
-    printf '1\n' > "$NAUST_HOME/state/lock/pid"
+    mkdir -p "$NAUST_DIR/state/lock"
+    printf '1\n' > "$NAUST_DIR/state/lock/pid"
     run_naust tick
     [ "$status" -eq 0 ]
     grep -q "another tick" "$NAUST_LOG"
@@ -2142,9 +2986,9 @@ fi
 
 while IFS= read -r profile; do
   [ -n "$profile" ] || continue
-  while IFS=$'\t' read -r p repo number sha base author head_repo labels; do
+  while IFS=$'\t' read -r p repo number sha base author head_repo; do
     [ -n "$number" ] || continue
-    IFS=$'\t' read -r decision reason < <(bash "$HERE/gate.sh" decide "$p" "$repo" "$number" "$author" "$head_repo" "$labels")
+    IFS=$'\t' read -r decision reason < <(bash "$HERE/gate.sh" decide "$p" "$repo" "$number" "$author" "$head_repo" "$sha")
     if [ "$decision" = run ]; then
       bash "$HERE/queue.sh" put "$p" "$repo" "$number" "$sha" "$base" "$author" "$head_repo"
       bash "$HERE/poll.sh" mark "$p" "$number" queued "$sha"
@@ -2152,7 +2996,7 @@ while IFS= read -r profile; do
     else
       seen="$STATE_DIR/seen/${repo//\//__}/$number"
       if [ "$(kv_get "$seen" notified)" != "$sha" ]; then
-        bash "$HERE/notify.sh" say "PR #$number on $repo by @$author needs a nod before a bay runs it: https://github.com/$repo/pull/$number ($reason)" || true
+        bash "$HERE/notify.sh" say "PR #$number on $repo by @$author at ${sha:0:7} needs a nod before a bay runs it: a maintainer's Approve, or a review saying \"$(trust "$p" .nod_phrase 'ok to test')\". https://github.com/$repo/pull/$number ($reason)" || true
         bash "$HERE/poll.sh" mark "$p" "$number" notified "$sha"
       fi
       log "tick: $repo#$number waiting ($reason)"
@@ -2200,42 +3044,23 @@ add:
   - tests/tick.bats
 ---
 
-A tick is the whole control loop and it exits: the scheduler is the daemon. One job per tick keeps the GPU and the display to one boot at a time, and a nod notice goes out once per head so a PR waiting a week does not page anyone every five minutes.
+A tick is the whole control loop and it exits: the scheduler is the daemon. One job per tick keeps the GPU and the display to one boot at a time, and a nod notice goes out once per head, naming the two review forms that count, so a PR waiting a week does not page anyone every five minutes.
 ```
 
 Run: `ws commit naust .commits/naust-tick.md`
 
-### Task 8: `job.sh` — the nine steps
+### Task 9: `job.sh` — the nine steps
 
 **Files:**
 - Create: `components/naust/bin/job.sh`, `components/naust/tests/job.bats`
-- Modify: `components/naust/bin/bay.sh` (add `env <name>`)
 
 **Interfaces:**
-- Consumes: `bay.sh env|reset|set|repos`, the bay's `scripts/ws` (`checkout --pr`, `build`, `test`, `review checks`, `review comment`), `report.sh render <jobdir>` (Task 9; overridable by `NAUST_REPORT_SCRIPT`), `notify.sh say`; profile keys `component`, `upstream_remote`, `default_branch`, `steps.compile_all`, `steps.headless`, `steps.smoke`, `known_dirt`, `report.comment`.
-- Produces: `naust job <bay> <jobfile>`; exit 0 when every step that ran passed, 1 otherwise. The job directory `<bay>/yggdrasil/.outputs/naust/<jobid>/` holds `job.yaml` (`repo number head_polled head base merge_base author head_repo with bay started`), `steps.tsv` (`id<TAB>name<TAB>status<TAB>seconds`, status `pass|fail|skipped`), `diff.txt`, `scope.txt` (lines `class <Name> [integrationTest]` and/or `default`), `baseline/` and `reports/` (flattened JUnit XML plus `runs.tsv`: `command<TAB>exit`), `build.log`, `compile-all.log`, `headless.log`, `smoke.log`, `screenshot.png` (from the profile's scripts), `tree.txt`, `checks.txt`, `report.md`, `comment.md`. A copy lands in `state/jobs/<jobid>/`. The bay ends `ready` (or stays `broken` after a failed reset).
-- Step ids: `1 reset`, `2 checkout`, `3 scope`, `4 baseline`, `5 build`, `5b compile-all`, `5c tests`, `6 headless`, `7 smoke`, `8 tree`, `9 report`. A failed `2` skips `3`–`8`; a failed `5` skips `5b`, `5c`, `6`, `7`.
-- Environment for profile scripts (from `bay.sh env`) plus `NAUST_JOB_DIR`, `NAUST_PR_NUMBER`, `NAUST_PR_HEAD`, and `GH_TOKEN` from `.env`'s `GDD_GITHUB_TOKEN` when set.
+- Consumes: `bay.sh env|reset|set|repos`, `bay_ws` (the bay's `ws`: `checkout --cr`, `build`, `test`, `review checks`, `review comment`), `report.sh render <jobdir>` (Task 10; overridable by `NAUST_REPORT_SCRIPT`), `notify.sh say`; profile keys `component`, `steps.compile_all`, `steps.headless`, `steps.smoke`, `report.comment`; adapter keys `provision.remote` (optional), `provision.known_dirt`.
+- Produces: `naust job <bay> <jobfile>`; exit 0 when every step that ran passed, 1 otherwise. The job directory `<bay>/.outputs/naust/<jobid>/` holds `job.yaml` (`repo number head base merge_base author head_repo with bay started`, plus `head_fetched` when it differs), `steps.tsv` (`id<TAB>name<TAB>status<TAB>seconds`, status `pass|fail|skipped`), `diff.txt`, `diff-stat.txt`, `scope.txt` (lines `class <Name> [integrationTest]` and/or `default`), `baseline/` and `reports/` (flattened JUnit XML plus `runs.tsv`: `command<TAB>exit`), `build.log`, `compile-all.log`, `headless.log`, `smoke.log`, `screenshot.png` (from the profile's scripts), `tree.txt`, `checks.txt`, `report.md`, `comment.md`. A copy lands in `state/jobs/<jobid>/`. The bay ends `ready` (or stays `broken` after a failed reset).
+- Step ids: `1 reset`, `2 checkout`, `3 scope`, `4 baseline`, `5 build`, `5b compile-all`, `5c tests`, `6 headless`, `7 smoke`, `8 tree`, `9 report`. A failed `1` skips `2`–`8`; a failed `2` (fetch failed, or the fetched head is not the head the gate admitted) skips `3`–`8`; a failed `5` skips `5b`, `5c`, `6`, `7`.
+- Environment for profile scripts (from `bay.sh env`) plus `NAUST_JOB_DIR`, `NAUST_PR_NUMBER`, `NAUST_PR_HEAD`, and `GH_TOKEN` from the workspace `.env`'s `NAUST_GITHUB_TOKEN` when set.
 
-- [ ] **Step 1: Add `bay.sh env`**
-
-In `bin/bay.sh`, add after `cmd_repos`:
-
-```bash
-# Print the environment a job or a profile script needs, as export lines, so
-# job.sh can eval them instead of recomputing paths.
-cmd_env() {
-  bay_require "$1"; bay_env "$1"
-  local v
-  for v in NAUST_BAY_DIR NAUST_BAY_NAME NAUST_PROFILE NAUST_WS_DIR NAUST_COMP_DIR NAUST_REALM_DIR GRADLE_USER_HOME; do
-    printf 'export %s=%q\n' "$v" "${!v}"
-  done
-}
-```
-
-and to the dispatch: `env)      shift; cmd_env "$1" ;;`.
-
-- [ ] **Step 2: Write the failing tests**
+- [ ] **Step 1: Write the failing tests**
 
 Create `components/naust/tests/job.bats`:
 
@@ -2243,18 +3068,18 @@ Create `components/naust/tests/job.bats`:
 #!/usr/bin/env bats
 load helpers/stub
 
-# The ws inside the bay is a stub that does real git for checkout --pr (the
-# verb Task 1 built) and fakes everything else, writing one JUnit file per
-# test run so the collector has something to gather.
+# The ws inside the bay (reached through the parent's `bay exec`) does real
+# git for checkout --cr, the verb Task 1 built, and fakes everything else,
+# writing one JUnit file per test run so the collector has something to gather.
 bay_ws_stub() {
-cat > "$BAY_DIR/yggdrasil/scripts/ws" <<'EOF'
+cat > "$BAY_DIR/scripts/ws" <<'EOF'
 #!/usr/bin/env bash
-echo "ws $*" >> "$STUB_LOG"
+echo "bayws $*" >> "$STUB_LOG"
 comp="$(cd "$(dirname "$0")/../components/terasology" && pwd)"
 case "$1 $2" in
   "checkout terasology")
-    [ "$3" = --pr ] || exit 1
-    git -C "$comp" fetch -q MovingBlocks "refs/pull/$4/head" && git -C "$comp" switch -q -C "pr/$4" FETCH_HEAD ;;
+    [ "$3" = --cr ] || exit 1
+    git -C "$comp" fetch -q origin "refs/pull/$4/head" && git -C "$comp" switch -q -C "cr/$4" FETCH_HEAD ;;
   "checkout terasology/modules/Cooking") ;;
   "build terasology") exit "${WS_BUILD_EXIT:-0}" ;;
   "test terasology")
@@ -2264,24 +3089,30 @@ case "$1 $2" in
   "review terasology") case "$3" in checks) echo "Checks: 1 pass, 0 fail, 0 pending" ;; comment) ;; esac ;;
 esac
 EOF
-chmod +x "$BAY_DIR/yggdrasil/scripts/ws"
+chmod +x "$BAY_DIR/scripts/ws"
 }
 
-# A PR on the bay's MovingBlocks remote: one engine change, one plain test,
-# one MTE-tagged test.
+# A PR on the component's origin: one engine change, one plain test, one
+# MTE-tagged test. Calling it again moves the PR.
 publish_bay_pr() {
-    local comp="$BAY_DIR/yggdrasil/components/terasology"
+    local comp="$BAY_DIR/components/terasology"
     git -C "$comp" switch -q -c pr-work
     mkdir -p "$comp/engine/src/main/java/org/x" "$comp/engine-tests/src/test/java/org/x"
-    printf 'class A {}\n' > "$comp/engine/src/main/java/org/x/A.java"
+    printf 'class A { /* %s */ }\n' "$RANDOM" > "$comp/engine/src/main/java/org/x/A.java"
     printf 'class ATest {}\n' > "$comp/engine-tests/src/test/java/org/x/ATest.java"
     printf '@Tag("MteTest")\nclass BMteTest {}\n' > "$comp/engine-tests/src/test/java/org/x/BMteTest.java"
     git -C "$comp" add -A
     git -C "$comp" commit -qm "pr"
     PR_SHA="$(git -C "$comp" rev-parse HEAD)"
-    git -C "$comp" push -q MovingBlocks "HEAD:refs/pull/7/head"
+    git -C "$comp" push -q -f origin "HEAD:refs/pull/7/head"
     git -C "$comp" switch -q develop
     git -C "$comp" branch -q -D pr-work
+}
+
+write_jobfile() { # <head>
+    JOBFILE="$NAUST_DIR/state/jobs/MovingBlocks__Terasology-7-${1:0:7}.job"
+    printf 'profile=terasology\nrepo=MovingBlocks/Terasology\nnumber=7\nhead=%s\nbase=develop\nauthor=Cervator\nhead_repo=Cervator/Terasology\npriority=0\nwith=\nbay=\nenqueued=1\n' "$1" > "$JOBFILE"
+    JOB="$BAY_DIR/.outputs/naust/MovingBlocks__Terasology-7-${1:0:7}"
 }
 
 setup() {
@@ -2291,46 +3122,65 @@ setup() {
     make_stub headless-stub 'printf "Server started\n" > "$NAUST_JOB_DIR/headless.log"'
     make_stub smoke-stub 'touch "$NAUST_JOB_DIR/screenshot.png"'
     make_stub curl
-    printf 'NAUST_DISCORD_WEBHOOK=https://discord.invalid/hook\nGDD_GITHUB_TOKEN=tok\n' > "$NAUST_ENV_FILE"
+    printf 'NAUST_DISCORD_WEBHOOK=https://discord.invalid/hook\nNAUST_GITHUB_TOKEN=tok\n' > "$NAUST_ENV_FILE"
     export NAUST_REPORT_SCRIPT="$BATS_TEST_TMPDIR/report-stub.sh"
     printf '#!/usr/bin/env bash\necho "report $*" >> "$STUB_LOG"\nprintf "# report\\n" > "$2/report.md"\nprintf "comment\\n" > "$2/comment.md"\n' > "$NAUST_REPORT_SCRIPT"
     make_bay bay-1 busy
     bay_ws_stub
+    # The component's one remote, outside every tree a reset would clean.
+    mkdir -p "$BATS_TEST_TMPDIR/remotes"
+    git init -q --bare "$BATS_TEST_TMPDIR/remotes/terasology.git"
+    git -C "$BAY_DIR/components/terasology" remote add origin "$BATS_TEST_TMPDIR/remotes/terasology.git"
+    git -C "$BAY_DIR/components/terasology" push -q -u origin develop
     publish_bay_pr
-    JOBFILE="$NAUST_HOME/state/jobs/MovingBlocks__Terasology-7-${PR_SHA:0:7}.job"
-    printf 'profile=terasology\nrepo=MovingBlocks/Terasology\nnumber=7\nhead=%s\nbase=develop\nauthor=Cervator\nhead_repo=Cervator/Terasology\npriority=0\nwith=\nbay=\nenqueued=1\n' "$PR_SHA" > "$JOBFILE"
-    JOB="$BAY_DIR/yggdrasil/.outputs/naust/MovingBlocks__Terasology-7-${PR_SHA:0:7}"
+    write_jobfile "$PR_SHA"
 }
 
 step_status() { awk -F'\t' -v id="$1" '$1 == id { print $3 }' "$JOB/steps.tsv"; }
+bay_state() { sed -n 's/^state=//p' "$NAUST_DIR/state/bays/bay-1.state"; }
 
 @test "the happy path runs every step in order and leaves the bay ready" {
     run_naust job bay-1 "$JOBFILE"
     [ "$status" -eq 0 ]
     for id in 1 2 3 4 5 5b 5c 6 7 8 9; do [ "$(step_status $id)" = pass ]; done
-    comp="$BAY_DIR/yggdrasil/components/terasology"
+    comp="$BAY_DIR/components/terasology"
     [ "$(sed -n 's/^head: //p' "$JOB/job.yaml")" = "$PR_SHA" ]
-    [ "$(sed -n 's/^merge_base: //p' "$JOB/job.yaml")" = "$(git -C "$comp" rev-parse MovingBlocks/develop)" ]
-    [ "$(git -C "$comp" rev-parse --abbrev-ref HEAD)" = "pr/7" ]
+    [ "$(sed -n 's/^merge_base: //p' "$JOB/job.yaml")" = "$(git -C "$comp" rev-parse origin/develop)" ]
+    [ "$(git -C "$comp" rev-parse --abbrev-ref HEAD)" = "cr/7" ]
     grep -q '^class ATest $' "$JOB/scope.txt"
     grep -q '^class BMteTest integrationTest$' "$JOB/scope.txt"
     grep -q '^default$' "$JOB/scope.txt"
     ls "$JOB/baseline"/*.xml >/dev/null
     ls "$JOB/reports"/*.xml >/dev/null
-    grep -q 'ws test terasology BMteTest --task integrationTest' "$STUB_LOG"
-    [ "$(grep -c '^ws test terasology' "$STUB_LOG")" -eq 6 ]
-    grep -q '^ws build terasology' "$STUB_LOG"
+    grep -q '^ws bay reset bay-1$' "$STUB_LOG"
+    grep -q '^bayws checkout terasology --cr 7$' "$STUB_LOG"
+    grep -q 'bayws test terasology BMteTest --task integrationTest' "$STUB_LOG"
+    [ "$(grep -c '^bayws test terasology' "$STUB_LOG")" -eq 6 ]
+    grep -q '^bayws build terasology' "$STUB_LOG"
     grep -q '^compile-all-stub' "$STUB_LOG"
     grep -q '^headless-stub' "$STUB_LOG"
     grep -q '^smoke-stub' "$STUB_LOG"
-    grep -q '^ws review terasology checks 7' "$STUB_LOG"
-    grep -q "^ws review terasology comment 7 .outputs/naust/MovingBlocks__Terasology-7-${PR_SHA:0:7}/comment.md" "$STUB_LOG"
+    grep -q '^bayws review terasology checks 7' "$STUB_LOG"
+    grep -q "^bayws review terasology comment 7 .outputs/naust/MovingBlocks__Terasology-7-${PR_SHA:0:7}/comment.md" "$STUB_LOG"
     grep -q "^report render $JOB" "$STUB_LOG"
     grep -q "file=@$JOB/screenshot.png" "$STUB_LOG"
-    [ -f "$NAUST_HOME/state/jobs/MovingBlocks__Terasology-7-${PR_SHA:0:7}/report.md" ]
-    [ "$(sed -n 's/^state=//p' "$BAY_DIR/bay.state")" = "ready" ]
-    # build/test steps saw the bay environment
+    [ -f "$NAUST_DIR/state/jobs/MovingBlocks__Terasology-7-${PR_SHA:0:7}/report.md" ]
+    [ "$(bay_state)" = "ready" ]
     grep -q "Checks: 1 pass" "$JOB/checks.txt"
+}
+
+@test "a PR that moved after the gate stops at checkout and says so" {
+    publish_bay_pr                                  # moves refs/pull/7/head past the gated head
+    run_naust job bay-1 "$JOBFILE"
+    [ "$status" -ne 0 ]
+    [ "$(step_status 1)" = pass ]
+    [ "$(step_status 2)" = fail ]
+    for id in 3 4 5 5b 5c 6 7 8; do [ "$(step_status $id)" = skipped ]; done
+    [ "$(step_status 9)" = pass ]
+    grep -q 'head moved' "$JOB/checkout.log"
+    [ "$(sed -n 's/^head_fetched: //p' "$JOB/job.yaml")" = "$PR_SHA" ]
+    ! grep -q '^bayws build' "$STUB_LOG"
+    [ "$(bay_state)" = "ready" ]
 }
 
 @test "a failed build skips compile-all, tests and both boots but still reports" {
@@ -2341,40 +3191,50 @@ step_status() { awk -F'\t' -v id="$1" '$1 == id { print $3 }' "$JOB/steps.tsv"; 
     for id in 5b 5c 6 7; do [ "$(step_status $id)" = skipped ]; done
     [ "$(step_status 8)" = pass ]
     [ "$(step_status 9)" = pass ]
-    grep -q '^ws review terasology comment 7' "$STUB_LOG"
-    [ "$(sed -n 's/^state=//p' "$BAY_DIR/bay.state")" = "ready" ]
+    grep -q '^bayws review terasology comment 7' "$STUB_LOG"
+    [ "$(bay_state)" = "ready" ]
 }
 
 @test "a failed reset skips everything but the report and leaves the bay broken" {
-    git -C "$BAY_DIR/yggdrasil/components/terasology/modules/Cooking" remote set-url origin "$BATS_TEST_TMPDIR/nope.git"
+    export WS_EXIT=1                                # the parent's ws bay reset fails
     run_naust job bay-1 "$JOBFILE"
     [ "$status" -ne 0 ]
     [ "$(step_status 1)" = fail ]
     for id in 2 3 4 5 5b 5c 6 7 8; do [ "$(step_status $id)" = skipped ]; done
     [ "$(step_status 9)" = pass ]
-    [ "$(sed -n 's/^state=//p' "$BAY_DIR/bay.state")" = "broken" ]
+    [ "$(bay_state)" = "broken" ]
 }
 
 @test "report.comment off posts nothing on the PR" {
-    yq -i '.report.comment = "off"' "$BATS_TEST_TMPDIR/ws/realms/realm-test/naust/terasology.yaml"
+    yq -i '.report.comment = "off"' "$NAUST_WORKSPACE/realms/realm-test/naust/terasology.yaml"
     run_naust job bay-1 "$JOBFILE"
-    ! grep -q '^ws review terasology comment' "$STUB_LOG"
+    ! grep -q '^bayws review terasology comment' "$STUB_LOG"
 }
 
 @test "with targets are checked out too and recorded" {
     printf 'with=terasology/modules/Cooking#3\n' >> "$JOBFILE"
     run_naust job bay-1 "$JOBFILE"
-    grep -q '^ws checkout terasology/modules/Cooking --pr 3' "$STUB_LOG"
+    grep -q '^bayws checkout terasology/modules/Cooking --cr 3' "$STUB_LOG"
     grep -q '^with: terasology/modules/Cooking#3$' "$JOB/job.yaml"
+}
+
+@test "known dirt from the adapter is named as known, anything else as unexpected" {
+    mkdir -p "$BAY_DIR/components/terasology/modules/Cooking/src/test/resources"
+    touch "$BAY_DIR/components/terasology/modules/Cooking/src/test/resources/logback-test.xml"
+    make_stub smoke-stub 'touch "$NAUST_JOB_DIR/screenshot.png"; touch "$NAUST_COMP_DIR/stray.dll"'
+    run_naust job bay-1 "$JOBFILE"
+    grep -q $'modules/Cooking\t?? src/test/resources/logback-test.xml\tknown' "$JOB/tree.txt"
+    grep -q $'?? stray.dll\tunexpected' "$JOB/tree.txt"
+    [ "$(step_status 8)" = fail ]
 }
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `bash components/naust/tests/run.sh test tests/job.bats`
 Expected: all fail (`job.sh` missing).
 
-- [ ] **Step 4: Implement `bin/job.sh`**
+- [ ] **Step 3: Implement `bin/job.sh`**
 
 ```bash
 #!/usr/bin/env bash
@@ -2392,21 +3252,19 @@ REPORT_SCRIPT="${NAUST_REPORT_SCRIPT:-$HERE/report.sh}"
 
 BAY="$1"; JOBFILE="$2"
 eval "$(bash "$HERE/bay.sh" env "$BAY")"
-WS="$NAUST_WS_DIR/scripts/ws"
 COMP="$(prof "$NAUST_PROFILE" .component)"
-UP="$(prof "$NAUST_PROFILE" .upstream_remote origin)"
 
 repo="$(kv_get "$JOBFILE" repo)"; number="$(kv_get "$JOBFILE" number)"
-head_polled="$(kv_get "$JOBFILE" head)"; base="$(kv_get "$JOBFILE" base)"
+head="$(kv_get "$JOBFILE" head)"; base="$(kv_get "$JOBFILE" base)"
 author="$(kv_get "$JOBFILE" author)"; head_repo="$(kv_get "$JOBFILE" head_repo)"
 with="$(kv_get "$JOBFILE" with)"
 JOBID="$(basename "$JOBFILE" .job)"
-JOB="$NAUST_WS_DIR/.outputs/naust/$JOBID"
+JOB="$NAUST_BAY_DIR/.outputs/naust/$JOBID"
 STEPS="$JOB/steps.tsv"
 
-token="$(env_value GDD_GITHUB_TOKEN)"
+token="$(env_value NAUST_GITHUB_TOKEN)"
 [ -n "$token" ] && export GH_TOKEN="$token"
-export NAUST_JOB_DIR="$JOB" NAUST_PR_NUMBER="$number" NAUST_PR_HEAD="$head_polled"
+export NAUST_JOB_DIR="$JOB" NAUST_PR_NUMBER="$number" NAUST_PR_HEAD="$head"
 
 FAILED=0
 record() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >> "$STEPS"; }
@@ -2420,32 +3278,44 @@ run_step() {
   record "$id" "$name" "$status" "$(( $(now) - t0 ))"
   [ "$status" = pass ]
 }
-in_ws() { (cd "$NAUST_WS_DIR" && "$@"); }
-in_comp() { (cd "$NAUST_COMP_DIR" && "$@"); }
+in_bay() { bay_ws "$BAY" "$@"; }
 profile_cmd() { # <profile key>: run the command in the component dir; empty is a pass
   local c; c="$(prof "$NAUST_PROFILE" "$1")"
   [ -n "$c" ] || { echo "(no $1 in profile)"; return 0; }
   (cd "$NAUST_COMP_DIR" && bash -c "$c")
 }
 
-step_reset() { bash "$HERE/bay.sh" reset "$BAY" && bash "$HERE/bay.sh" set "$BAY" busy; }
+# The remote the base branch lives on: the adapter's provision.remote, else
+# the component's one remote (a bay clones with one).
+comp_remote() {
+  local r; r="$(adapter "$COMP" .provision.remote)"
+  [ -n "$r" ] || r="$(git -C "$NAUST_COMP_DIR" remote)"
+  [ "$(printf '%s\n' "$r" | wc -l)" -eq 1 ] && [ -n "$r" ] || { echo "cannot tell the upstream remote of $NAUST_COMP_DIR: $r"; return 1; }
+  printf '%s\n' "$r"
+}
+
+step_reset() { bash "$HERE/bay.sh" reset "$BAY" --keep "$JOBID" && bash "$HERE/bay.sh" set "$BAY" busy; }
 
 step_checkout() {
-  local w target n
-  in_ws bash "$WS" checkout "$COMP" --pr "$number" --remote "$UP"
+  local w target n remote
+  remote="$(comp_remote)" || return 1
+  in_bay checkout "$COMP" --cr "$number"
   for w in ${with//,/ }; do
     target="${w%#*}"; n="${w##*#}"
-    in_ws bash "$WS" checkout "$target" --pr "$n"
+    in_bay checkout "$target" --cr "$n"
   done
-  git -C "$NAUST_COMP_DIR" fetch -q "$UP" "$base"
+  git -C "$NAUST_COMP_DIR" fetch -q "$remote" "$base"
   HEAD_SHA="$(git -C "$NAUST_COMP_DIR" rev-parse HEAD)"
-  MERGE_BASE="$(git -C "$NAUST_COMP_DIR" merge-base HEAD "$UP/$base")"
+  MERGE_BASE="$(git -C "$NAUST_COMP_DIR" merge-base HEAD "$remote/$base")"
   {
-    printf 'repo: %s\nnumber: %s\nhead_polled: %s\nhead: %s\nbase: %s\nmerge_base: %s\n' "$repo" "$number" "$head_polled" "$HEAD_SHA" "$base" "$MERGE_BASE"
+    printf 'repo: %s\nnumber: %s\nhead: %s\nbase: %s\nmerge_base: %s\n' "$repo" "$number" "$head" "$base" "$MERGE_BASE"
     printf 'author: %s\nhead_repo: %s\nwith: %s\nbay: %s\nstarted: %s\n' "$author" "$head_repo" "$with" "$BAY" "$(now)"
+    [ "$HEAD_SHA" = "$head" ] || printf 'head_fetched: %s\n' "$HEAD_SHA"
   } > "$JOB/job.yaml"
-  export NAUST_PR_HEAD="$HEAD_SHA"
-  [ "$HEAD_SHA" = "$head_polled" ] || echo "note: fetched $HEAD_SHA, polled $head_polled (the PR moved)"
+  if [ "$HEAD_SHA" != "$head" ]; then
+    echo "head moved: the gate admitted $head, the fetch returned $HEAD_SHA; a new nod is needed for the new head"
+    return 1
+  fi
 }
 
 add_class() { # <path relative to the component>
@@ -2477,17 +3347,17 @@ step_scope() {
 
 # Run every line of scope.txt and gather the JUnit XML it produced into <dest>.
 run_scope() { # <dest>
-  local dest="$1" marker kind name task x rel
+  local dest="$1" marker kind name task x rel rc
   mkdir -p "$dest"
   marker="$(mktemp)"
   : > "$dest/runs.tsv"
   while read -r kind name task; do
     case "$kind" in
       default)
-        in_ws bash "$WS" test "$COMP" && rc=0 || rc=$?
+        in_bay test "$COMP" && rc=0 || rc=$?
         printf 'ws test %s\t%s\n' "$COMP" "$rc" >> "$dest/runs.tsv" ;;
       class)
-        in_ws bash "$WS" test "$COMP" "$name" ${task:+--task "$task"} && rc=0 || rc=$?
+        in_bay test "$COMP" "$name" ${task:+--task "$task"} && rc=0 || rc=$?
         printf 'ws test %s %s%s\t%s\n' "$COMP" "$name" "${task:+ --task $task}" "$rc" >> "$dest/runs.tsv" ;;
     esac
   done < "$JOB/scope.txt"
@@ -2501,16 +3371,16 @@ run_scope() { # <dest>
 step_baseline() {
   git -C "$NAUST_COMP_DIR" switch -q --detach "$MERGE_BASE"
   run_scope "$JOB/baseline"
-  git -C "$NAUST_COMP_DIR" switch -q "pr/$number"
+  git -C "$NAUST_COMP_DIR" switch -q "cr/$number"
 }
-step_build() { in_ws bash "$WS" build "$COMP"; }
+step_build() { in_bay build "$COMP"; }
 step_compile_all() { profile_cmd .steps.compile_all; }
 step_tests() { run_scope "$JOB/reports"; }
 step_headless() { profile_cmd .steps.headless; }
 step_smoke() { profile_cmd .steps.smoke; }
 
 step_tree() {
-  local r line known unknown=0
+  local r line known unknown=0 pat
   : > "$JOB/tree.txt"
   while IFS= read -r r; do
     while IFS= read -r line; do
@@ -2519,11 +3389,11 @@ step_tree() {
       while IFS= read -r pat; do
         [ -n "$pat" ] || continue
         case "$line" in *"$pat"*) known=yes ;; esac
-      done < <(prof_list "$NAUST_PROFILE" .known_dirt)
+      done < <(adapter_list "$COMP" .provision.known_dirt)
       if [ "$known" = yes ]; then
-        printf '%s\t%s\tknown\n' "${r#"$NAUST_WS_DIR"/components/}" "$line" >> "$JOB/tree.txt"
+        printf '%s\t%s\tknown\n' "${r#"$NAUST_BAY_DIR"/components/}" "$line" >> "$JOB/tree.txt"
       else
-        printf '%s\t%s\tunexpected\n' "${r#"$NAUST_WS_DIR"/components/}" "$line" >> "$JOB/tree.txt"
+        printf '%s\t%s\tunexpected\n' "${r#"$NAUST_BAY_DIR"/components/}" "$line" >> "$JOB/tree.txt"
         unknown=1
       fi
     done < <(git -C "$r" status --porcelain)
@@ -2533,10 +3403,10 @@ step_tree() {
 }
 
 step_report() {
-  in_ws bash "$WS" review "$COMP" checks "$number" > "$JOB/checks.txt" 2>&1 || true
+  in_bay review "$COMP" checks "$number" > "$JOB/checks.txt" 2>&1 || true
   bash "$REPORT_SCRIPT" render "$JOB"
   if [ "$(prof "$NAUST_PROFILE" .report.comment on)" = on ]; then
-    in_ws bash "$WS" review "$COMP" comment "$number" ".outputs/naust/$JOBID/comment.md"
+    in_bay review "$COMP" comment "$number" ".outputs/naust/$JOBID/comment.md"
   fi
   if [ -f "$JOB/screenshot.png" ]; then
     bash "$HERE/notify.sh" say "$(head -c 1500 "$JOB/report.md")" --file "$JOB/screenshot.png" || true
@@ -2577,36 +3447,37 @@ log "job $JOBID: done, failed=$FAILED, outputs in $JOB"
 exit "$FAILED"
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+The reset step's own log is open under `$JOB` while the reset runs, which is why `bay.sh reset` takes `--keep "$JOBID"`: every other job directory under `.outputs/naust` goes, this one stays.
+
+- [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `bash components/naust/tests/run.sh test tests/job.bats`
-Expected: 5 pass. Then the whole suite: `bash components/naust/tests/run.sh test` — everything green, and `bash components/naust/tests/run.sh lint` clean.
+Expected: 7 pass. Then the whole suite: `bash components/naust/tests/run.sh test` — everything green, and `bash components/naust/tests/run.sh lint` clean.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 `.commits/naust-job.md`:
 
 ```markdown
 ---
-message: "feat: job — the nine steps through the bay's own ws, with baseline and scope"
+message: "feat: job — the nine steps through the bay's own ws, with the admitted head verified"
 add:
   - bin/job.sh
-  - bin/bay.sh
   - tests/job.bats
 ---
 
-The scope is mechanical on purpose: changed test classes, every test class of a module whose main sources changed, and the adapter's default task when the engine itself changed. MTE-tagged classes route to integrationTest because unitTest excludes them. The same scope runs on the merge-base first, so a failure the PR inherited is never pinned on it. A failed build skips what depends on it and records the skip; nothing is reported as passed that did not run.
+The scope is mechanical on purpose: changed test classes, every test class of a module whose main sources changed, and the adapter's default task when the engine itself changed. MTE-tagged classes route to integrationTest because unitTest excludes them. The same scope runs on the merge-base first, so a failure the PR inherited is never pinned on it. Checkout stops when the fetched head is not the one the gate admitted, so code pushed after a nod never builds on the host; a failed build skips what depends on it and records the skip, and nothing is reported as passed that did not run.
 ```
 
 Run: `ws commit naust .commits/naust-job.md`
 
-### Task 9: `report.sh` — the report and the PR comment
+### Task 10: `report.sh` — the report and the PR comment
 
 **Files:**
 - Create: `components/naust/bin/report.sh`, `components/naust/tests/report.bats`, `components/naust/tests/fixtures/` (three JUnit XML files)
 
 **Interfaces:**
-- Consumes: a job directory as Task 8 leaves it (`job.yaml`, `steps.tsv`, `scope.txt`, `diff-stat.txt`, `baseline/*.xml`, `reports/*.xml`, `tree.txt`, `checks.txt`, `screenshot.png`, `headless.log`, `smoke.log`); profile key `persona`.
+- Consumes: a job directory as Task 9 leaves it (`job.yaml`, `steps.tsv`, `scope.txt`, `diff-stat.txt`, `baseline/*.xml`, `reports/*.xml`, `tree.txt`, `checks.txt`, `screenshot.png`, `headless.log`, `smoke.log`, `checkout.log`); profile key `persona`.
 - Produces: `naust report render <jobdir>` writing `report.md` and `comment.md`. `report.md` has: a header line with PR, head, base and bay; a steps table; a tests table (PR vs baseline: tests, failures, errors, skipped) with the failing test names split into *new on this PR* and *also failing on the base*; the compile-all, headless and smoke outcomes (smoke names the screenshot); the clean-tree lines; the CI checks line; and a closing *What needs a human* list. `comment.md` is the same text without bay-local paths, signed by the persona, in the `oss-wide` register.
 - Also produces the helper `naust report junit <dir>` printing `tests<TAB>failures<TAB>errors<TAB>skipped` on the first line and one `classname.name` per failing test case after it.
 
@@ -2662,7 +3533,6 @@ setup() {
     cat > "$JOB/job.yaml" <<'YAML'
 repo: MovingBlocks/Terasology
 number: 7
-head_polled: abc1234abc
 head: abc1234abc
 base: develop
 merge_base: 0000000aaa
@@ -2725,6 +3595,15 @@ YAML
     grep -q '| 2 | checkout | not run |' "$JOB/report.md"
     grep -q 'reset failed' "$JOB/report.md"
     ! grep -q '| PR |' "$JOB/report.md"
+}
+
+@test "a moved head is the first thing a human reads" {
+    printf '1\treset\tpass\t3\n2\tcheckout\tfail\t2\n9\treport\tpass\t1\n' > "$JOB/steps.tsv"
+    printf 'head moved: the gate admitted abc1234abc, the fetch returned def5678def; a new nod is needed for the new head\n' > "$JOB/checkout.log"
+    rm -f "$JOB/reports"/* "$JOB/baseline"/*
+    run_naust report render "$JOB"
+    grep -q 'head moved' "$JOB/report.md"
+    grep -q 'new nod' "$JOB/comment.md"
 }
 ```
 
@@ -2792,6 +3671,9 @@ cmd_render() {
   human="${human//- smoke failed; see \`smoke.log\`./- smoke boot failed: the game did not reach the renderer, or the screenshot is missing; read \`smoke.log\`.}"
   human="${human//- reset failed; see \`reset.log\`./- reset failed: the bay is marked broken and nothing ran; read \`reset.log\`.}"
   human="${human//- tree failed; see \`tree.log\`./- the working tree is not clean after the run; see the clean-tree section.}"
+  if grep -q '^head moved' "$job/checkout.log" 2>/dev/null; then
+    human="${human//- checkout failed; see \`checkout.log\`./- $(grep -m1 '^head moved' "$job/checkout.log"). Nothing was built; approve the new head to run it.}"
+  fi
 
   local tests_section=""
   if ls "$job/reports"/*.xml >/dev/null 2>&1; then
@@ -2885,7 +3767,7 @@ esac
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `bash components/naust/tests/run.sh test tests/report.bats`
-Expected: 4 pass. The `junit` sum for the three fixtures is 6 tests, 1 failure, 1 error, 1 skipped; if the `eval`/`sed` attribute parse misreads an attribute order, replace it with three `sed -nE 's/.*tests="([0-9]+)".*/\1/p'` reads, one per attribute, which is order-independent.
+Expected: 5 pass. The `junit` sum for the three fixtures is 6 tests, 1 failure, 1 error, 1 skipped; the per-attribute `attr` read is order-independent.
 
 - [ ] **Step 6: Commit**
 
@@ -2902,12 +3784,12 @@ add:
   - tests/fixtures/fail-old.xml
 ---
 
-The one table that matters is PR against base: a failure the base already has is listed, not blamed. The comment is the report minus bay paths, opened by the persona and closed by a line saying it decides nothing, which is the oss-wide register's rule for anything posted on a contributor's PR.
+The one table that matters is PR against base: a failure the base already has is listed, not blamed. A moved head is the first human line, since the only thing to do is approve the new one. The comment is the report minus bay paths, opened by the persona and closed by a line saying it decides nothing, which is the oss-wide register's rule for anything posted on a contributor's PR.
 ```
 
 Run: `ws commit naust .commits/naust-report.md`
 
-### Task 10: naust README and AGENTS
+### Task 11: naust README and AGENTS
 
 **Files:**
 - Create: `components/naust/README.md`, `components/naust/AGENTS.md`
@@ -2919,31 +3801,31 @@ Create `components/naust/README.md` (one line per paragraph):
 ```markdown
 # naust
 
-A boathouse for pull requests. Naust keeps *bays*, complete yggdrasil workspaces parked on an always-on machine, and runs a pull request through one: fetch the PR, build, compile every module, run the relevant tests on the PR and on its base, boot the game headless and with a window, take a screenshot, check the tree is clean, and leave a report in the bay, on Discord and on the PR. A human then opens the bay, plays the change and decides. Naust never merges.
+A boathouse for pull requests. Naust keeps *bays* busy: a bay is a complete yggdrasil workspace under `bays/<name>/` in the workspace naust is cloned into, made and reset by `ws bay`, and naust runs a pull request through one: fetch the PR, build, compile every module, run the relevant tests on the PR and on its base, boot the game headless and with a window, take a screenshot, check the tree is clean, and leave a report in the bay, on Discord and on the PR. A human then opens the bay, plays the change and decides. Naust never merges.
 
 Design of record: [`realm-siliconsaga/docs/plans/2026-10-08-naust-pr-bays-design.md`](https://github.com/SiliconSaga/realm-siliconsaga/blob/main/docs/plans/2026-10-08-naust-pr-bays-design.md).
 
 ## How it runs
 
-`naust tick` is the whole control loop and it exits. The operating system's scheduler calls it every few minutes; a tick polls GitHub, gates each candidate against the realm's trust list, queues the ones that may run, posts one Discord notice per PR that needs a maintainer's nod, then runs at most one queued job in a free bay. A second tick arriving while a job runs finds the lock and leaves.
+`naust tick` is the whole control loop and it exits. The operating system's scheduler calls it every few minutes; a tick polls GitHub, gates each candidate head against the realm's trust list, queues the ones that may run, posts one Discord notice per PR that needs a maintainer's review, then runs at most one queued job in a free bay. A second tick arriving while a job runs finds the lock and leaves.
 
-What a job does and which commands it uses for a given project is a *profile* in the realm (`realms/<realm>/naust/<profile>.yaml`), beside the trust list (`naust/trust.yaml`). Naust itself knows only that a bay is a yggdrasil workspace and drives it through that workspace's own `ws`.
+What a job does and which commands it uses for a given project is a *profile* in the realm (`realms/<realm>/naust/<profile>.yaml`), beside the trust list (`naust/trust.yaml`); how a component's workspace is provisioned and reset is the adapter's `provision:` block. Naust itself knows only that a bay is a yggdrasil workspace and drives it through `ws bay exec`.
 
 ## Setup
 
-1. `cp naust.example.yaml naust.yaml` and `cp .env.example .env`, then edit both. The `.env` holds the machine account's fine-grained token (`GDD_GITHUB_TOKEN`, pull-requests: write on the watched repository) and the Discord webhook. Never a personal token.
-2. `naust bay add bay-1 --profile terasology` (tens of minutes: clones the workspace and the realm, the component and its module set, warms the shared Gradle cache). Add a second bay so one can hold a finished job for a human while the other works.
+1. Put the two secrets in the workspace's `.env`: `NAUST_GITHUB_TOKEN` (the machine account's fine-grained token, pull-requests: write on the watched repository; never a personal token) and `NAUST_DISCORD_WEBHOOK`. Copy `naust.example.yaml` to `bays/.naust/naust.yaml` and list the profiles to watch.
+2. `naust bay add bay-1 --profile terasology` (tens of minutes: `ws bay add` clones the workspace, the realm and the component with its module set, then naust warms the shared Gradle cache under `bays/.naust/gradle-home`). Add a second bay so one can hold a finished job for a human while the other works.
 3. Schedule `naust tick`. On Windows, as the logged-on user so the game window has a desktop and a GPU:
 
    ```text
-   schtasks /Create /SC MINUTE /MO 5 /TN naust-tick /IT /TR "\"C:\Program Files\Git\bin\bash.exe\" -lc \"/d/Dev/GitWS/naust/bin/naust tick >> /d/Dev/GitWS/naust/state/tick.log 2>&1\""
+   schtasks /Create /SC MINUTE /MO 5 /TN naust-tick /IT /TR "\"C:\Program Files\Git\bin\bash.exe\" -lc \"/d/Dev/GitWS/yggdrasil/components/naust/bin/naust tick >> /d/Dev/GitWS/yggdrasil/bays/.naust/state/tick.log 2>&1\""
    ```
 
    On Linux a systemd timer, on macOS a launchd agent, both calling `bin/naust tick`.
 
 ## Day to day
 
-- `naust bay list` — every bay, its state (`free busy ready held broken`), its job and how long it has been in that state.
+- `naust bay list` — every bay naust knows, its state (`free busy ready held broken`), its job and how long it has been in that state. `ws bay list` shows the workspaces themselves.
 - `naust run terasology 5400 [--with terasology/modules/Health#12] [--bay bay-2]` — queue a PR by hand, ahead of polled ones. The trust gate still applies.
 - A `ready` bay holds a finished job until you `naust bay release <name>` it or `bay.ready_ttl_days` passes. Open the bay's `.outputs/naust/<job>/report.md`, run the game from the bay's component directory, decide on GitHub.
 - `naust bay reset <name>` puts a bay back to base by hand; `--deep` also drops Gradle outputs. A `broken` bay needs that after you fix whatever the tick log names.
@@ -2951,11 +3833,11 @@ What a job does and which commands it uses for a given project is a *profile* in
 
 ## Trust
 
-A PR runs on the host the moment Gradle configures it, so nothing runs without trust. The realm's `naust/trust.yaml` lists `maintainers` (their PRs run, and their nod counts) and `trusted` logins or head repositories. Anyone else needs a nod: the `ok-to-test` label applied by a maintainer, or a comment containing the nod phrase by a maintainer. Naust reads the PR timeline to see who applied the label; the label's presence alone is not a nod.
+A PR runs on the host the moment Gradle configures it, so nothing runs without trust. The realm's `naust/trust.yaml` lists `maintainers` (their PRs run, and their reviews count) and `trusted` logins or head repositories. Anyone else needs a nod: a maintainer's review on the PR, either an Approve or a review whose text says the nod phrase (`ok to test`). GitHub records which commit a review was given on, and that is the only commit the nod admits; a push after the review needs a new one, and the job itself stops at checkout if the head it fetched is not the one the gate admitted. Labels are not read.
 
 ## Tests
 
-`ws test naust` runs the bats suite with the workspace-vendored bats; `ws lint naust` runs shellcheck. Everything external (`gh`, `curl`, Gradle, the bay's `ws`) is a PATH stub in tests; only temporary git repositories are real.
+`ws test naust` runs the bats suite with the workspace-vendored bats; `ws lint naust` runs shellcheck. Everything external (`gh`, `curl`, Gradle, the parent's `ws` and the bay's) is a stub in tests; only temporary git repositories are real.
 ```
 
 - [ ] **Step 2: AGENTS.md**
@@ -2965,11 +3847,11 @@ Create `components/naust/AGENTS.md`:
 ```markdown
 # naust — agent context
 
-Bash only, `set -euo pipefail`, no jq on the host (shape JSON with `gh --jq`), YAML through `yq`. Tests are bats with PATH stubs; see `tests/helpers/stub.bash` and start every test file with `naust_setup`. Everything a job does inside a bay goes through that bay's `scripts/ws`; never call Gradle from naust itself.
+Bash only, `set -euo pipefail`, no jq on the host (shape JSON with `gh --jq`), YAML through `yq`. Tests are bats with PATH stubs; see `tests/helpers/stub.bash` and start every test file with `naust_setup`. Everything a job does inside a bay goes through `bay_ws`, which is the parent's `ws bay exec`; never call Gradle from naust itself and never run a bay's `ws` directly.
 
 Design of record and the reasoning behind each decision: the realm's `docs/plans/2026-10-08-naust-pr-bays-design.md`. The Phase 1 plan beside it lists the files and their contracts.
 
-Secrets live in `.env`, read literally by `env_value`; never source it and never pass a token on a command line.
+Secrets live in the workspace's `.env`, read literally by `env_value`; never source it and never pass a token on a command line.
 ```
 
 - [ ] **Step 3: Commit, push, open the CR**
@@ -2985,17 +3867,18 @@ add:
 ---
 ```
 
-Run: `ws commit naust .commits/naust-docs.md`, `ws push naust`, then `ws cr naust "naust: PR bays, Phase 1" .crs/naust-phase1.md` with a change bodyfile summarising the tick, bays, gate, job and report, and a test plan of `ws test naust` plus the Dionysus bring-up in Task 15.
+Run: `ws commit naust .commits/naust-docs.md`, `ws push naust`, then `ws cr naust "naust: PR bays, Phase 1" .crs/naust-phase1.md` with a change bodyfile summarising the tick, the bay states over `ws bay`, the review-bound gate, the job and the report, and a test plan of `ws test naust` plus the Dionysus bring-up in Task 16.
 
-### Task 11: The Terasology profile, the trust list, the adapter and the realm entry (realm-siliconsaga)
+### Task 12: The Terasology profile, the trust list, the adapter's `provision:` block and the realm entry (realm-siliconsaga)
 
 **Files:**
 - Create: `naust/terasology.yaml`, `naust/trust.yaml`, `adapters/naust.yaml`, `terasology/tests/run.sh`, `terasology/tests/profile.bats`
-- Modify: `ecosystem.yaml` (after the `gdd-sandbox` entry)
+- Modify: `adapters/terasology.yaml` (add `provision:`), `ecosystem.yaml` (after the `gdd-sandbox` entry)
 
 **Interfaces:**
-- Produces the profile keys naust reads (Tasks 4–9): `component repo upstream_remote default_branch nested nested_default_branch persona init.modules poll.* bay.ready_ttl_days runtime_dirs known_dirt steps.compile_all steps.headless steps.smoke hooks.after_add hooks.after_reset report.comment`.
-- Produces the trust keys the gate reads: `terasology.maintainers terasology.trusted terasology.nod_label terasology.nod_phrase`.
+- Produces the profile keys naust reads (Tasks 5–10): `component repo persona poll.debounce_minutes poll.skip_drafts bay.ready_ttl_days steps.compile_all steps.headless steps.smoke hooks.after_add hooks.after_reset report.comment`.
+- Produces the trust keys the gate reads: `terasology.maintainers terasology.trusted terasology.nod_phrase`.
+- Produces the adapter keys `ws bay` and naust read: `provision.init provision.runtime_dirs provision.known_dirt`, beside the existing `nested`.
 
 - [ ] **Step 1: Branch**
 
@@ -3025,16 +3908,23 @@ Create `realms/realm-siliconsaga/terasology/tests/profile.bats`:
 
 REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 
-@test "the Terasology profile carries every key naust reads" {
-    for k in .component .repo .upstream_remote .default_branch .nested_default_branch .persona .init.modules \
-             .poll.debounce_minutes .poll.skip_drafts .bay.ready_ttl_days .steps.compile_all .steps.headless \
-             .steps.smoke .hooks.after_add .hooks.after_reset .report.comment; do
+@test "the Terasology profile carries every key naust reads, and none it stopped reading" {
+    for k in .component .repo .persona .poll.debounce_minutes .poll.skip_drafts .bay.ready_ttl_days \
+             .steps.compile_all .steps.headless .steps.smoke .hooks.after_add .hooks.after_reset .report.comment; do
         v="$(yq "$k" "$REALM/naust/terasology.yaml")"
         [ -n "$v" ] && [ "$v" != null ] || { echo "missing $k"; false; }
     done
-    [ "$(yq '.nested | length' "$REALM/naust/terasology.yaml")" -ge 1 ]
-    [ "$(yq '.runtime_dirs | length' "$REALM/naust/terasology.yaml")" -ge 1 ]
-    [ "$(yq '.known_dirt | length' "$REALM/naust/terasology.yaml")" -ge 1 ]
+    for k in .runtime_dirs .known_dirt .nested .upstream_remote .default_branch .init; do
+        [ "$(yq "$k" "$REALM/naust/terasology.yaml")" = null ] || { echo "$k belongs in the adapter now"; false; }
+    done
+}
+
+@test "the Terasology adapter says how to provision and reset the tree" {
+    a="$REALM/adapters/terasology.yaml"
+    [ "$(yq '.provision.init' "$a")" = "bash ./groovyw module init omega" ]
+    [ "$(yq '.provision.runtime_dirs | length' "$a")" -eq 3 ]
+    [ "$(yq '.provision.known_dirt | length' "$a")" -ge 1 ]
+    [ "$(yq '.nested | length' "$a")" -ge 2 ]
 }
 
 @test "the profile's scripts exist beside this test" {
@@ -3046,54 +3936,39 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
     grep -q 'pr-seed.sh' "$REALM/naust/terasology.yaml"
 }
 
-@test "the trust list names at least one maintainer and both nod forms" {
+@test "the trust list names at least one maintainer and the nod phrase, and no label" {
     [ "$(yq '.terasology.maintainers | length' "$REALM/naust/trust.yaml")" -ge 1 ]
-    [ "$(yq '.terasology.nod_label' "$REALM/naust/trust.yaml")" = "ok-to-test" ]
     [ "$(yq '.terasology.nod_phrase' "$REALM/naust/trust.yaml")" = "ok to test" ]
+    [ "$(yq '.terasology.nod_label' "$REALM/naust/trust.yaml")" = null ]
 }
 ```
 
 - [ ] **Step 3: Run the test to verify it fails**
 
 Run: `bash realms/realm-siliconsaga/terasology/tests/run.sh`
-Expected: all three fail (files missing). The second stays red until Task 13.
+Expected: all four fail (files missing, adapter without `provision:`). The scripts test stays red until Task 14.
 
-- [ ] **Step 4: Write the profile**
+- [ ] **Step 4: Write the profile and the trust list**
 
 Create `realms/realm-siliconsaga/naust/terasology.yaml`:
 
 ```yaml
 # naust profile for Terasology — what a PR job does for this component.
 # Build, test and run commands are NOT here: they are the adapter's, and naust
-# calls them through the bay's own ws. This file adds only what the adapter
-# does not say. Scripts referenced below live in ../terasology/ and run with
-# the engine checkout as cwd and NAUST_* in the environment.
+# calls them through the bay's own ws. How the tree is provisioned and reset
+# is the adapter's provision: block. This file adds only what neither says.
+# Scripts referenced below live in ../terasology/ and run with the engine
+# checkout as cwd and NAUST_* in the environment.
 component: terasology
 repo: MovingBlocks/Terasology           # the watched repository
-upstream_remote: MovingBlocks           # the remote in a bay that tracks it
-default_branch: develop
-nested:                                  # the adapter's shape, repeated here because
-  - "modules/*"                          # naust resets these to their own origin
-  - "libs/*"
-nested_default_branch: develop
 persona: Gooey                           # the name on reports and comments
-
-init:
-  modules: omega                         # groovyw module init omega, once per bay
 
 poll:
   debounce_minutes: 10                   # a push burst becomes one job on the last head
-  skip_drafts: true                      # unless the draft carries the nod label
+  skip_drafts: true                      # a draft is run by hand with naust run
 
 bay:
   ready_ttl_days: 7                      # a finished job waits this long for a human
-
-# Gitignored directories the game writes into the checkout; wiped on reset.
-runtime_dirs: [logs, saves, terasology-server]
-
-# Dirt the clean-tree check names as known rather than unexpected.
-known_dirt:
-  - "src/test/resources/logback-test.xml"   # the harness copies it into every module it builds
 
 steps:
   compile_all: "./gradlew compileJava"      # unqualified on purpose: every module in the set
@@ -3113,16 +3988,31 @@ Create `realms/realm-siliconsaga/naust/trust.yaml`:
 ```yaml
 # Who may vouch for a pull request. A PR by a maintainer or a trusted login,
 # or from a trusted head repository, runs without a nod; anyone else's runs
-# only after a maintainer applies the label or leaves the phrase. naust reads
-# the PR timeline, so a label applied by anyone else is ignored.
+# only after a maintainer reviews it: an Approve, or a review whose text says
+# the phrase. GitHub records the commit a review was given on, and that is the
+# only commit the nod admits. Labels are not read.
 terasology:
   maintainers: [Cervator]                # add the second core contributor when they opt in
   trusted: []                            # logins or owner/repo head repositories
-  nod_label: ok-to-test
   nod_phrase: "ok to test"
 ```
 
-- [ ] **Step 5: Adapter and realm entry**
+- [ ] **Step 5: The adapter's `provision:` block, the naust adapter and the realm entry**
+
+Append to `realms/realm-siliconsaga/adapters/terasology.yaml`, after the `nested:` list:
+
+```yaml
+# How a fresh clone becomes a complete workspace, and what a reset removes.
+# Read by `ws bay add` (init) and `ws bay reset` (runtime_dirs), and by naust's
+# clean-tree check (known_dirt). None of it is needed for ordinary use.
+provision:
+  init: "bash ./groovyw module init omega"       # the full module set, once per bay; tens of minutes
+  runtime_dirs: [logs, saves, terasology-server] # gitignored, written by the game; removed on reset
+  known_dirt:
+    - "src/test/resources/logback-test.xml"      # the harness copies it into every module it builds
+```
+
+This changes the adapter, which is part of the realm's trust fingerprint; re-approve it in the dev workspace with `ws realm use realm-siliconsaga --trust` so `ws` keeps reading the realm.
 
 Create `realms/realm-siliconsaga/adapters/naust.yaml`:
 
@@ -3143,11 +4033,12 @@ ai_context:
 In `ecosystem.yaml`, after the `gdd-sandbox` entry:
 
 ```yaml
-  # naust — the boathouse: bays (sibling yggdrasil workspaces) that check out,
-  # build, test and smoke-boot pull requests for a human to judge, driven by a
-  # scheduled tick. Like gdd-sandbox it runs on an operator's machine and ships
-  # no chart, so it takes the supporting tier. Its Terasology profile and trust
-  # list are realm content under naust/. See docs/plans/2026-10-08-naust-pr-bays-design.md.
+  # naust — the boathouse: runs pull requests through bays (child workspaces
+  # that `ws bay` makes under bays/) to check out, build, test and smoke-boot
+  # them for a human to judge, driven by a scheduled tick. Like gdd-sandbox it
+  # runs on an operator's machine and ships no chart, so it takes the
+  # supporting tier. Its Terasology profile and trust list are realm content
+  # under naust/. See docs/plans/2026-10-08-naust-pr-bays-design.md.
   naust:
     tier: supporting
 ```
@@ -3155,7 +4046,7 @@ In `ecosystem.yaml`, after the `gdd-sandbox` entry:
 - [ ] **Step 6: Run the tests**
 
 Run: `bash realms/realm-siliconsaga/terasology/tests/run.sh`
-Expected: the profile and trust tests pass; the scripts test still fails (Task 13).
+Expected: the profile, adapter and trust tests pass; the scripts test still fails (Task 14).
 
 - [ ] **Step 7: Commit**
 
@@ -3163,29 +4054,30 @@ Expected: the profile and trust tests pass; the scripts test still fails (Task 1
 
 ```markdown
 ---
-message: "feat(naust): Terasology profile, trust list, naust adapter and realm entry"
+message: "feat(naust): Terasology profile, trust list, adapter provision block, naust adapter and realm entry"
 add:
   - naust/terasology.yaml
   - naust/trust.yaml
+  - adapters/terasology.yaml
   - adapters/naust.yaml
   - ecosystem.yaml
   - terasology/tests/run.sh
   - terasology/tests/profile.bats
 ---
 
-The profile says only what the adapter does not: which repository to watch, the module set, the runtime directories a reset wipes, the dirt the clean-tree check already knows, and the three Terasology-specific scripts. Trust starts as one maintainer; the second core contributor is added when they opt in.
+The adapter now says how the tree is provisioned and reset, which ws bay reads for any component; the profile says only what a PR job does. Trust starts as one maintainer and a review phrase; the label is gone because a label cannot say which commit it meant.
 ```
 
 Run: `ws commit realm-siliconsaga .commits/realm-naust-profile.md`
 
-### Task 12: `pr-seed.sh` — the seed save for `--create-last-game`
+### Task 13: `pr-seed.sh` — the seed save for `--create-last-game`
 
 **Files:**
 - Create: `terasology/pr-seed.sh`, `terasology/seed-manifest.template.json`, `terasology/tests/pr-seed.bats`
 
 **Interfaces:**
 - Consumes: `NAUST_BAY_DIR`; cwd is the engine checkout; module descriptors at `modules/<Name>/module.txt` and the engine's at `engine/src/main/resources/org/terasology/engine/module.txt`.
-- Produces: `pr-seed.sh generate` writes `$NAUST_BAY_DIR/seed/manifest.json` with every `@Name@` in the template replaced by that module's `version`, failing with the module's name when a descriptor is missing. `pr-seed.sh restore` copies it to `saves/naust-seed/manifest.json` and touches it so it is the newest save.
+- Produces: `pr-seed.sh generate` writes `$NAUST_BAY_DIR/.tmp/naust/seed/manifest.json` with every `@Name@` in the template replaced by that module's `version`, failing with the module's name when a descriptor is missing. `.tmp/` is gitignored in every yggdrasil clone and `ws bay reset` never cleans the bay's root with `-x`, so the seed survives every reset. `pr-seed.sh restore` copies it to `saves/naust-seed/manifest.json` and touches it so it is the newest save.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3212,7 +4104,7 @@ setup() {
 @test "generate fills every version from the checkout" {
     run bash "$SEED" generate
     [ "$status" -eq 0 ]
-    out="$NAUST_BAY_DIR/seed/manifest.json"
+    out="$NAUST_BAY_DIR/.tmp/naust/seed/manifest.json"
     [ -f "$out" ]
     ! grep -q '@' "$out"
     grep -q '"name": "engine", "version": "5.4.0-SNAPSHOT"' "$out"
@@ -3232,7 +4124,7 @@ setup() {
     run bash "$SEED" restore
     [ "$status" -eq 0 ]
     [ -f "$ENGINE/saves/naust-seed/manifest.json" ]
-    cmp -s "$ENGINE/saves/naust-seed/manifest.json" "$NAUST_BAY_DIR/seed/manifest.json"
+    cmp -s "$ENGINE/saves/naust-seed/manifest.json" "$NAUST_BAY_DIR/.tmp/naust/seed/manifest.json"
 }
 
 @test "restore without a generated seed fails and says to generate" {
@@ -3285,14 +4177,15 @@ Create `realms/realm-siliconsaga/terasology/pr-seed.sh`:
 # manifest.json as a save. The manifest names every module with a version, so
 # the template carries @Name@ placeholders and `generate` fills them from the
 # checkout's own descriptors; shipping versions would go stale with the next
-# SNAPSHOT bump.
+# SNAPSHOT bump. The result lives in the bay's .tmp/, which git ignores and a
+# reset never touches.
 #
-#   pr-seed.sh generate   cwd: the engine checkout. Writes $NAUST_BAY_DIR/seed/manifest.json.
+#   pr-seed.sh generate   cwd: the engine checkout. Writes $NAUST_BAY_DIR/.tmp/naust/seed/manifest.json.
 #   pr-seed.sh restore    copies it to saves/naust-seed/manifest.json (after every reset).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE="$HERE/seed-manifest.template.json"
-SEED_DIR="${NAUST_BAY_DIR:?pr-seed: NAUST_BAY_DIR is required}/seed"
+SEED_DIR="${NAUST_BAY_DIR:?pr-seed: NAUST_BAY_DIR is required}/.tmp/naust/seed"
 
 module_version() { # <module name>
   local f
@@ -3350,12 +4243,12 @@ add:
   - terasology/tests/pr-seed.bats
 ---
 
-Read from the engine: a save is a directory under saves/ with a titled manifest.json, nothing else is consulted, and --create-last-game makes a fresh world from the newest one. The template names CoreSampleGameplay and its dependencies; versions are filled at provisioning because every one of them is a SNAPSHOT.
+Read from the engine: a save is a directory under saves/ with a titled manifest.json, nothing else is consulted, and --create-last-game makes a fresh world from the newest one. The template names CoreSampleGameplay and its dependencies; versions are filled at provisioning because every one of them is a SNAPSHOT, and the result sits in the bay's gitignored .tmp/ where a reset leaves it alone.
 ```
 
 Run: `ws commit realm-siliconsaga .commits/realm-naust-seed.md`
 
-### Task 13: `pr-lib.sh`, `pr-headless.sh`, `pr-smoke.sh`, `screenshot.ps1` — the two boots
+### Task 14: `pr-lib.sh`, `pr-headless.sh`, `pr-smoke.sh`, `screenshot.ps1` — the two boots
 
 **Files:**
 - Create: `terasology/pr-lib.sh`, `terasology/pr-headless.sh`, `terasology/pr-smoke.sh`, `terasology/screenshot.ps1`, `terasology/tests/pr-boot.bats`
@@ -3614,7 +4507,7 @@ $graphics.Dispose(); $bitmap.Dispose()
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `bash realms/realm-siliconsaga/terasology/tests/run.sh`
-Expected: profile 3, pr-seed 4, pr-boot 5 — all pass (the boot tests take about 30 seconds between them because of the 2-second poll).
+Expected: profile 4, pr-seed 4, pr-boot 5 — all pass (the boot tests take about 30 seconds between them because of the 2-second poll).
 
 - [ ] **Step 8: Commit**
 
@@ -3636,7 +4529,7 @@ Markers come from a real client log on this machine: the facade sifts logs by ph
 
 Run: `ws commit realm-siliconsaga .commits/realm-naust-boots.md`
 
-### Task 14: Realm README section, push, CR
+### Task 15: Realm README section, push, CR
 
 **Files:**
 - Modify: `terasology/README.md` (new section)
@@ -3648,13 +4541,13 @@ Append to `realms/realm-siliconsaga/terasology/README.md`:
 ```markdown
 ## naust: the PR-bay scripts
 
-`../naust/terasology.yaml` is the naust profile for this component and `../naust/trust.yaml` the trust list; see the [design](../docs/plans/2026-10-08-naust-pr-bays-design.md). The profile points at three scripts here, all run by naust with the engine checkout as cwd and `NAUST_*` in the environment:
+`../naust/terasology.yaml` is the naust profile for this component and `../naust/trust.yaml` the trust list; the `provision:` block in `../adapters/terasology.yaml` says how `ws bay` provisions and resets the tree. See the [design](../docs/plans/2026-10-08-naust-pr-bays-design.md). The profile points at three scripts here, all run by naust with the engine checkout as cwd and `NAUST_*` in the environment:
 
-- `pr-seed.sh generate|restore` — the seed save that `--create-last-game` needs. `generate` runs once per bay and fills `seed-manifest.template.json` with the versions in the checkout; `restore` runs after every reset and puts it back under `saves/naust-seed/`.
+- `pr-seed.sh generate|restore` — the seed save that `--create-last-game` needs. `generate` runs once per bay and fills `seed-manifest.template.json` with the versions in the checkout, keeping the result in the bay's `.tmp/naust/seed/`; `restore` runs after every reset and puts it back under `saves/naust-seed/`.
 - `pr-headless.sh` — boots the facade's `server` task and waits for `Server started`.
 - `pr-smoke.sh` — boots `gradlew game --args="--create-last-game --no-splash --no-crash-report --no-save-games"`, waits for the renderer's `Initialising rendering class` line, settles, screenshots the primary display (`screenshot.ps1` on Windows) and stops the game. `pr-lib.sh` holds the marker wait, the stop and the screenshot.
 
-Run them by hand from `components/terasology` with `NAUST_JOB_DIR` set to any directory to see what a job sees. Tests: `bash realms/realm-siliconsaga/terasology/tests/run.sh`.
+Run them by hand from a bay's `components/terasology` with `NAUST_BAY_DIR` set to the bay and `NAUST_JOB_DIR` to any directory to see what a job sees. Tests: `bash realms/realm-siliconsaga/terasology/tests/run.sh`.
 ```
 
 - [ ] **Step 2: Commit, push, open the CR**
@@ -3669,52 +4562,52 @@ add:
 ---
 ```
 
-Run: `ws commit realm-siliconsaga .commits/realm-naust-readme.md`, then `ws push realm-siliconsaga`, then `ws cr realm-siliconsaga "naust: Terasology profile, trust list and boot scripts" .crs/realm-naust.md` with a change bodyfile (summary: profile and trust as realm content, the three scripts and what each waits for, the seed template; test plan: the realm bats suite and the Dionysus bring-up).
+Run: `ws commit realm-siliconsaga .commits/realm-naust-readme.md`, then `ws push realm-siliconsaga`, then `ws cr realm-siliconsaga "naust: Terasology profile, trust list, adapter provision block and boot scripts" .crs/realm-naust.md` with a change bodyfile (summary: profile and trust as realm content, the adapter's provision block, the three scripts and what each waits for, the seed template; test plan: the realm bats suite and the Dionysus bring-up). Merging this CR changes the Terasology adapter, so every workspace that pulls it re-approves the realm with `ws realm use realm-siliconsaga --trust`.
 
-### Task 15: Bring-up on Dionysus (operator runbook)
+### Task 16: Bring-up on Dionysus (operator runbook)
 
 No code. Each step is a check with an expected result; a failure is a finding to fix in the task that owns the code, not a reason to patch the bay by hand.
 
-- [ ] **Step 1: Merge order**
+- [ ] **Step 1: Merge order and the dev workspace**
 
-yggdrasil's `ws checkout --pr` CR merges first (bays clone yggdrasil from `main`). Then the naust CR, then the realm CR. Pull the dev workspace: `ws pull yggdrasil`, `ws pull realm-siliconsaga`, `ws clone naust`.
+yggdrasil's CR (`ws checkout --cr` and `ws bay`) merges first: bays clone yggdrasil from `main`, and naust drives them through `ws bay exec`. Then the naust CR, then the realm CR. In the dev workspace: `ws pull yggdrasil`, `ws pull realm-siliconsaga`, `ws realm use realm-siliconsaga --trust` (the Terasology adapter changed), `ws clone naust`. Check `git config --global core.longpaths` is `true`: a bay adds `bays/bay-1/` to paths that are already long under Omega.
 
 - [ ] **Step 2: Secrets and config**
 
-In the dev workspace `components/naust`: `cp naust.example.yaml naust.yaml`, set `workspace: D:/Dev/GitWS/yggdrasil`, `bays_root: D:/Dev/GitWS/naust/bays`, `state_dir: D:/Dev/GitWS/naust/state`, `gradle_home: D:/Dev/GitWS/naust/gradle-home`. `cp .env.example .env`; paste the machine account's fine-grained token (pull-requests: write on MovingBlocks/Terasology, nothing else) and the Discord webhook. Check: `bash bin/naust notify say "naust is configured on Dionysus"` posts to the channel.
+Add to the workspace's `.env`: `NAUST_GITHUB_TOKEN` (the machine account's fine-grained token, pull-requests: write on MovingBlocks/Terasology, nothing else) and `NAUST_DISCORD_WEBHOOK`. Then `mkdir -p bays/.naust` and copy `components/naust/naust.example.yaml` to `bays/.naust/naust.yaml`, setting `workspace_repo: https://github.com/SiliconSaga/yggdrasil.git` because this checkout has four remotes and `ws bay add` cannot pick one for itself. Check: `bash components/naust/bin/naust notify say "naust is configured on Dionysus"` posts to the channel.
 
 - [ ] **Step 3: First bay**
 
-`bash bin/naust bay add bay-1 --profile terasology`. Expected: tens of minutes; ends with `reset bay-1: free`. Verify: `bash bin/naust bay list` shows `bay-1 free terasology`; `D:/Dev/GitWS/naust/bays/bay-1/yggdrasil/components/terasology/modules` holds the Omega set; `bays/bay-1/seed/manifest.json` has no `@` left. If `ws realm` or `ws realm use --trust` prompted, record what it asked: Task 4's `cmd_add` needs the non-interactive form of that verb and this is where it shows.
+`bash components/naust/bin/naust bay add bay-1 --profile terasology`. Expected: tens of minutes; ends with `reset bay-1: free`. Verify: `ws bay list` shows `bay-1 realm-siliconsaga terasology`; `bash components/naust/bin/naust bay list` shows `bay-1 free terasology`; `bays/bay-1/components/terasology/modules` holds the Omega set; `bays/bay-1/.tmp/naust/seed/manifest.json` has no `@` left; `bays/bay-1/ecosystem.local.yaml` says `machine: Dionysus-bay-1`. If `ws realm` or `ws realm use --trust` prompted inside `ws bay add`, record what it asked: Task 2's `cmd_add` needs the non-interactive form of that verb and this is where it shows.
 
 - [ ] **Step 4: The smoke boot by hand, before any job**
 
-From `bays/bay-1/yggdrasil/components/terasology`, with `NAUST_JOB_DIR=D:/tmp/smoke` and `NAUST_BAY_DIR=D:/Dev/GitWS/naust/bays/bay-1`: `bash ../../realms/realm-siliconsaga/terasology/pr-seed.sh restore`, then `bash ../../realms/realm-siliconsaga/terasology/pr-smoke.sh`. Expected: a window opens, a world loads, `screenshot.png` shows it, the game is gone afterwards (`jps -l` lists no Terasology). If the log says a module is missing, add it to `seed-manifest.template.json`'s list (Task 12) and regenerate. If `last game not found`, the manifest was not where `PathManager` looks; compare with a save the game itself wrote.
+From `bays/bay-1/components/terasology`, with `NAUST_JOB_DIR=D:/tmp/smoke` and `NAUST_BAY_DIR=D:/Dev/GitWS/yggdrasil/bays/bay-1`: `bash ../../realms/realm-siliconsaga/terasology/pr-seed.sh restore`, then `bash ../../realms/realm-siliconsaga/terasology/pr-smoke.sh`. Expected: a window opens, a world loads, `screenshot.png` shows it, the game is gone afterwards (`jps -l` lists no Terasology). If the log says a module is missing, add it to `seed-manifest.template.json`'s list (Task 13) and regenerate. If `last game not found`, the manifest was not where `PathManager` looks; compare with a save the game itself wrote.
 
 - [ ] **Step 5: First job by hand**
 
-Pick an open PR of your own on MovingBlocks/Terasology. `bash bin/naust run terasology <n>` then `bash bin/naust tick`. Expected: `tick: running …`, then within an hour a `ready` bay, `report.md` in the bay's `.outputs/naust/<job>/`, the screenshot on Discord, the comment on the PR under the machine account with the GDD banner. Read the report against the PR: the steps table, the PR-vs-base test table, the boots, the tree.
+Pick an open PR of your own on MovingBlocks/Terasology. `bash components/naust/bin/naust run terasology <n>` then `bash components/naust/bin/naust tick`. Expected: `tick: running …`, then within an hour a `ready` bay, `report.md` in `bays/bay-1/.outputs/naust/<job>/`, the screenshot on Discord, the comment on the PR under the machine account with the GDD banner. Read the report against the PR: the steps table, the PR-vs-base test table, the boots, the tree. Then push a trivial commit to that PR and run `naust run terasology <n>` again as a different login would see it: with you as a maintainer it runs; to see the nod path, have the second core contributor open a PR, watch the Discord notice name the head, approve it on GitHub, and watch the next tick run exactly that head.
 
 - [ ] **Step 6: Second bay and the scheduler**
 
-`bash bin/naust bay add bay-2 --profile terasology`. Then the scheduled task, as the logged-on user (the `/IT` flag), every five minutes:
+`bash components/naust/bin/naust bay add bay-2 --profile terasology`. Then the scheduled task, as the logged-on user (the `/IT` flag), every five minutes:
 
 ```text
-schtasks /Create /SC MINUTE /MO 5 /TN naust-tick /IT /TR "\"C:\Program Files\Git\bin\bash.exe\" -lc \"/d/Dev/GitWS/yggdrasil/components/naust/bin/naust tick >> /d/Dev/GitWS/naust/state/tick.log 2>&1\""
+schtasks /Create /SC MINUTE /MO 5 /TN naust-tick /IT /TR "\"C:\Program Files\Git\bin\bash.exe\" -lc \"/d/Dev/GitWS/yggdrasil/components/naust/bin/naust tick >> /d/Dev/GitWS/yggdrasil/bays/.naust/state/tick.log 2>&1\""
 ```
 
 Expected within ten minutes: `tick.log` shows `queue empty` lines. Push a trivial commit to the same PR: within the debounce plus one tick a job runs on the new head in a free bay while bay-1 stays `ready`. Lock the screen during a smoke boot once: the screenshot comes back black and the report says so; that is the known limit, not a bug.
 
 - [ ] **Step 7: Hand-off and close**
 
-`bash bin/naust bay release bay-1` after reading its report. Record in the Dionysus thalamus arc `naust-pr-bays` what the first runs took (provision time, job time, anything that needed a hand), and move the arc's `next` to Phase 2.
+`bash components/naust/bin/naust bay release bay-1` after reading its report. Record in the Dionysus thalamus arc `naust-pr-bays` what the first runs took (provision time, job time, anything that needed a hand), and move the arc's `next` to Phase 2.
 
 ---
 
 ## Self-review notes
 
-Spec coverage: placement (Tasks 2, 11), bays and states (4), events and tick (6, 7), trust gate with actor check (5), the nine steps (8), smoke boot markers and seed (12, 13), report and delivery (9, 8), security (2's `.env`, 8's `GH_TOKEN` scoping, 11's token note), Phase 1 done-criterion (15). Not in Phase 1 by the spec's own split: the judgement step, the container tier, Discord-driven approval, linked PRs, Hookdeck.
+Spec coverage: placement (Tasks 2, 3, 12), bays as workspaces with `ws bay` (2), bay states (5), events and tick (7, 8), the review-bound trust gate (6), the nine steps with the admitted-head check (9), smoke boot markers and seed (13, 14), the adapter's `provision:` block (2, 12), report and delivery (10, 9), security (3's `.env` and `bay_ws`, 2's `exec` hygiene, 9's `GH_TOKEN` scoping, 12's token note), hoards in bays (2's `--hoard` and `machine:`), Phase 1 done-criterion (16). Not in Phase 1 by the spec's own split: the judgement step, the container tier, Discord-driven approval, linked PRs, Hookdeck, multi-realm, `ws sandbox`.
 
-Review Focus pins: force-push → Task 6 (`put` replaces on newer head) and Task 8 (`job.yaml` `head` from `rev-parse`); non-maintainer label → Task 5; nested fetch failure → Task 4 (`broken`, repo named); renderer never logs → Task 13 (timeout test); overlapping ticks → Task 7 (lock test) and Task 2 (stale reclaim).
+Review Focus pins: a push after the nod → Task 9 (the moved-PR test) and Task 7 (a moved head restarts the debounce); a nod from outside the list or on an older commit → Task 6; the bay's `ws` running against the parent → Task 2 (`root=unset` assertion); nested fetch failure → Task 2 (`FAILED in`) and Task 5 (`broken`); renderer never logs → Task 14 (timeout test); overlapping ticks → Task 8 (lock test) and Task 3 (stale reclaim).
 
-Known soft spots an executor should watch: `ws realm` and `ws realm use --trust` may prompt when run from `bay add` (Task 15 step 3 records it); `wait -n` needs bash ≥ 4.3 (Git Bash ships 5); `taskkill` is only reached when a Terasology JVM outlives the Gradle client, which the daemon normally prevents.
+Known soft spots an executor should watch: `ws realm use --trust` may prompt when run from `ws bay add` (Task 16 step 3 records it); `wait -n` needs bash ≥ 4.3 (Git Bash ships 5); `taskkill` is only reached when a Terasology JVM outlives the Gradle client, which the daemon normally prevents; `git clean -fd` in a component skips a nested repository only when it sees that repository's `.git`, so a module directory that is not yet a clone would be swept; the `yq` expressions in `ws bay add` and the gate's `--jq` carry the realm name and the nod phrase as literals, which is fine for the values a realm would ever hold and wrong for one containing a double quote.
