@@ -1,0 +1,9 @@
+# Who may vouch for a pull request. A PR by a maintainer or a trusted login,
+# or from a trusted head repository, runs without a nod; anyone else's runs
+# only after a maintainer reviews it: an Approve, or a review whose text says
+# the phrase. GitHub records the commit a review was given on, and that is the
+# only commit the nod admits. Labels are not read.
+terasology:
+  maintainers: [Cervator]                # add the second core contributor when they opt in
+  trusted: []                            # logins or owner/repo head repositories
+  nod_phrase: "ok to test"

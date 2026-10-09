@@ -41,6 +41,15 @@ nested:
   - "modules/*"
   - "libs/*"
 
+# How a fresh clone becomes a complete workspace, and what a reset removes.
+# Read by `ws bay add` (init) and `ws bay reset` (runtime_dirs), and by naust's
+# clean-tree check (known_dirt). None of it is needed for ordinary use.
+provision:
+  init: "bash ./groovyw module init omega"       # the full module set, once per bay; tens of minutes
+  runtime_dirs: [logs, saves, terasology-server] # gitignored, written by the game; removed on reset
+  known_dirt:
+    - "src/test/resources/logback-test.xml"      # the harness copies it into every module it builds
+
 ai_context:
   - path: "docs/Engine-Testing-Patterns.md"
     description: "Engine test patterns: MTE, network events, context isolation, Gradle execution"

@@ -34,3 +34,13 @@ ws commit terasology/Health .commits/fix.md
 ```
 
 See [`docs/gdd/adapters.md`](../../../docs/gdd/adapters.md) for the full contract.
+
+## naust: the PR-bay scripts
+
+`../naust/terasology.yaml` is the naust profile for this component and `../naust/trust.yaml` the trust list; the `provision:` block in `../adapters/terasology.yaml` says how `ws bay` provisions and resets the tree. See the [design](../docs/plans/2026-10-08-naust-pr-bays-design.md). The profile points at three scripts here, all run by naust with the engine checkout as cwd and `NAUST_*` in the environment:
+
+- `pr-seed.sh generate|restore` — the seed save that `--create-last-game` needs. `generate` runs once per bay and fills `seed-manifest.template.json` with the versions in the checkout, keeping the result in the bay's `.tmp/naust/seed/`; `restore` runs after every reset and puts it back under `saves/naust-seed/`.
+- `pr-headless.sh` — boots the facade's `server` task and waits for `Server started`.
+- `pr-smoke.sh` — boots `gradlew game --args="--create-last-game --no-splash --no-crash-report --no-save-games"`, waits for the renderer's `Initialising rendering class` line, settles, screenshots the primary display (`screenshot.ps1` on Windows) and stops the game. `pr-lib.sh` holds the marker wait, the stop and the screenshot.
+
+Run them by hand from a bay's `components/terasology` with `NAUST_BAY_DIR` set to the bay and `NAUST_JOB_DIR` to any directory to see what a job sees. Tests: `bash realms/realm-siliconsaga/terasology/tests/run.sh`.

@@ -1,0 +1,11 @@
+# naust adapter — bash runner over bats and shellcheck, the gdd-sandbox shape.
+commands:
+  test: "bash tests/run.sh test"
+  testFilter: "bash tests/run.sh test {}"
+  lint: "bash tests/run.sh lint"
+
+ai_context:
+  - path: "AGENTS.md"
+    description: "Agent guidelines for working on naust"
+  - path: "README.md"
+    description: "What naust does, how a tick runs, bay states, trust"
