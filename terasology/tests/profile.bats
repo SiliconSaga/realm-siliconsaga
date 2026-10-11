@@ -28,6 +28,10 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
     grep -q 'pr-headless.sh' "$REALM/naust/terasology.yaml"
     grep -q 'pr-smoke.sh' "$REALM/naust/terasology.yaml"
     grep -q 'pr-seed.sh' "$REALM/naust/terasology.yaml"
+    # A bay on Windows clones this realm with autocrlf on; the scripts run in
+    # bash and die on a carriage return, so the realm pins them to LF itself.
+    grep -q '^\*\.sh text eol=lf' "$REALM/.gitattributes"
+    grep -q '^\*\.bats text eol=lf' "$REALM/.gitattributes"
 }
 
 @test "the trust list names at least one maintainer and the nod phrase, and no label" {
