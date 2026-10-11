@@ -52,6 +52,20 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     gradlew_stopped
 }
 
+@test "a terminated boot stops the server at once and does not report success" {
+    # TERM rather than INT: a background job in a non-interactive shell starts
+    # with INT ignored, and a script cannot trap a signal it inherited ignored.
+    export MARKER_HEADLESS="nothing useful"      # a boot still waiting when the signal comes
+    bash "$REALM/terasology/pr-headless.sh" > "$BATS_TEST_TMPDIR/out" 2>&1 &
+    script=$!
+    sleep 3
+    kill -TERM "$script"
+    status=0; wait "$script" || status=$?
+    [ "$status" -eq 143 ]                        # not the timeout's 1 twenty seconds later
+    [[ "$(cat "$BATS_TEST_TMPDIR/out")" != *"stopped cleanly"* ]]
+    gradlew_stopped
+}
+
 @test "smoke needs the seed save" {
     run bash "$REALM/terasology/pr-smoke.sh"
     [ "$status" -ne 0 ]

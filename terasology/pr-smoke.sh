@@ -26,7 +26,9 @@ before="$(terasology_jvms --no-save-games | tr '\n' ' ')"
 ./gradlew game --args="--create-last-game --no-splash --no-crash-report --no-save-games" > "$LOG" 2>&1 &
 pid=$!
 # Whatever ends this script, the game it started does not outlive it.
-trap 'stop_game "$pid" --no-save-games "$before"' EXIT INT TERM
+trap 'stop_game "$pid" --no-save-games "$before"' EXIT
+trap 'exit 130' INT     # a signal ends the boot at once and as a failure
+trap 'exit 143' TERM
 rc=0
 if wait_for_marker "$LOG" "Initialising rendering class" "$TIMEOUT" "$pid"; then
   sleep "$SETTLE"

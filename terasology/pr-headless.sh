@@ -18,8 +18,11 @@ rm -rf terasology-server
 before="$(terasology_jvms --headless | tr '\n' ' ')"
 ./gradlew server > "$LOG" 2>&1 &
 pid=$!
-# Whatever ends this script, the server it started does not outlive it.
-trap 'stop_game "$pid" --headless "$before"' EXIT INT TERM
+# Whatever ends this script, the server it started does not outlive it; a
+# signal ends it at once and as a failure, never as the success line below.
+trap 'stop_game "$pid" --headless "$before"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 rc=0
 wait_for_marker "$LOG" "Server started" "$TIMEOUT" "$pid" || rc=1
 stop_game "$pid" --headless "$before"

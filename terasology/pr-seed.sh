@@ -26,15 +26,21 @@ module_version() { # <module name>
   sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$f" | head -n1
 }
 
+# The manifest is built in a scratch file and moved into place only once every
+# version is in, so a failure half way leaves no manifest for restore to find.
 cmd_generate() {
-  local out="$SEED_DIR/manifest.json" name version
+  local out="$SEED_DIR/manifest.json" tmp name version
   mkdir -p "$SEED_DIR"
-  cp "$TEMPLATE" "$out"
+  tmp="$(mktemp "$SEED_DIR/manifest.XXXXXX")"
+  # shellcheck disable=SC2064   # expanded now on purpose: tmp is local and gone when the trap runs
+  trap "rm -f '$tmp'" EXIT
+  cp "$TEMPLATE" "$tmp"
   for name in $(grep -oE '@[A-Za-z0-9]+@' "$TEMPLATE" | tr -d '@' | sort -u); do
     version="$(module_version "$name")" || exit 1
     [ -n "$version" ] || { echo "pr-seed: $name has no version in its descriptor" >&2; exit 1; }
-    sed -i "s/@$name@/$version/g" "$out"
+    sed -i "s/@$name@/$version/g" "$tmp"
   done
+  mv "$tmp" "$out"
   echo "pr-seed: wrote $out"
 }
 

@@ -33,6 +33,16 @@ setup() {
     [[ "$output" == *"Health"* ]]
 }
 
+@test "generate leaves no manifest behind when a version is missing, so restore cannot install half of one" {
+    printf '{ "id": "Health" }\n' > "$ENGINE/modules/Health/module.txt"
+    run bash "$SEED" generate
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Health"* ]]
+    [ ! -e "$NAUST_BAY_DIR/.tmp/naust/seed/manifest.json" ]
+    run bash "$SEED" restore
+    [ "$status" -ne 0 ]
+}
+
 @test "restore copies the generated manifest into saves/naust-seed" {
     bash "$SEED" generate
     run bash "$SEED" restore
