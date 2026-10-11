@@ -26,6 +26,16 @@ setup() {
     grep -q '"title": "naust-seed"' "$out"
 }
 
+@test "generate keeps a version with sed-special characters literal and leaves the file readable" {
+    printf '{ "id": "Health", "version": "1.2.3+build/7&8" }\n' > "$ENGINE/modules/Health/module.txt"
+    run bash "$SEED" generate
+    [ "$status" -eq 0 ]
+    out="$NAUST_BAY_DIR/.tmp/naust/seed/manifest.json"
+    grep -q '"name": "Health", "version": "1.2.3+build/7&8"' "$out"
+    [ -r "$out" ]
+    [ "$(stat -c %a "$out" 2>/dev/null || stat -f %Lp "$out")" = 644 ]
+}
+
 @test "generate names a module whose descriptor is missing" {
     rm -r "$ENGINE/modules/Health"
     run bash "$SEED" generate

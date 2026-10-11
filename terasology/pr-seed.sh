@@ -33,13 +33,15 @@ cmd_generate() {
   mkdir -p "$SEED_DIR"
   tmp="$(mktemp "$SEED_DIR/manifest.XXXXXX")"
   # shellcheck disable=SC2064   # expanded now on purpose: tmp is local and gone when the trap runs
-  trap "rm -f '$tmp'" EXIT
+  trap "rm -f '$tmp' '$tmp.n'" EXIT
   cp "$TEMPLATE" "$tmp"
   for name in $(grep -oE '@[A-Za-z0-9]+@' "$TEMPLATE" | tr -d '@' | sort -u); do
     version="$(module_version "$name")" || exit 1
     [ -n "$version" ] || { echo "pr-seed: $name has no version in its descriptor" >&2; exit 1; }
-    sed -i "s/@$name@/$version/g" "$tmp"
+    # No sed -i (BSD sed wants a suffix), and a version's / or & stays literal.
+    sed "s/@$name@/$(printf '%s' "$version" | sed 's/[\/&]/\\&/g')/g" "$tmp" > "$tmp.n" && mv "$tmp.n" "$tmp"
   done
+  chmod 644 "$tmp"     # mktemp made it 0600; the save is for whoever runs the game
   mv "$tmp" "$out"
   echo "pr-seed: wrote $out"
 }

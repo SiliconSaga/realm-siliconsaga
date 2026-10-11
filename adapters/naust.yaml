@@ -3,6 +3,9 @@ commands:
   test: "bash tests/run.sh test"
   testFilter: "bash tests/run.sh test {}"
   lint: "bash tests/run.sh lint"
+  # `ws run naust <command>` drives the boathouse from any directory; ws run
+  # passes its extra arguments through, so this is the whole CLI.
+  run: "bash bin/naust"
 
 ai_context:
   - path: "AGENTS.md"

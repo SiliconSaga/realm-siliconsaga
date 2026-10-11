@@ -58,7 +58,8 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     export MARKER_HEADLESS="nothing useful"      # a boot still waiting when the signal comes
     bash "$REALM/terasology/pr-headless.sh" > "$BATS_TEST_TMPDIR/out" 2>&1 &
     script=$!
-    sleep 3
+    for _ in $(seq 1 50); do [ -s "$GRADLEW_PID" ] && break; sleep 0.2; done   # the boot is up and its traps set
+    [ -s "$GRADLEW_PID" ]
     kill -TERM "$script"
     status=0; wait "$script" || status=$?
     [ "$status" -eq 143 ]                        # not the timeout's 1 twenty seconds later

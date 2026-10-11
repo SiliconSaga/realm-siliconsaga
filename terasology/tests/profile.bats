@@ -21,6 +21,10 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
     [ "$(yq '.nested | length' "$a")" -ge 2 ]
 }
 
+@test "the naust adapter wires run to the boathouse, so ws run naust <command> works from anywhere" {
+    [ "$(yq -r '.commands.run' "$REALM/adapters/naust.yaml")" = "bash bin/naust" ]
+}
+
 @test "the profile's scripts exist beside this test" {
     for s in pr-headless.sh pr-smoke.sh pr-seed.sh pr-lib.sh screenshot.ps1 seed-manifest.template.json; do
         [ -f "$REALM/terasology/$s" ] || { echo "missing terasology/$s"; false; }
