@@ -6,7 +6,10 @@
 # checkout as cwd and NAUST_* in the environment.
 component: terasology
 repo: MovingBlocks/Terasology           # the watched repository
-persona: Gooey                           # the name on reports and comments
+# The name the reports and comments speak as. The GitHub author of a comment
+# is whichever account NAUST_GITHUB_TOKEN belongs to, so that account should be
+# this persona's (GooeyHub), never a person's agent conduit.
+persona: Gooey
 
 poll:
   debounce_minutes: 10                   # a push burst becomes one job on the last head

@@ -40,6 +40,6 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 
 @test "the trust list names at least one maintainer and the nod phrase, and no label" {
     [ "$(yq '.terasology.maintainers | length' "$REALM/naust/trust.yaml")" -ge 1 ]
-    [ "$(yq '.terasology.nod_phrase' "$REALM/naust/trust.yaml")" = "ok to test" ]
+    [ "$(yq '.terasology.nod_phrase' "$REALM/naust/trust.yaml")" = "haul it in" ]
     [ "$(yq '.terasology.nod_label' "$REALM/naust/trust.yaml")" = null ]
 }
