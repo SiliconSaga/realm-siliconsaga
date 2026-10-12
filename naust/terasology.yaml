@@ -1,0 +1,28 @@
+# naust profile for Terasology — what a PR job does for this component.
+# Build, test and run commands are NOT here: they are the adapter's, and naust
+# calls them through the bay's own ws. How the tree is provisioned and reset
+# is the adapter's provision: block. This file adds only what neither says.
+# Scripts referenced below live in ../terasology/ and run with the engine
+# checkout as cwd and NAUST_* in the environment.
+component: terasology
+repo: MovingBlocks/Terasology           # the watched repository
+persona: Gooey                           # the name on reports and comments
+
+poll:
+  debounce_minutes: 10                   # a push burst becomes one job on the last head
+  skip_drafts: true                      # a draft is run by hand with naust run
+
+bay:
+  ready_ttl_days: 7                      # a finished job waits this long for a human
+
+steps:
+  compile_all: "./gradlew compileJava"      # unqualified on purpose: every module in the set
+  headless: "bash \"$NAUST_REALM_DIR/terasology/pr-headless.sh\""
+  smoke: "NAUST_SETTLE_SECONDS=45 bash \"$NAUST_REALM_DIR/terasology/pr-smoke.sh\""
+
+hooks:
+  after_add: "bash \"$NAUST_REALM_DIR/terasology/pr-seed.sh\" generate"
+  after_reset: "bash \"$NAUST_REALM_DIR/terasology/pr-seed.sh\" restore"
+
+report:
+  comment: on                            # the owner's call: GDD may post in the oss-wide register here

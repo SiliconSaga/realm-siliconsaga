@@ -1,0 +1,6 @@
+# The naust boot scripts and their tests run in bash, in bays on Windows as
+# often as not, and a CRLF checkout turns each one into "command not found"
+# on an invisible \r. Pinned here so a clone with core.autocrlf on is still right.
+*.sh text eol=lf
+*.bash text eol=lf
+*.bats text eol=lf

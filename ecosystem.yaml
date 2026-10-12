@@ -216,6 +216,15 @@ components:
   gdd-sandbox:
     tier: supporting
 
+  # naust — the boathouse: runs pull requests through bays (child workspaces
+  # that `ws bay` makes under bays/) to check out, build, test and smoke-boot
+  # them for a human to judge, driven by a scheduled tick. Like gdd-sandbox it
+  # runs on an operator's machine and ships no chart, so it takes the
+  # supporting tier. Its Terasology profile and trust list are realm content
+  # under naust/. See docs/plans/2026-10-08-naust-pr-bays-design.md.
+  naust:
+    tier: supporting
+
   # -- Vendored upstream mirrors --------------------------------------------
   # Read-only mirrors of third-party repos the stack deploys from. Kept as
   # individual, intact mirrors (full history + tags) under the SiliconSaga

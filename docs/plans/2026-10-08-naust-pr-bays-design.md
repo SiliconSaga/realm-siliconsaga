@@ -127,7 +127,7 @@ A tick, for each repository the profile watches:
 3. The trust gate (next section) decides whether the candidate becomes a job or a notice.
 4. If the queue has a job and a `free` bay with the right profile exists, the tick runs that job to completion and exits. A job already queued for the same PR is replaced by the newer head; a job already running finishes, and the newer head queues behind it.
 
-`naust run terasology 5400 [--with terasology/modules/Health#12] [--bay bay-2]` enqueues by hand with priority. It skips the debounce, not the trust gate.
+`naust run terasology 5400 [--with terasology/modules/Health#12] [--bay bay-2]` enqueues by hand with priority. It skips the debounce, not the trust gate; the gate covers the PR, and a `--with` target is the operator's own vouch, fetched and built as given, until linked PRs get their own handling in Phase 3.
 
 ### The trust gate
 
@@ -214,6 +214,8 @@ The sub-agent onboarding conventions apply (own co-author identity file, `ws ori
 **Phase 2 — judgement.** The `claude -p` step, the scope check loop, scratch-branch tests, report prose, and the `report.comment` switch with its first use on a SiliconSaga repository.
 
 **Phase 3 — trust-scaled and multi-host.** A container bay from a Java flavour of the gdd-sandbox image, with the workspace on a volume, so untrusted PRs build, test and boot headless without a nod and without touching the host. Discord-driven approval through a listening session. Bays on Linux and macOS hosts, with `naust run … --host` to run one PR across OSes. Linked engine and module PRs, by a PR-body convention or the parked BOM thinking in `bom-architecture.md`. Hookdeck or a webhook if polling latency ever matters.
+
+**Beyond Phase 3, parked.** Two directions are worth naming so the Phase 3 work does not design past them; neither is scheduled. *Bills of materials.* A job is one PR plus the `--with` targets an operator types. The parked BOM thinking would let one manifest name an engine change and the module PRs meant to be read with it, so a single job checks the whole set out, builds it as one, boots it as one and reports on it as one, and a reviewer plays the combination rather than its parts; the same manifest is what a release or a playtest build would be cut from. *Cloud workspace spin-up.* A bay is what devcontainer-style services (GitHub Codespaces, Gitpod, Coder, DevPod, Daytona) call a prebuilt workspace: made from a declared shape, reset to it, handed to a person warm. `ws bay add` with the adapter's `provision:` block is that shape in GDD's terms, and the adjacency runs both ways: a bay described as a devcontainer could be hosted by any of them, and a remote bay on such a service is a natural home for the container tier and for bays on hosts this house does not own, GPU rental included for the windowed boot. Sandbox flavours such as NVIDIA's OpenShell belong to the same conversation, on the `ws sandbox` side.
 
 ## Decisions from the owner's review (2026-10-08)
 

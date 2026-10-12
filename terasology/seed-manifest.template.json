@@ -1,0 +1,22 @@
+{
+  "title": "naust-seed",
+  "seed": "naust",
+  "time": 0,
+  "registeredBlockFamilies": [],
+  "blockIdMap": {},
+  "worlds": {
+    "main": { "title": "main", "seed": "naust", "time": 0, "worldGenerator": "CoreWorlds:facetedsimplex" }
+  },
+  "modules": [
+    { "name": "engine", "version": "@engine@" },
+    { "name": "CoreSampleGameplay", "version": "@CoreSampleGameplay@" },
+    { "name": "CoreAssets", "version": "@CoreAssets@" },
+    { "name": "CoreAdvancedAssets", "version": "@CoreAdvancedAssets@" },
+    { "name": "CoreRendering", "version": "@CoreRendering@" },
+    { "name": "CoreWorlds", "version": "@CoreWorlds@" },
+    { "name": "Health", "version": "@Health@" },
+    { "name": "Inventory", "version": "@Inventory@" },
+    { "name": "BiomesAPI", "version": "@BiomesAPI@" }
+  ],
+  "moduleConfigs": {}
+}
