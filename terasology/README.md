@@ -45,4 +45,6 @@ See [`docs/gdd/adapters.md`](../../../docs/gdd/adapters.md) for the full contrac
 
 The screenshot uses whatever the OS has: `screencapture` on macOS, ImageMagick's `import` or `gnome-screenshot` on Linux, and `screenshot.ps1` on Windows, which is only there because Windows ships no command-line screenshot tool. `NAUST_SCREENSHOT_CMD` overrides all three with a command that takes the output path. Any of them needs a logged-in, unlocked desktop; a locked one yields a black image, which the report shows as such.
 
+A bay copies the engine and every module from this workspace's own `components/terasology` checkout and fetches from GitHub only what that checkout lacks, and the fetch is where provisioning spends its time. Keep the parent on the full Omega set, `./groovyw module init omega` in `components/terasology`, and a bay is a local copy of the whole module tree with GitHub asked for nothing but the engine's own refs. The parent's modules need not be current: the bay's reset brings each to its remote's default branch afterwards. `ws bay add <name> --no-seed` fetches everything afresh instead.
+
 Run them by hand from a bay's `components/terasology` with `NAUST_BAY_DIR` set to the bay and `NAUST_JOB_DIR` to any directory to see what a job sees. Tests: `bash realms/realm-siliconsaga/terasology/tests/run.sh`.
