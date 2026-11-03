@@ -67,28 +67,28 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     gradlew_stopped
 }
 
-@test "smoke needs the seed save" {
-    run bash "$REALM/terasology/pr-smoke.sh"
+@test "launch needs the seed save" {
+    run bash "$REALM/terasology/pr-launch.sh"
     [ "$status" -ne 0 ]
     [[ "$output" == *"no seed save"* ]]
     [ ! -s "$GRADLEW_LOG" ]
 }
 
-@test "smoke boots with the create-last-game flags, screenshots after the renderer line, stops" {
+@test "launch boots with the create-last-game flags, screenshots after the renderer line, stops" {
     mkdir -p saves/naust-seed; printf '{"title":"naust-seed"}\n' > saves/naust-seed/manifest.json
-    run bash "$REALM/terasology/pr-smoke.sh"
+    run bash "$REALM/terasology/pr-launch.sh"
     [ "$status" -eq 0 ]
     grep -q -- 'gradlew game --args=--create-last-game --no-splash --no-crash-report --no-save-games' "$GRADLEW_LOG"
-    grep -q 'Initialising rendering class' "$NAUST_JOB_DIR/smoke.log"
+    grep -q 'Initialising rendering class' "$NAUST_JOB_DIR/launch.log"
     [ -f "$NAUST_JOB_DIR/screenshot.png" ]
     [ -d "$NAUST_JOB_DIR/game-logs/run" ]
     gradlew_stopped
 }
 
-@test "smoke fails when the game exits right after the renderer line" {
+@test "launch fails when the game exits right after the renderer line" {
     mkdir -p saves/naust-seed; printf '{"title":"naust-seed"}\n' > saves/naust-seed/manifest.json
     export EXIT_AFTER_MARKER=1
-    run bash "$REALM/terasology/pr-smoke.sh"
+    run bash "$REALM/terasology/pr-launch.sh"
     [ "$status" -ne 0 ]
     [[ "$output" == *"exited"* ]]
     [ ! -e "$NAUST_JOB_DIR/screenshot.png" ]
@@ -101,12 +101,12 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     [[ "$output" == *"exited"* ]]
 }
 
-@test "smoke fails when the renderer line never comes, keeping the log tail" {
+@test "launch fails when the renderer line never comes, keeping the log tail" {
     mkdir -p saves/naust-seed; printf '{"title":"naust-seed"}\n' > saves/naust-seed/manifest.json
-    export NO_MARKER=1 NAUST_SMOKE_TIMEOUT=4
-    run bash "$REALM/terasology/pr-smoke.sh"
+    export NO_MARKER=1 NAUST_LAUNCH_TIMEOUT=4
+    run bash "$REALM/terasology/pr-launch.sh"
     [ "$status" -ne 0 ]
     [[ "$output" == *"timeout"* ]]
     [ ! -e "$NAUST_JOB_DIR/screenshot.png" ]
-    grep -q 'menu' "$NAUST_JOB_DIR/smoke.log"
+    grep -q 'menu' "$NAUST_JOB_DIR/launch.log"
 }

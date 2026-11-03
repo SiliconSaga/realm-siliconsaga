@@ -4,7 +4,7 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 
 @test "the Terasology profile carries every key naust reads, and none it stopped reading" {
     for k in .component .repo .persona .poll.debounce_minutes .poll.skip_drafts .bay.ready_ttl_days \
-             .steps.compile_all .steps.headless .steps.smoke .hooks.after_add .hooks.after_reset .report.comment; do
+             .steps.compile_all .steps.headless .steps.launch .hooks.after_add .hooks.after_reset .report.comment; do
         v="$(yq "$k" "$REALM/naust/terasology.yaml")"
         [ -n "$v" ] && [ "$v" != null ] || { echo "missing $k"; false; }
     done
@@ -26,11 +26,11 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 }
 
 @test "the profile's scripts exist beside this test" {
-    for s in pr-headless.sh pr-smoke.sh pr-seed.sh pr-lib.sh screenshot.ps1 seed-manifest.template.json; do
+    for s in pr-headless.sh pr-launch.sh pr-seed.sh pr-lib.sh screenshot.ps1 seed-manifest.template.json; do
         [ -f "$REALM/terasology/$s" ] || { echo "missing terasology/$s"; false; }
     done
     grep -q 'pr-headless.sh' "$REALM/naust/terasology.yaml"
-    grep -q 'pr-smoke.sh' "$REALM/naust/terasology.yaml"
+    grep -q 'pr-launch.sh' "$REALM/naust/terasology.yaml"
     grep -q 'pr-seed.sh' "$REALM/naust/terasology.yaml"
     # A bay on Windows clones this realm with autocrlf on; the scripts run in
     # bash and die on a carriage return, so the realm pins them to LF itself.

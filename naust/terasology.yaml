@@ -13,7 +13,7 @@ persona: Gooey
 
 poll:
   debounce_minutes: 10                   # a push burst becomes one job on the last head
-  skip_drafts: true                      # a draft is run by hand with naust run
+  skip_drafts: true                      # a draft is docked by hand with naust dock
 
 bay:
   ready_ttl_days: 7                      # a finished job waits this long for a human
@@ -21,7 +21,7 @@ bay:
 steps:
   compile_all: "./gradlew compileJava"      # unqualified on purpose: every module in the set
   headless: "bash \"$NAUST_REALM_DIR/terasology/pr-headless.sh\""
-  smoke: "NAUST_SETTLE_SECONDS=45 bash \"$NAUST_REALM_DIR/terasology/pr-smoke.sh\""
+  launch: "NAUST_SETTLE_SECONDS=45 bash \"$NAUST_REALM_DIR/terasology/pr-launch.sh\""
 
 hooks:
   after_add: "bash \"$NAUST_REALM_DIR/terasology/pr-seed.sh\" generate"

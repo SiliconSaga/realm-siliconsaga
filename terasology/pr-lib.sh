@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared by pr-headless.sh and pr-smoke.sh. Sourced.
+# Shared by pr-headless.sh and pr-launch.sh. Sourced.
 PR_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Poll <file> for <text> until <timeout> seconds pass or <pid> exits. The
