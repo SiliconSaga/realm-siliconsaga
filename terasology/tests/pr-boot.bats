@@ -10,7 +10,7 @@ setup() {
     mkdir -p "$ENGINE" "$NAUST_JOB_DIR" "$BATS_TEST_TMPDIR/bin"
     export NAUST_SCREENSHOT_CMD="touch"
     export NAUST_JPS_CMD="true"
-    export NAUST_SETTLE_SECONDS=0 NAUST_HEADLESS_TIMEOUT=20 NAUST_SMOKE_TIMEOUT=20
+    export NAUST_SETTLE_SECONDS=0 NAUST_HEADLESS_TIMEOUT=20 NAUST_LAUNCH_TIMEOUT=20
     export MARKER_HEADLESS="12:00:00.000 [main] INFO  o.t.e.n.internal.NetworkSystemImpl - Server started"
     export MARKER_RENDER="12:00:00.000 [main] INFO  o.t.e.r.world.WorldRendererImpl - Initialising rendering class CoreRenderingModule from CoreRendering module."
     cat > "$ENGINE/gradlew" <<'EOF'
@@ -37,10 +37,21 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
 @test "headless boots the server, sees Server started, stops it and keeps the logs" {
     run bash "$REALM/terasology/pr-headless.sh"
     [ "$status" -eq 0 ]
-    grep -q 'Server started' "$NAUST_JOB_DIR/headless.log"
+    grep -q 'Server started' "$NAUST_JOB_DIR/server.log"
     grep -q '^gradlew server' "$GRADLEW_LOG"
     [ -d "$NAUST_JOB_DIR/headless-logs" ]
     gradlew_stopped
+}
+
+# naust runs each step with its output appended to <step>.log in the job
+# directory, so the server's own output must land in a file of its own: a
+# script that truncated the step log for Gradle would clobber the step's
+# lines, and grep refuses to read the file it is writing to.
+@test "headless keeps the server's output apart from the step log it runs under" {
+    bash "$REALM/terasology/pr-headless.sh" >> "$NAUST_JOB_DIR/headless.log" 2>&1
+    grep -q 'Server started' "$NAUST_JOB_DIR/server.log"
+    grep -q 'stopped cleanly' "$NAUST_JOB_DIR/headless.log"
+    ! grep -q 'Server started' "$NAUST_JOB_DIR/headless.log"
 }
 
 @test "headless fails on timeout and still stops the process" {
@@ -79,10 +90,18 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     run bash "$REALM/terasology/pr-launch.sh"
     [ "$status" -eq 0 ]
     grep -q -- 'gradlew game --args=--create-last-game --no-splash --no-crash-report --no-save-games' "$GRADLEW_LOG"
-    grep -q 'Initialising rendering class' "$NAUST_JOB_DIR/launch.log"
+    grep -q 'Initialising rendering class' "$NAUST_JOB_DIR/game.log"
     [ -f "$NAUST_JOB_DIR/screenshot.png" ]
     [ -d "$NAUST_JOB_DIR/game-logs/run" ]
     gradlew_stopped
+}
+
+@test "launch keeps the game's output apart from the step log it runs under" {
+    mkdir -p saves/naust-seed; printf '{"title":"naust-seed"}\n' > saves/naust-seed/manifest.json
+    bash "$REALM/terasology/pr-launch.sh" >> "$NAUST_JOB_DIR/launch.log" 2>&1
+    grep -q 'Initialising rendering class' "$NAUST_JOB_DIR/game.log"
+    grep -q 'renderer up' "$NAUST_JOB_DIR/launch.log"
+    ! grep -q 'Initialising rendering class' "$NAUST_JOB_DIR/launch.log"
 }
 
 @test "launch fails when the game exits right after the renderer line" {
@@ -107,6 +126,7 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     run bash "$REALM/terasology/pr-launch.sh"
     [ "$status" -ne 0 ]
     [[ "$output" == *"timeout"* ]]
+    [[ "$output" == *"menu"* ]]                 # the game log's tail, so the step log says what the game last did
     [ ! -e "$NAUST_JOB_DIR/screenshot.png" ]
-    grep -q 'menu' "$NAUST_JOB_DIR/launch.log"
+    grep -q 'menu' "$NAUST_JOB_DIR/game.log"
 }

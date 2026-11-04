@@ -6,7 +6,11 @@
 # seconds after the world seed and before the first chunks tick; after a settle
 # the primary display is captured and the game stopped.
 #
-# cwd: the engine checkout. Writes $NAUST_JOB_DIR/launch.log, screenshot.png, game-logs/.
+# cwd: the engine checkout. Writes $NAUST_JOB_DIR/game.log (the game's own
+# output), screenshot.png and game-logs/. This script's lines go to stdout and
+# stderr, which naust appends to the step's launch.log: the game's file must be
+# a different one, or Gradle's writes clobber the step log and grep refuses to
+# read the file it is writing to.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=terasology/pr-lib.sh
@@ -14,7 +18,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JOB="${NAUST_JOB_DIR:?pr-launch: NAUST_JOB_DIR is required}"
 TIMEOUT="${NAUST_LAUNCH_TIMEOUT:-900}"
 SETTLE="${NAUST_SETTLE_SECONDS:-45}"
-LOG="$JOB/launch.log"
+LOG="$JOB/game.log"
 SHOT="$JOB/screenshot.png"
 
 if [ ! -f saves/naust-seed/manifest.json ]; then
@@ -42,6 +46,8 @@ if wait_for_marker "$LOG" "Initialising rendering class" "$TIMEOUT" "$pid"; then
 else
   rc=1
   grep -F 'last game not found' "$LOG" >&2 || true
+  echo "launch: last lines of $LOG:" >&2
+  tail -n 5 "$LOG" >&2 || true
 fi
 stop_game "$pid" --no-save-games "$before"
 if [ -d logs ]; then rm -rf "$JOB/game-logs"; cp -r logs "$JOB/game-logs"; fi
