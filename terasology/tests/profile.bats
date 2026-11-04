@@ -8,7 +8,7 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
         v="$(yq "$k" "$REALM/naust/terasology.yaml")"
         [ -n "$v" ] && [ "$v" != null ] || { echo "missing $k"; false; }
     done
-    for k in .runtime_dirs .known_dirt .nested .upstream_remote .default_branch .init; do
+    for k in .runtime_dirs .known_dirt .nested .upstream_remote .default_branch .init .steps.smoke; do
         [ "$(yq "$k" "$REALM/naust/terasology.yaml")" = null ] || { echo "$k belongs in the adapter now"; false; }
     done
 }
