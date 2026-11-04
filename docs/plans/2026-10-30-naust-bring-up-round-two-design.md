@@ -36,9 +36,9 @@ Keep the fingerprint value and the trust semantics exactly as they are; change o
 ### C. Per-bay logs and `ws bay log` (yggdrasil and naust)
 
 - `ws bay add` and `ws bay reset` append their own output to `bays/<name>/.outputs/bay.log`, with a timestamp per line. `.outputs/` is gitignored and the bay root is never deep-cleaned, so the file survives every reset.
-- Naust defaults `NAUST_LOG` to that same file for bay-scoped commands (`bay add`, `bay reset`, the job runner), so provisioning, resets and job steps read as one stream; the per-job `.outputs/naust/<job>/` step logs stay where they are and the bay log names them.
+- Naust sets `NAUST_BAY_LOG` to that same file for bay-scoped commands (`bay add`, `bay reset`, the job runner) and its `log` writes every line there as well as to `NAUST_LOG`, so provisioning, resets and job steps read as one stream; the per-job `.outputs/naust/<job>/` step logs stay where they are and the bay log names them.
 - `ws bay log <name> [--follow] [--lines N]` tails the file. `--follow` is `tail -f`, which exists on every host ws supports. The hook allows it read-only.
-- `naust bay list` gains a last-activity column: seconds since the newest write under `bays/<name>/.outputs/`, so a watcher can tell a working bay from a stuck one without reading the log.
+- `naust bay list` gains a last-activity column: seconds since `bays/<name>/.outputs/bay.log` was last written, so a watcher can tell a working bay from a stuck one without reading the log. The bay log, not the whole of `.outputs/`: one `stat` per bay, and every step announces itself there before its own log starts, so a long step reads as busy from the moment it begins.
 - Tests: the log exists after an add through a stub realm; a reset appends; `ws bay log` prints the last N lines; naust's list shows the activity column.
 
 ### D. Seed a bay from the parent (yggdrasil, `ws bay add`)
