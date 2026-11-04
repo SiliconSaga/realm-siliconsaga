@@ -13,10 +13,10 @@ Forgejo is the durable replacement: same job, but with persistent storage, a rea
 | | Owns | You use it for |
 |---|---|---|
 | **GitHub** | `main` of every repository, and all code review | Pull requests, as today. Nothing about review changes. |
-| **Forgejo** | A copy of `main`, refreshed hourly by the *puller*; anything else you push to it | What ArgoCD reads (from Phase 3); a place to push a branch and try it on a cluster |
+| **Forgejo** | A copy of `main`, refreshed by the *puller* (hourly unless the cluster-identity sets `pullerSchedule`); anything else you push to it | What ArgoCD reads (from Phase 3); a place to push a branch and try it on a cluster |
 | **Seed Gitea** | Nothing lasting | Getting a brand-new cluster to its first sync |
 
-The rule that keeps this simple: **only the puller writes Forgejo's `main`**, and it only ever copies GitHub's. Once ArgoCD reads Forgejo (Phase 3), merging on GitHub reaches the cluster within the hour with no hydration step. No GitHub credential exists anywhere in the stack — the repositories are public and the puller fetches anonymously.
+The rule that keeps this simple: **only the puller writes Forgejo's `main`**, and it only ever copies GitHub's. Once ArgoCD reads Forgejo (Phase 3), merging on GitHub reaches the cluster by the puller's next run, with no hydration step. No GitHub credential exists anywhere in the stack — the repositories are public and the puller fetches anonymously.
 
 Third-party repositories the stack depends on (today `keycloak-k8s-resources`, whose release tags the Keycloak operator is pinned to) are kept as read-only Forgejo pull-mirrors, so a cluster never needs to reach out to them at sync time.
 
@@ -60,7 +60,7 @@ On a homelab, `forgejo.homelab.local` does not resolve by itself: add `127.0.0.1
 
 ## What can go wrong, and what tells you
 
-- **A puller run fails.** Usually GitHub or the network for a moment; the next hourly run catches up. A failed run raises the generic Kubernetes Job-failure alert.
+- **A puller run fails.** Usually GitHub or the network for a moment; the next scheduled run catches up. A failed run raises the generic Kubernetes Job-failure alert.
 - **ArgoCD cannot reach its Git source.** Applications sit in `Unknown` while still claiming `Healthy` — the exact failure the seed wipes caused. Heimdall's `ArgoCDApplicationUnknown` alert pages for it within five minutes, on any cluster that has the Phase 2 changes hydrated.
 - **Forgejo itself is lost.** `main` can always be rebuilt from GitHub by the puller. Anything that exists only in Forgejo — your branches, accounts, tokens — needs its backups, which is why GKE has them and homelab still needs a decision.
 

@@ -96,7 +96,7 @@ The flow:
 3. ArgoCD (in namespace `argo` — NOT `argocd`, that namespace is reserved to avoid colliding with legacy installations) syncs from seed-Gitea.
 4. Optionally hard-refresh: `kubectl annotate application <name> -n argo argocd.argoproj.io/refresh=hard --overwrite`.
 
-**This is changing.** The seed Gitea is disposable by design, and on a cluster graduated to `durable` maturity a persistent Forgejo takes over its job: an hourly in-cluster puller copies GitHub's `main` into it, so merging on GitHub reaches the cluster without a hydration. Forgejo runs from Phase 2; ArgoCD switches to it in Phase 3. See [`forgejo.md`](forgejo.md).
+**This is changing.** The seed Gitea is disposable by design. On a cluster graduated to `durable` maturity, a persistent Forgejo runs from Phase 2, and an in-cluster puller copies GitHub's `main` into it (hourly by default), but ArgoCD keeps reading the seed. Forgejo takes over the seed's job at the Phase 3 cutover; from then on, merging on GitHub reaches the cluster without a hydration. See [`forgejo.md`](forgejo.md).
 
 **Implication: homelab = staging, GKE = production.** Rancher-desktop is resettable, so re-hydrating is also how you exercise a local branch. The same `update-embedded-git.sh` script targets either environment.
 
