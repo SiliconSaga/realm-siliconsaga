@@ -25,10 +25,10 @@ Third-party repositories the stack depends on (today `keycloak-k8s-resources`, w
 Every cluster carries a `maturity` value on its cluster-identity:
 
 - **`bootstrap`** — what `bootstrap.sh` always produces. Seed Gitea only. Forgejo's pieces are installed but render nothing. Throwaway Docker Desktop clusters stay here.
-- **`durable`** — Forgejo runs. From Phase 3 the cluster switches ArgoCD over to it, and backups and alerting treat it as something that matters.
+- **`durable`** — Forgejo runs, alongside the alert for ArgoCD losing its Git source (Phase 2). Phase 3 switches ArgoCD over to it, and Phase 4 adds restore drills for its backups.
 - **`full`** — later: single sign-on through Keycloak, Harbor and Backstage.
 
-Graduating a cluster is a one-line change to its cluster-identity, hydrated in. Going back down is refused unless the Forgejo claim says `allowTeardown: true`, so lowering maturity by accident cannot delete repositories.
+Graduating a cluster starts with a one-line change to its cluster-identity, hydrated in, which brings Forgejo up. ArgoCD keeps reading the seed Gitea until an operator runs the Phase 3 cutover. Going back down is refused unless the Forgejo claim says `allowTeardown: true`, so lowering maturity by accident cannot delete repositories.
 
 ## What a durable cluster looks like
 
@@ -46,14 +46,15 @@ The organisation is `siliconsaga`. It holds the five maintained repositories (`n
 **Logging in.** Your account is a *break-glass* admin: its password was generated inside the cluster and written to OpenBao, so nobody ever typed or saw it. To read it without printing it to your terminal:
 
 ```bash
-d=$(mktemp -d); umask 077
+umask 077; d=$(mktemp -d)
+trap 'rm -rf "$d"' EXIT INT TERM
 kubectl get secret -n forgejo forgejo-admin-cervator -o jsonpath='{.data.password}' | base64 -d > "$d/pw"
-# paste from "$d/pw" into the login form, then: rm -r "$d"
+# paste from "$d/pw" into the login form; the file goes when this shell exits, or sooner with: rm -r "$d"
 ```
 
 On a homelab, `forgejo.homelab.local` does not resolve by itself: add `127.0.0.1 forgejo.homelab.local` to your hosts file and accept the self-signed certificate, or port-forward with `kubectl port-forward -n forgejo svc/forgejo-http 3000:3000` and use `http://localhost:3000`.
 
-**Pushing a branch to try it.** Any branch other than `main` is yours to push. For pushes from a workstation, mint a personal access token under your Forgejo user settings with the `write:repository` scope and keep it in your `.env`. Do not use the admin password for Git. Phase 3 adds a helper that does this for you and a hydration flow that temporarily points a cluster at your branch.
+**Pushing a branch to try it.** Any branch other than `main` is yours to push. For pushes from a workstation, mint a personal access token under your Forgejo user settings with the `write:repository` scope and give it to Git's credential helper (Git Credential Manager, the macOS Keychain or libsecret) on your first push. Keep it out of `.env`, remote URLs and command lines, where it ends up in files, `.git/config` or shell history. Do not use the admin password for Git. Phase 3 adds a helper that does this for you and a hydration flow that temporarily points a cluster at your branch.
 
 **What you should not do.** Push to `main` on Forgejo. Branch protection lets the admin and break-glass accounts push there (it is how the puller works), but a commit on Forgejo's `main` that GitHub does not have puts the two out of step: the puller's next push is no longer a fast-forward, Forgejo refuses it, and that repository stops syncing until someone resets it. Change `main` on GitHub instead.
 
