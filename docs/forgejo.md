@@ -28,7 +28,7 @@ Every cluster carries a `maturity` value on its cluster-identity:
 - **`durable`** — Forgejo runs, alongside the alert for ArgoCD losing its Git source (Phase 2). Phase 3 switches ArgoCD over to it, and Phase 4 adds restore drills for its backups.
 - **`full`** — later: single sign-on through Keycloak, Harbor and Backstage.
 
-Graduating a cluster starts with a one-line change to its cluster-identity, hydrated in, which brings Forgejo up. ArgoCD keeps reading the seed Gitea until an operator runs the Phase 3 cutover. Going back down is refused unless the Forgejo claim says `allowTeardown: true`, so lowering maturity by accident cannot delete repositories.
+Graduating a cluster starts with a one-line change to its cluster-identity, hydrated in, which brings Forgejo up. ArgoCD keeps reading the seed Gitea until an operator runs the Phase 3 cutover. Once Forgejo's resources exist, going back down is refused unless the Forgejo claim says `allowTeardown: true`, so lowering maturity by accident cannot delete repositories. A cluster that never brought Forgejo up has nothing to lose and steps down freely.
 
 ## What a durable cluster looks like
 
