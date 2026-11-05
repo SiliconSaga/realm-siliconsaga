@@ -6,4 +6,4 @@
 terasology:
   maintainers: [Cervator]                # add the second core contributor when they opt in
   trusted: []                            # logins or owner/repo head repositories
-  nod_phrase: "ok to test"
+  nod_phrase: "haul it in"               # the boathouse hauls the boat in; matched anywhere in a maintainer's review text

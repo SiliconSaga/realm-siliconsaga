@@ -5,14 +5,16 @@
 # loaded with no window involved. Headless setup builds its own manifest from
 # the default module selection when no save exists, so no seed is needed.
 #
-# cwd: the engine checkout. Writes $NAUST_JOB_DIR/headless.log and headless-logs/.
+# cwd: the engine checkout. Writes $NAUST_JOB_DIR/server.log (the server's own
+# output) and headless-logs/. This script's lines go to stdout and stderr, which
+# naust appends to the step's headless.log, so the server's file is a different one.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=terasology/pr-lib.sh
 . "$HERE/pr-lib.sh"
 JOB="${NAUST_JOB_DIR:?pr-headless: NAUST_JOB_DIR is required}"
 TIMEOUT="${NAUST_HEADLESS_TIMEOUT:-900}"
-LOG="$JOB/headless.log"
+LOG="$JOB/server.log"
 
 rm -rf terasology-server
 before="$(terasology_jvms --headless | tr '\n' ' ')"

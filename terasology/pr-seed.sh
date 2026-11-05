@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The smoke boot's seed save. `--create-last-game` needs a latest game manifest
+# The launch check's seed save. `--create-last-game` needs a latest game manifest
 # to exist, and the engine treats any directory under saves/ holding a titled
 # manifest.json as a save. The manifest names every module with a version, so
 # the template carries @Name@ placeholders and `generate` fills them from the

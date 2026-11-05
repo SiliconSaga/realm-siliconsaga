@@ -121,6 +121,6 @@ ws test terasology MyMteTestClass --task integrationTest
 
 Good reference tests in `engine-tests/.../integrationenvironment/`:
 - `ClientConnectionTest` — basic multiplayer client creation
-- `ComponentSystemTest` — entity/event smoke test
+- `ComponentSystemTest` — the smallest entity/event test, a boot check for the harness
 - `ExampleTest` — comprehensive MTE demo with LISTEN_SERVER
 - `TestEventReceiverTest` — local event testing pattern

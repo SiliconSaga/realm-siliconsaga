@@ -217,7 +217,7 @@ components:
     tier: supporting
 
   # naust — the boathouse: runs pull requests through bays (child workspaces
-  # that `ws bay` makes under bays/) to check out, build, test and smoke-boot
+  # that `ws bay` makes under bays/) to check out, build, test and launch
   # them for a human to judge, driven by a scheduled tick. Like gdd-sandbox it
   # runs on an operator's machine and ships no chart, so it takes the
   # supporting tier. Its Terasology profile and trust list are realm content

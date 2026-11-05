@@ -22,7 +22,7 @@ This is a Terasology initiative first. The proactive-PR need is there, not on th
 | **Bay** | A child workspace under `bays/<name>/` in the owner's yggdrasil workspace: a complete clone of yggdrasil with its own realm checkout, components, nested modules and warmed Gradle cache. Made and reset by `ws bay`; a human can use one for a parallel session, naust uses them for jobs. Reset to base between jobs, never recreated. |
 | **Job** | One PR, later one PR plus its linked PRs, run through one bay. |
 | **Profile** | A per-component file in the realm saying what a job does for that component. The Terasology profile names **Gooey** as its persona, the name the work appears under in reports and comments. |
-| **Nod** | A maintainer's review on a PR, an Approve or a review saying *ok to test*, which admits exactly the commit GitHub recorded the review against. |
+| **Nod** | A maintainer's review on a PR, an Approve or a review saying *haul it in*, which admits exactly the commit GitHub recorded the review against. The phrase is the realm's (`nod_phrase`); the boathouse hauls the boat in. |
 | **Tick** | One scheduler-driven run of naust: poll, enqueue, run at most one job, exit. |
 
 ## Scope
@@ -139,13 +139,13 @@ PR code runs on the host the moment Gradle configures the build: a `build.gradle
 terasology:
   maintainers: [Cervator, …]        # may nod, and their own PRs run without one
   trusted: [SiliconSaga/Terasology] # logins or head repositories whose PRs run without a nod
-  nod_phrase: "ok to test"          # in a review's text; an Approve needs no phrase
+  nod_phrase: "haul it in"          # in a review's text; an Approve needs no phrase
 ```
 
 | Author | What happens |
 |---|---|
 | in `maintainers` or `trusted`, by login or by head repository | the job runs |
-| anyone else | no bay. Naust posts a notice to Discord: *PR #N at abc1234 by @x needs a nod.* A maintainer reviews the PR from any device with GitHub, an Approve or a review saying *ok to test*, and the next tick runs it. |
+| anyone else | no bay. Naust posts a notice to Discord: *PR #N at abc1234 by @x needs a nod.* A maintainer reviews the PR from any device with GitHub, an Approve or a review saying *haul it in*, and the next tick runs it. |
 
 **A nod is a review, and a review names its commit.** GitHub records the head every review was submitted against (`commit.oid` on each entry of `gh pr view <n> --json reviews`), server side, where neither the author nor the reviewer can edit it. The gate reads the PR's reviews and accepts one as a nod only when its author is a login in `maintainers`, it is not dismissed, it is an Approve or its text contains the phrase, and its commit is the head about to run. A push after the nod needs a new nod, which costs the maintainer one click, and the job itself stops at checkout unless the head it fetched is the head the gate admitted. Labels are not nods: a label cannot say which commit it meant, so a nod given on one head would admit whatever was pushed after it. Reviews from outside the list, and a maintainer's reviews on older commits, are named in the gate's reason so the Discord notice says why a PR still waits. The review form is visible to the author, and it is one click more than the Jenkins comment this project's contributors know.
 
@@ -232,7 +232,7 @@ The first review's placement put bays outside any workspace and nods on labels; 
 
 7. **Bays live under `bays/` in the workspace**, as independent clones; naust's state lives in `bays/.naust/`. The earlier "siblings outside any workspace" layout is gone, and with it the argument against `ws bay` verbs.
 8. **`ws bay` is a yggdrasil verb** and naust keeps the states and the jobs. The line: `ws` owns workspace shape, naust owns behaviour over time. gdd-sandbox stays independent for now; a `ws sandbox` verb, if sandboxes ever become workspace shape, is a separate design that would weigh sandbox flavours at the same time.
-9. **Nods are reviews bound to a commit.** The `ok-to-test` label is gone. A maintainer's Approve, or a review saying *ok to test*, admits the commit GitHub recorded it against and nothing after it; the job verifies the head it fetched before building.
+9. **Nods are reviews bound to a commit.** The `ok-to-test` label is gone. A maintainer's Approve, or a review saying *haul it in*, admits the commit GitHub recorded it against and nothing after it; the job verifies the head it fetched before building.
 10. **The adapter's `provision:` block**, optional with sensible defaults, so a component without one is provisioned with git alone.
 11. **`--cr` is the flag**, with `--pr` and `--mr` as aliases, and the ref follows the remote's provider.
 12. **Hoards in bays.** A bay may carry a hoard (`ws bay add --hoard <url>`), with its own `machine:` name so Thalamus files never collide; the `machine:` override in `ecosystem.local.yaml` already existed and is what makes several workspaces on one host workable. Naust's bays carry none.
