@@ -24,8 +24,8 @@ Third-party repositories the stack depends on (today `keycloak-k8s-resources`, w
 
 Every cluster carries a `maturity` value on its cluster-identity:
 
-- **`bootstrap`** — what `bootstrap.sh` always produces. Seed Gitea only. Forgejo's pieces are installed but render nothing. Throwaway Docker Desktop clusters stay here.
-- **`durable`** — Forgejo runs, alongside the alert for ArgoCD losing its Git source (Phase 2). Phase 3 switches ArgoCD over to it, and Phase 4 adds restore drills for its backups.
+- **`bootstrap`** — what `bootstrap.sh` always produces. Seed Gitea only. Forgejo's pieces are installed but render nothing. The alert for ArgoCD losing its Git source (Phase 2) needs nothing from Forgejo, so it is active here too. Throwaway Docker Desktop clusters stay here.
+- **`durable`** — Forgejo runs. Phase 3 switches ArgoCD over to it, and Phase 4 adds restore drills for its backups.
 - **`full`** — later: single sign-on through Keycloak, Harbor and Backstage.
 
 Graduating a cluster starts with a one-line change to its cluster-identity, hydrated in, which brings Forgejo up. ArgoCD keeps reading the seed Gitea until an operator runs the Phase 3 cutover. Once Forgejo's resources exist, going back down is refused unless the Forgejo claim says `allowTeardown: true`, so lowering maturity by accident cannot delete repositories. A cluster that never brought Forgejo up has nothing to lose and steps down freely.
@@ -54,14 +54,14 @@ kubectl get secret -n forgejo forgejo-admin-cervator -o jsonpath='{.data.passwor
 
 On a homelab, `forgejo.homelab.local` does not resolve by itself: add `127.0.0.1 forgejo.homelab.local` to your hosts file and accept the self-signed certificate, or port-forward with `kubectl port-forward -n forgejo svc/forgejo-http 3000:3000` and use `http://localhost:3000`.
 
-**Pushing a branch to try it.** Any branch other than `main` is yours to push. For pushes from a workstation, mint a personal access token under your Forgejo user settings with the `write:repository` scope and give it to Git's credential helper (Git Credential Manager, the macOS Keychain or libsecret) on your first push. Keep it out of `.env`, remote URLs and command lines, where it ends up in files, `.git/config` or shell history. Do not use the admin password for Git. Phase 3 adds a helper that does this for you and a hydration flow that temporarily points a cluster at your branch.
+**Pushing a branch to try it.** Any branch other than `main` is yours to push. For pushes from a workstation, mint a personal access token under your Forgejo user settings with the `write:repository` scope and keep it in the workspace `.env` as `FORGEJO_TOKEN`, beside `GH_TOKEN` (the file is gitignored). Hand it to Git through a credential helper, never in a remote URL or on a command line, where it would land in `.git/config` or shell history. Do not use the admin password for Git. Phase 3 adds a helper that does this for you and a hydration flow that temporarily points a cluster at your branch.
 
 **What you should not do.** Push to `main` on Forgejo. Branch protection lets the admin and break-glass accounts push there (it is how the puller works), but a commit on Forgejo's `main` that GitHub does not have puts the two out of step: the puller's next push is no longer a fast-forward, Forgejo refuses it, and that repository stops syncing until someone resets it. Change `main` on GitHub instead.
 
 ## What can go wrong, and what tells you
 
 - **A puller run fails.** Usually GitHub or the network for a moment; the next scheduled run catches up. A failed run raises the generic Kubernetes Job-failure alert.
-- **ArgoCD cannot reach its Git source.** Applications sit in `Unknown` while still claiming `Healthy` — the exact failure the seed wipes caused. Heimdall's `ArgoCDApplicationUnknown` alert pages for it within five minutes, on any cluster that has the Phase 2 changes hydrated.
+- **ArgoCD cannot reach its Git source.** Applications sit in `Unknown` while still claiming `Healthy` — the exact failure the seed wipes caused. Heimdall's `ArgoCDApplicationUnknown` alert fires once an Application has been `Unknown` for five minutes. With the rule evaluated once a minute and Alertmanager's 30-second group wait, the page can take up to about six and a half. It applies on any cluster that has the Phase 2 changes hydrated.
 - **Forgejo itself is lost.** `main` can always be rebuilt from GitHub by the puller. Anything that exists only in Forgejo — your branches, accounts, tokens — needs its backups, which is why GKE has them and homelab still needs a decision.
 
 ## Where this is going
