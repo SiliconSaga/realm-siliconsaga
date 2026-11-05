@@ -16,6 +16,7 @@ The stack narrative is split across one overview + three per-tier docs so each s
 
 Plus a couple of operational / security topic pages:
 
+- [`forgejo.md`](forgejo.md) — what Forgejo is for in the stack, how it relates to GitHub and the seed Gitea, and how to log in and use it.
 - [`dev-setup.md`](dev-setup.md) — local dev environment for this realm (Rancher Desktop, WSL2 inotify, k3d on macOS, etc.).
 - [`ai-agent-security-patterns.md`](ai-agent-security-patterns.md) — security framings for AI agent operations.
 - [`agent-security/`](agent-security/) — deeper agent-security topic pages.

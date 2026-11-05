@@ -96,6 +96,8 @@ The flow:
 3. ArgoCD (in namespace `argo` — NOT `argocd`, that namespace is reserved to avoid colliding with legacy installations) syncs from seed-Gitea.
 4. Optionally hard-refresh: `kubectl annotate application <name> -n argo argocd.argoproj.io/refresh=hard --overwrite`.
 
+**This is changing.** The seed Gitea is disposable by design. On a cluster graduated to `durable` maturity, a persistent Forgejo runs from Phase 2, and an in-cluster puller copies GitHub's `main` into it (hourly by default), but ArgoCD keeps reading the seed. Forgejo takes over the seed's job at the Phase 3 cutover; from then on, merging on GitHub reaches the cluster without a hydration. See [`forgejo.md`](forgejo.md).
+
 **Implication: homelab = staging, GKE = production.** Rancher-desktop is resettable, so re-hydrating is also how you exercise a local branch. The same `update-embedded-git.sh` script targets either environment.
 
 **Implication: `kubectl apply` against a `selfHeal: true` Application reverts within ~3 minutes.** ArgoCD's reconciliation wins. Test by changing the Git source (seed-Gitea), not by direct cluster edits. There's an incident-override escape hatch (disable selfHeal temporarily) documented in [Nordri's `argocd-gitops` skill](../../../components/nordri/.agent/skills/argocd-gitops/SKILL.md).
