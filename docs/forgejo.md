@@ -37,7 +37,7 @@ Graduating a cluster starts with a one-line change to its cluster-identity, hydr
 | Address | `https://forgejo.homelab.local` | `https://forgejo.cmdbee.org` (covered by the existing wildcard DNS and certificate) |
 | Repository storage | `local-path` | persistent disk |
 | Database | the shared Mimir PostgreSQL | the shared Mimir PostgreSQL |
-| Backups | not yet — homelab backups are an open decision | Velero disk snapshots, plus pgBackRest to Cloud Storage |
+| Backups | not yet — homelab backups are an open decision | Velero disk snapshots, plus pgBackRest to Cloud Storage. Both already cover GKE's other data. Restoring Forgejo from them stays unproven until the Phase 4 drills. |
 
 The organisation is `siliconsaga`. It holds the five maintained repositories (`nordri`, `nidavellir`, `mimir`, `heimdall`, `realm-siliconsaga`) and the vendor mirror. Which repositories exist is decided by one realm file, [`cluster/forgejo/claim.yaml`](../cluster/forgejo/claim.yaml); the platform never hard-codes them.
 
@@ -52,7 +52,7 @@ kubectl get secret -n forgejo forgejo-admin-cervator -o jsonpath='{.data.passwor
 # paste from "$d/pw" into the login form; the file goes when this shell exits, or sooner with: rm -r "$d"
 ```
 
-On a homelab, `forgejo.homelab.local` does not resolve by itself: map it in your hosts file to the address where the cluster's ingress listens, and accept the self-signed certificate. On Docker Desktop's built-in Kubernetes that is `127.0.0.1` on port 443, so `https://forgejo.homelab.local` works as is. The k3d cluster from [dev-setup](dev-setup.md) also listens on `127.0.0.1`, but publishes HTTPS on 8443, so use `https://forgejo.homelab.local:8443`. A homelab on another machine needs that machine's address. Wherever the ingress is, `kubectl port-forward -n forgejo svc/forgejo-http 3000:3000` and `http://localhost:3000` always work.
+On a homelab, `forgejo.homelab.local` does not resolve by itself: map it in your hosts file to the address where the cluster's ingress listens. The homelab certificate is self-signed, so check it before you type the password: the SHA-256 fingerprint your browser shows must match `kubectl get secret -n kube-system traefik-gateway-default-cert -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -fingerprint -sha256`. If you cannot check it, use the port-forward below. On Docker Desktop's built-in Kubernetes that is `127.0.0.1` on port 443, so `https://forgejo.homelab.local` works as is. The k3d cluster from [dev-setup](dev-setup.md) also listens on `127.0.0.1`, but publishes HTTPS on 8443, so use `https://forgejo.homelab.local:8443`. A homelab on another machine needs that machine's address. Wherever the ingress is, `kubectl port-forward -n forgejo svc/forgejo-http 3000:3000` and `http://localhost:3000` always work.
 
 **Pushing a branch to try it.** Any branch other than `main` is yours to push. For pushes from a workstation, mint a personal access token under your Forgejo user settings with the `write:repository` scope and keep it as `FORGEJO_TOKEN` in the yggdrasil workspace's `.env`, beside `GH_TOKEN`. That file sits at the workspace root, outside this repository, and yggdrasil's `.gitignore` excludes it. Never put it in a `.env` inside a component or realm checkout. Hand it to Git through a credential helper, never in a remote URL or on a command line, where it would land in `.git/config` or shell history. Do not use the admin password for Git. Phase 3 adds a helper that does this for you and a hydration flow that temporarily points a cluster at your branch.
 
@@ -62,7 +62,7 @@ On a homelab, `forgejo.homelab.local` does not resolve by itself: map it in your
 
 - **A puller run fails.** Usually GitHub or the network for a moment; the next scheduled run catches up. A failed run raises the generic Kubernetes Job-failure alert.
 - **ArgoCD cannot reach its Git source.** Applications sit in `Unknown` while still claiming `Healthy` — the exact failure the seed wipes caused. Heimdall's `ArgoCDApplicationUnknown` alert fires once an Application has been `Unknown` for five minutes. With the rule evaluated once a minute and Alertmanager's 30-second group wait, the page can take up to about six and a half. It applies on any cluster that has the Phase 2 changes hydrated.
-- **Forgejo itself is lost.** `main` can always be rebuilt from GitHub by the puller. Anything that exists only in Forgejo — your branches, accounts, tokens — needs its backups, which is why GKE has them and homelab still needs a decision.
+- **Forgejo itself is lost.** `main` can always be rebuilt from GitHub by the puller. Anything that exists only in Forgejo — your branches, accounts, tokens — depends on backups. GKE has the mechanisms in place, but no Forgejo restore has been tried until the Phase 4 drills. Homelab still needs a decision.
 
 ## Where this is going
 
