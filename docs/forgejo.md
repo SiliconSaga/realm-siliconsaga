@@ -52,7 +52,7 @@ kubectl get secret -n forgejo forgejo-admin-cervator -o jsonpath='{.data.passwor
 # paste from "$d/pw" into the login form; the file goes when this shell exits, or sooner with: rm -r "$d"
 ```
 
-On a homelab, `forgejo.homelab.local` does not resolve by itself: add `127.0.0.1 forgejo.homelab.local` to your hosts file and accept the self-signed certificate, or port-forward with `kubectl port-forward -n forgejo svc/forgejo-http 3000:3000` and use `http://localhost:3000`.
+On a homelab, `forgejo.homelab.local` does not resolve by itself: map it in your hosts file to the address where the cluster's ingress listens, and accept the self-signed certificate. On Docker Desktop's built-in Kubernetes that is `127.0.0.1` on port 443, so `https://forgejo.homelab.local` works as is. The k3d cluster from [dev-setup](dev-setup.md) also listens on `127.0.0.1`, but publishes HTTPS on 8443, so use `https://forgejo.homelab.local:8443`. A homelab on another machine needs that machine's address. Wherever the ingress is, `kubectl port-forward -n forgejo svc/forgejo-http 3000:3000` and `http://localhost:3000` always work.
 
 **Pushing a branch to try it.** Any branch other than `main` is yours to push. For pushes from a workstation, mint a personal access token under your Forgejo user settings with the `write:repository` scope and keep it in the workspace `.env` as `FORGEJO_TOKEN`, beside `GH_TOKEN` (the file is gitignored). Hand it to Git through a credential helper, never in a remote URL or on a command line, where it would land in `.git/config` or shell history. Do not use the admin password for Git. Phase 3 adds a helper that does this for you and a hydration flow that temporarily points a cluster at your branch.
 
