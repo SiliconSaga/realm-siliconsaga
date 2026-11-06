@@ -1,12 +1,20 @@
 # xenforo-k8s adapter — build/test commands and AI context pointers
 #
-# test: like kubicvalheim, this is a Kustomize-based infra repo with no unit-test
+# test: two suites, dispatched by tests/run.sh (`render` and `runbooks` run it
+# alone; neither aborts the other, so a doc typo cannot hide a broken overlay).
+#
+# render: like kubicvalheim, this is a Kustomize-based infra repo with no unit-test
 # suite, so "every overlay still renders" IS the test. tests/render-all.sh discovers
 # every dir under kustomize/overlays/ rather than hardcoding a list, and picks its
 # renderer by CAPABILITY — probing each of KUSTOMIZE_BIN / kustomize / kubectl
 # kustomize against a real overlay and using the first that can build this repo.
 # `components:` needs kustomize >= 3.7 and `labels:` >= 4.x, and an older renderer
 # fails with a bare `unknown field "components"` that reads like a manifest bug.
+#
+# runbooks: the docs here get pasted into a terminal mid-upgrade, so a shell block
+# that cannot parse is a defect like a broken manifest is. tests/lint-runbooks.sh
+# had been running only in GitHub Actions, which meant `ws test` came back clean on
+# doc changes CI would reject; it now runs here too, its own --self-test first.
 #
 # build: the runtime image. Deliberately NOT wired to a `ws build` that pushes —
 # CI owns publishing (.github/workflows/image.yml); this is the local rehearsal.
@@ -16,7 +24,7 @@
 # there is no `|| true` to hide it. Build cache is untouched, so the next build
 # stays fast.
 commands:
-  test: "bash tests/render-all.sh"
+  test: "bash tests/run.sh"
   build: "docker build -t xenforo-k8s:local image"
   clean: "docker image rm xenforo-k8s:local"
 
