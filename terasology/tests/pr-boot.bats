@@ -11,7 +11,7 @@ setup() {
     export NAUST_SCREENSHOT_CMD="touch"
     export NAUST_JPS_CMD="true"
     export NAUST_SETTLE_SECONDS=0 NAUST_HEADLESS_TIMEOUT=20 NAUST_LAUNCH_TIMEOUT=20
-    export MARKER_HEADLESS="12:00:00.000 [main] INFO  o.t.e.n.internal.NetworkSystemImpl - Server started"
+    export MARKER_HEADLESS="12:00:00.000 [main] INFO  o.t.e.n.internal.NetworkSystemImpl - Started server on port 25777"
     export MARKER_RENDER="12:00:00.000 [main] INFO  o.t.e.r.world.WorldRendererImpl - Initialising rendering class CoreRenderingModule from CoreRendering module."
     cat > "$ENGINE/gradlew" <<'EOF'
 #!/usr/bin/env bash
@@ -37,10 +37,10 @@ EOF
 # The fake gradlew must be gone: the scripts promise to stop what they start.
 gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
 
-@test "headless boots the server, sees Server started, stops it and keeps the logs" {
+@test "headless boots the server, sees it bind its port, stops it and keeps the logs" {
     run bash "$REALM/terasology/pr-headless.sh"
     [ "$status" -eq 0 ]
-    grep -q 'Server started' "$NAUST_JOB_DIR/server.log"
+    grep -q 'Started server on port' "$NAUST_JOB_DIR/server.log"
     grep -q '^gradlew server' "$GRADLEW_LOG"
     [ -d "$NAUST_JOB_DIR/headless-logs" ]
     gradlew_stopped
@@ -52,9 +52,9 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
 # lines, and grep refuses to read the file it is writing to.
 @test "headless keeps the server's output apart from the step log it runs under" {
     bash "$REALM/terasology/pr-headless.sh" >> "$NAUST_JOB_DIR/headless.log" 2>&1
-    grep -q 'Server started' "$NAUST_JOB_DIR/server.log"
+    grep -q 'Started server on port' "$NAUST_JOB_DIR/server.log"
     grep -q 'stopped cleanly' "$NAUST_JOB_DIR/headless.log"
-    ! grep -q 'Server started' "$NAUST_JOB_DIR/headless.log"
+    ! grep -q 'Started server on port' "$NAUST_JOB_DIR/headless.log"
 }
 
 @test "headless fails on timeout and still stops the process" {
@@ -116,7 +116,7 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     [ ! -e "$NAUST_JOB_DIR/screenshot.png" ]
 }
 
-@test "headless fails when the server exits right after Server started" {
+@test "headless fails when the server exits right after binding its port" {
     export EXIT_AFTER_MARKER=1
     run bash "$REALM/terasology/pr-headless.sh"
     [ "$status" -ne 0 ]
