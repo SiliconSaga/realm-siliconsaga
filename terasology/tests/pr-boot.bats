@@ -92,7 +92,7 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     mkdir -p saves/naust-seed; printf '{"title":"naust-seed"}\n' > saves/naust-seed/manifest.json
     run bash "$REALM/terasology/pr-launch.sh"
     [ "$status" -eq 0 ]
-    grep -q -- 'gradlew game --args=--create-last-game --no-splash --no-crash-report --no-save-games' "$GRADLEW_LOG"
+    grep -q -- 'gradlew game --args=--create-last-game --no-splash --no-crash-report$' "$GRADLEW_LOG"   # no --no-save-games: the engine cannot load a world under it
     grep -q 'Initialising rendering class' "$NAUST_JOB_DIR/game.log"
     [ -f "$NAUST_JOB_DIR/screenshot.png" ]
     [ -d "$NAUST_JOB_DIR/game-logs/run" ]
