@@ -1,6 +1,6 @@
 # Forgejo day-2 — Phase 3 design: the URL train, testing a branch, and the GKE cutover
 
-**Status:** Draft, in brainstorm. Paused at Decision 1, which needs the owner's call before anything below it is settled.
+**Status:** Draft, in brainstorm. Decision 1 settled on 2026-11-10 (orgs as environments); paused at Decision 2, which org classes Phase 3 builds.
 **Date:** 2026-11-06
 **Owner:** Rasmus Praestholm
 **Parent:** [Forgejo day-2 design](2026-09-07-forgejo-day2-design.md) (design of record; this document settles Phase 3's open points and records where the record no longer holds) · [Phase 2 design](2026-09-19-forgejo-day2-phase2-design.md)
@@ -33,7 +33,11 @@ Out of scope: restore drills and Velero scope (Phase 4), `full` maturity (Phase 
 
 ## Decisions
 
-### Decision 1 (OPEN): how a branch reaches a cluster once ArgoCD reads Forgejo
+### Decision 1 (settled 2026-11-10): a branch reaches a cluster through its own org, and orgs become environments
+
+The owner chose Option D and widened it. Forgejo orgs are cheap and Forgejo has a lot of room to grow, so the layout uses several orgs: for previews, other testing and staging environments, each with a clear purpose. The scratch org is the first of them. The next section gives the good-practice rules every org follows and the org classes they allow. Options A–C are kept below as the record of what was weighed.
+
+The options as weighed:
 
 Today a branch gets tested by hydrating working trees into the seed: an orphan snapshot is force-pushed onto the seed's `main`, ArgoCD syncs it, and the next hydration from `main` puts things back. The record carried that shape over to Forgejo, and that relies on the force-push allowlist that does not exist. Whatever replaces it must keep three properties: Forgejo's `main` stays a verbatim copy of GitHub's, the puller is the only writer of `main`, and a forgotten test is easy to find.
 
@@ -47,15 +51,55 @@ Today a branch gets tested by hydrating working trees into the seed: an orphan s
 
 **Recommendation: D.** It keeps every invariant Phase 2 established, deletes a mechanism (puller suspension) instead of adding one, and its one new piece is a mode of a library that already has three and a test suite. A is the fallback if a second set of repositories is unwelcome.
 
-*Owner's call needed here before the sections below are drafted.*
+### Organisation layout: orgs as environments
+
+#### Good-practice rules
+
+These hold for every org, whatever its class.
+
+1. **An org is a trust class and a lifecycle, not a folder.** Protection, writers, retention and backup are decided per org, never per repository. A repository's class can be read from its org's name.
+2. **Every protected org mirrors a GitHub ref.** What a protected org holds is a copy of something on GitHub, written only by a puller. Work never starts on Forgejo and is never promoted between Forgejo orgs: promotion is a merge or a tag on GitHub, and every org downstream catches up. This is Phase 2's "only the puller writes `main`" rule, applied to every org.
+3. **Every unprotected org is disposable.** It holds nothing that cannot be recreated by hydrating again from a working tree or a GitHub ref. Nothing in it is backed up, and nothing durable may depend on it.
+4. **Names are `<realm>-<class>[-<qualifier>]`, except the canonical org.** That one keeps the bare realm name (`siliconsaga`) because every committed repoURL names it. Examples: `siliconsaga-scratch-cervator`, `siliconsaga-pr-123`, `siliconsaga-staging`. The realm prefix keeps a Forgejo shared by several realms legible later.
+5. **The realm declares orgs; nidavellir never names one.** The claim's single `org` field becomes an `orgs` list, with a `class` on each entry. The composition gives each class its protection, writers and retention, and the configure Job reconciles them as it does today's single org.
+6. **The cluster says which org it reads.** Committed repoURLs name the canonical org. A long-lived environment that reads a different org says so in its cluster-identity (for example `gitOrg: siliconsaga-staging`), and hydration rewrites the org segment to match. That rewrite is the same literal, fail-closed swap `patch-urls.sh` already does, generalised from a fixed scratch mode to `org:<name>`. A short-lived test, such as a scratch hydration, repoints only the root Application, so nothing is committed for it.
+7. **A cluster that is not on its own org is noticed.** The puller (or the visibility work in item 6 below) exposes which org each cluster's root Application reads. If a cluster reads a scratch or preview org for longer than a threshold, a low-priority alert fires, so a forgotten test cannot hang around unnoticed.
+8. **Least privilege per class.** Forgejo token scopes go by category, not by org, so separation comes from accounts. Each puller-written class gets its own bot account, which is a member only of the orgs it writes. A human's scratch token sits on an account that is a member of that human's scratch org only.
+9. **Ephemeral orgs carry their own expiry.** An org created for a PR or a test records its creator and an expiry in its description. A reaper (a CronJob beside the puller) deletes expired ones. Quotas on unprotected orgs, if the pinned Forgejo supports them, stop one stray hydration from filling the volume. That has to be checked against Forgejo 15 rather than assumed.
+
+#### Org classes the rules allow
+
+| Class | Example | Fed by | Protection | Lifecycle | Read by |
+|---|---|---|---|---|---|
+| **canonical** | `siliconsaga` | puller, from GitHub `main` | `main` protected, puller only | permanent | every production cluster |
+| **vendor** | `siliconsaga-vendor` | Forgejo pull-mirrors, from upstream tags | read-only mirrors | permanent | Applications pinned to vendor tags |
+| **scratch** | `siliconsaga-scratch-cervator` | a human's `update-embedded-git.sh --target scratch` | none; orphan force-pushes are expected | permanent org, contents disposable | one cluster at a time, while a test runs |
+| **preview** | `siliconsaga-pr-123` | a preview puller, from a GitHub PR head | protected, preview bot only | created on PR open, reaped on close or expiry | a preview cluster or namespace |
+| **staging** | `siliconsaga-staging` | puller, from a GitHub `staging` branch or release tag | protected, puller only | permanent | the staging cluster, via `gitOrg` |
+
+Notes on the classes:
+
+- **Vendor gets its own org** so that "mirror of someone else's code" is a trust class of its own, instead of sitting beside our repositories. The URL train touches every repoURL anyway, so moving `keycloak-k8s-resources` costs least now.
+- **Preview orgs follow PR trust.** Only a PR the realm trusts gets an org. That is the same trust-list idea naust's PR bays use, and it matters because a preview cluster runs what the PR says. Fork PRs never get one automatically.
+- **Staging is a GitHub decision.** What staging runs is a GitHub branch or tag, so moving a change to staging is reviewed where every other change is.
+
+### Decision 2 (OPEN): which classes Phase 3 builds
+
+The rules cost little to write into the composition now. Each class costs real work to build. The options:
+
+- **Build canonical, vendor and scratch now; record preview and staging as designed but unbuilt (recommended).** Canonical exists already. Vendor rides the URL train for free. Scratch is what Decision 1 needs. The `orgs` list, the `class` field and `org:<name>` rewriting are built in their general form, so adding preview or staging later is a new class entry plus its puller, not a redesign.
+- **Canonical and scratch only.** Smallest, but the vendor mirror moves in a second URL change later.
+- **All five.** Preview needs a preview puller, the reaper and a trust gate, and staging needs a staging cluster to read it. Neither has a consumer yet.
+
+*Owner's call needed here.* After it: per-human scratch orgs versus one shared scratch org. The rules above lean per-human, because each tester gets their own token and the forgotten-test alert can name who left it.
 
 ### Decisions still to come, in order
 
-Listed so the next session resumes cleanly. Each depends on Decision 1 only where noted.
+Listed so the next session resumes cleanly.
 
-2. **URL train mechanics.** It merges in one coordinated push, ordered so that no hydration from `main` can land halfway: nordri's `patch-urls` already rewrites, so the train is safe to merge before any cluster graduates. That still has to be confirmed against `bootstrap.sh` and `update-embedded-git.sh` on a `bootstrap`-maturity cluster, where Forgejo does not exist. The realm's `defaults.gitea.internalUrl` → `defaults.forgejo.internalUrl` rides along.
-3. **`graduate.sh`: placement and preconditions.** The record leans to nordri. Its preconditions include "the puller has run after the train merged" and "the vendor mirror refs Applications pin resolve on Forgejo". Under D it also gains `--resume` from a scratch test.
-4. **GKE order of operations.** The owner wants the GKE hydrate from current `main`, plus heimdall's XRD, after this design and before implementation finishes. After that: bump GKE to `durable`, let Phase 2's Jobs run on GKE for the first time, soak, and only then run the swap.
-5. **Sync visibility (the owner's parked request).** The puller emits per-repository state somewhere Prometheus can scrape. Then a mid-range alert ("repository X has not matched GitHub for N runs", ntfy priority 3–4, not a page) and a Grafana panel with the last good pull per repository, whether Forgejo's `main` matches GitHub's, and the mirrors' last sync. Phase 3 or Phase 4 depending on size; the Forgejo `/api/healthz` probe is Phase 3 regardless.
-6. **Recovering a diverged `main`.** Tonight's three steps become a runbook entry in nidavellir, and possibly a `ROTATE`-style mode of the configure Job, so recreating the rule does not need a hand-built Job.
-7. **Soak and gates.** The record's gate list mostly stands. Its line "the local-branch loop has been exercised against Forgejo, including suspend and resume" changes with Decision 1.
+3. **URL train mechanics.** It merges in one coordinated push, ordered so that no hydration from `main` can land halfway: nordri's `patch-urls` already rewrites, so the train is safe to merge before any cluster graduates. That still has to be confirmed against `bootstrap.sh` and `update-embedded-git.sh` on a `bootstrap`-maturity cluster, where Forgejo does not exist. The realm's `defaults.gitea.internalUrl` → `defaults.forgejo.internalUrl` rides along, and the vendor mirror's URL moves to its own org if Decision 2 says so.
+4. **`graduate.sh`: placement and preconditions.** The record leans to nordri. Its preconditions include "the puller has run after the train merged" and "the vendor mirror refs Applications pin resolve on Forgejo". It also gains `--resume`, which brings a cluster back to its own org after a scratch test.
+5. **GKE order of operations.** The owner wants the GKE hydrate from current `main`, plus heimdall's XRD, after this design and before implementation finishes. After that: bump GKE to `durable`, let Phase 2's Jobs run on GKE for the first time, soak, and only then run the swap.
+6. **Sync visibility (the owner's parked request).** The puller emits per-repository state, and per-cluster which org the root reads (rule 7), somewhere Prometheus can scrape. Then a mid-range alert ("repository X has not matched GitHub for N runs", ntfy priority 3–4, not a page) and a Grafana panel with the last good pull per repository, whether Forgejo's `main` matches GitHub's, and the mirrors' last sync. Phase 3 or Phase 4 depending on size; the Forgejo `/api/healthz` probe is Phase 3 regardless.
+7. **Recovering a diverged `main`.** The three steps from 2026-11-06 become a runbook entry in nidavellir, and possibly a `ROTATE`-style mode of the configure Job, so recreating the rule does not need a hand-built Job.
+8. **Soak and gates.** The record's gate list mostly stands. Its line "the local-branch loop has been exercised against Forgejo, including suspend and resume" becomes "a scratch hydration and `--resume` have been run on the cluster, and the forgotten-test alert has fired once".
