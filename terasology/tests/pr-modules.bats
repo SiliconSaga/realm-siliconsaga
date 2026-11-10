@@ -25,8 +25,21 @@ setup() {
     [[ "$output" != *"Fetched"* ]]
 }
 
-@test "ensure says nothing when every module has its build file" {
+@test "ensure gives every module the test logging config groovyw would have, and keeps one already there" {
+    printf 'mine\n' > "$ENGINE/templates/module.logback-test.xml"
+    mkdir -p modules/Fetched/src/test/resources
+    printf 'theirs\n' > modules/Fetched/src/test/resources/logback-test.xml
+    run bash "$REALM/terasology/pr-modules.sh" ensure
+    [ "$status" -eq 0 ]
+    [ "$(cat modules/Seeded/src/test/resources/logback-test.xml)" = "mine" ]
+    [ "$(cat modules/Fetched/src/test/resources/logback-test.xml)" = "theirs" ]
+    [ ! -e modules/NotAModule/src ]
+}
+
+@test "ensure says nothing when every module has its build file and logging config" {
     cp templates/build.gradle modules/Seeded/build.gradle
+    printf 'mine\n' > "$ENGINE/templates/module.logback-test.xml"
+    for m in Seeded Fetched; do mkdir -p "modules/$m/src/test/resources"; cp templates/module.logback-test.xml "modules/$m/src/test/resources/logback-test.xml"; done
     run bash "$REALM/terasology/pr-modules.sh" ensure
     [ "$status" -eq 0 ]
     [ -z "$output" ]

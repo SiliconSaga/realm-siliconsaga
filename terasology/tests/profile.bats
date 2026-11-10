@@ -41,8 +41,8 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 
 @test "the trust list maps at least one login to a machine account and names the phrase; nothing runs by author or label" {
     t="$REALM/naust/trust.yaml"
-    [ "$(yq '.terasology.smidir | length' "$t")" -ge 1 ]
-    [ "$(yq '.terasology.smidir.Cervator' "$t")" = "agent-refr" ]
+    [ "$(yq '.terasology.forges | length' "$t")" -ge 1 ]
+    [ "$(yq '.terasology.forges.Cervator' "$t")" = "agent-refr" ]
     [ "$(yq '.terasology.nod_phrase' "$t")" = "haul it in" ]
     for k in .terasology.maintainers .terasology.trusted .terasology.nod_label; do
         [ "$(yq "$k" "$t")" = null ] || { echo "$k is not read any more"; false; }

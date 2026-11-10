@@ -5,6 +5,6 @@
 # and that is the only commit the call admits; a push after it needs a new
 # call. Approvals and labels are not read.
 terasology:
-  smidir:                                # smiðir, the smiths of the yard: login -> the machine account their own naust posts as
+  forges:                                # login -> the machine account their own naust posts as: the forge their PRs come out of
     Cervator: agent-refr                 # GooeyHub once it is wired; a login may call any listed naust in, not only its own
   nod_phrase: "haul it in"               # the boathouse hauls the boat in; matched anywhere in the review text, with the @account
