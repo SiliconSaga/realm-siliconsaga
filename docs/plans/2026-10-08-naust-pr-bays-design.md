@@ -251,6 +251,8 @@ The first real job, Terasology PR 5388 with its companion CoreAssets PR, ran on 
 18. **The report carries no diff stat.** GitHub shows the diff.
 19. **The mapping is the seed for later routing.** One machine account per core contributor is the shape; a shared account such as GooeyHub is a loaner for a new contributor to try the system on, and the operator clause ("for @login") stays unbuilt until two people share one.
 
+Verified on the first green run, against the "Windows provides an unlocked desktop" assumption above: the launch check's picture is taken from the screen, and behind the lock screen the screen is one flat colour, on Dionysus a dark brown rather than black; asking the window for its own composited content (PrintWindow) returns a blank client area as well. The capture now takes the game's window by title rather than the primary display, which on an eight-monitor machine was a screen the game never opened on, and names a flat picture for what it is. A picture of the world from an unattended tick needs the console left unlocked, or an in-engine capture; the owner's call, outside this plan.
+
 ## Not in scope
 
 - An agent driving the game's UI. Computer use in the CLI is macOS-only, interactive-only and blocked under `-p`; the scripted boot plus a screenshot is the attended-free version of the check, and playing the change stays human.
