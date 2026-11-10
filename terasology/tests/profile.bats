@@ -26,12 +26,13 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 }
 
 @test "the profile's scripts exist beside this test" {
-    for s in pr-headless.sh pr-launch.sh pr-seed.sh pr-lib.sh screenshot.ps1 seed-manifest.template.json; do
+    for s in pr-headless.sh pr-launch.sh pr-seed.sh pr-modules.sh pr-lib.sh screenshot.ps1 seed-manifest.template.json; do
         [ -f "$REALM/terasology/$s" ] || { echo "missing terasology/$s"; false; }
     done
     grep -q 'pr-headless.sh' "$REALM/naust/terasology.yaml"
     grep -q 'pr-launch.sh' "$REALM/naust/terasology.yaml"
     grep -q 'pr-seed.sh' "$REALM/naust/terasology.yaml"
+    grep -qF 'pr-modules.sh\" ensure' "$REALM/naust/terasology.yaml"
     # A bay on Windows clones this realm with autocrlf on; the scripts run in
     # bash and die on a carriage return, so the realm pins them to LF itself.
     grep -q '^\*\.sh text eol=lf' "$REALM/.gitattributes"

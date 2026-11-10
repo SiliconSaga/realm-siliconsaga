@@ -21,7 +21,8 @@ steps:
 
 hooks:
   after_add: "bash \"$NAUST_REALM_DIR/terasology/pr-seed.sh\" generate"
-  after_reset: "bash \"$NAUST_REALM_DIR/terasology/pr-seed.sh\" restore"
+  # Seeded modules arrive without their generated build.gradle, and a deep reset drops it: put it back, then the seed save.
+  after_reset: "bash \"$NAUST_REALM_DIR/terasology/pr-modules.sh\" ensure && bash \"$NAUST_REALM_DIR/terasology/pr-seed.sh\" restore"
 
 report:
   comment: on                            # a job called in from GitHub reports back there (the owner's call: GDD may post in the

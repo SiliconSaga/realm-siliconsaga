@@ -16,7 +16,10 @@ JOB="${NAUST_JOB_DIR:?pr-headless: NAUST_JOB_DIR is required}"
 TIMEOUT="${NAUST_HEADLESS_TIMEOUT:-900}"
 LOG="$JOB/server.log"
 
+# The engine resolves --homedir with toRealPath before it writes anything
+# there, so the directory must exist, and the reset has just removed it.
 rm -rf terasology-server
+mkdir -p terasology-server
 before="$(terasology_jvms --headless | tr '\n' ' ')"
 ./gradlew server > "$LOG" 2>&1 &
 pid=$!

@@ -19,7 +19,10 @@ echo "gradlew $*" >> "$GRADLEW_LOG"
 echo $$ > "$GRADLEW_PID"
 sleep 1
 case "$1" in
-  server) mkdir -p terasology-server/logs; echo "$MARKER_HEADLESS" ;;
+  # The engine resolves --homedir with toRealPath before it creates anything,
+  # so a home directory that does not exist yet is a crash, not a mkdir.
+  server) [ -d terasology-server ] || { echo "NoSuchFileException: terasology-server"; exit 1; }
+          mkdir -p terasology-server/logs; echo "$MARKER_HEADLESS" ;;
   game)   mkdir -p logs/run; echo "menu"; [ -n "${NO_MARKER:-}" ] || echo "$MARKER_RENDER" ;;
 esac
 [ -z "${EXIT_AFTER_MARKER:-}" ] || exit 0      # a crash right after the marker
