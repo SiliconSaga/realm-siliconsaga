@@ -14,6 +14,11 @@ persona: Gooey
 bay:
   ready_ttl_days: 7                      # a finished job waits this long for a human
 
+gradle:
+  # The daemon's JVM, written to the shared Gradle home's gradle.properties by naust. Configuring the
+  # full Omega set, ~144 subprojects, thrashes the 512 MiB default; Dionysus has 64 GB.
+  jvmargs: "-Xmx6g -XX:MaxMetaspaceSize=1g"
+
 steps:
   compile_all: "./gradlew compileJava"      # unqualified on purpose: every module in the set
   headless: "bash \"$NAUST_REALM_DIR/terasology/pr-headless.sh\""

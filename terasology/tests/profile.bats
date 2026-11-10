@@ -3,7 +3,7 @@
 REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 
 @test "the Terasology profile carries every key naust reads, and none it stopped reading" {
-    for k in .component .repo .persona .bay.ready_ttl_days \
+    for k in .component .repo .persona .bay.ready_ttl_days .gradle.jvmargs \
              .steps.compile_all .steps.headless .steps.launch .hooks.after_add .hooks.after_reset .report.comment; do
         v="$(yq "$k" "$REALM/naust/terasology.yaml")"
         [ -n "$v" ] && [ "$v" != null ] || { echo "missing $k"; false; }
