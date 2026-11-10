@@ -1,9 +1,25 @@
-param([Parameter(Mandatory = $true)][string]$Path)
-# Capture the primary display to a PNG. Needs an interactive, unlocked session;
-# a locked desktop yields a black image, which the report then shows as such.
+param([Parameter(Mandatory = $true)][string]$Path, [string]$Window = '')
+# Capture a window, found by the start of its title (the game's is "Terasology
+# Alpha"), to a PNG. With no title, or no such window, every display there is:
+# on a machine with several, the game opens wherever the OS puts it, and the
+# primary display alone can be a monitor nothing is drawn on. Needs an
+# interactive, unlocked session; a locked desktop yields a black image.
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+Add-Type -Namespace Naust -Name Win32 -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+public struct RECT { public int Left, Top, Right, Bottom; }
+'@
+$bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+if ($Window) {
+    $proc = Get-Process | Where-Object { $_.MainWindowTitle -like "$Window*" } | Select-Object -First 1
+    $rect = New-Object 'Naust.Win32+RECT'
+    if ($proc -and [Naust.Win32]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) -and $rect.Right -gt $rect.Left -and $rect.Bottom -gt $rect.Top) {
+        $bounds = New-Object System.Drawing.Rectangle($rect.Left, $rect.Top, ($rect.Right - $rect.Left), ($rect.Bottom - $rect.Top))
+    } else {
+        Write-Warning "no window titled '$Window*'; capturing every display instead"
+    }
+}
 $bitmap = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)

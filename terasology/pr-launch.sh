@@ -7,7 +7,7 @@
 # world loading dies in "failed to inject dependency StorageManager into
 # LocalChunkProvider" before the renderer comes up. Readiness is the renderer's
 # own log line, which a real run shows about six seconds after the world seed
-# and before the first chunks tick; after a settle the primary display is
+# and before the first chunks tick; after a settle the game's window is
 # captured and the game stopped. --no-crash-report is also how this boot's
 # JVM is told apart from a game a human is playing in another bay.
 #
@@ -42,7 +42,7 @@ rc=0
 if wait_for_marker "$LOG" "Initialising rendering class" "$TIMEOUT" "$pid"; then
   sleep "$SETTLE"
   if kill -0 "$pid" 2>/dev/null; then
-    screenshot "$SHOT" || { echo "launch: screenshot failed" >&2; rc=1; }
+    screenshot "$SHOT" "Terasology Alpha" || { echo "launch: screenshot failed" >&2; rc=1; }
   else
     echo "launch: the game exited during the ${SETTLE}s settle; last lines:" >&2
     tail -n 5 "$LOG" >&2 || true

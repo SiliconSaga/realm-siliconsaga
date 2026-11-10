@@ -8,7 +8,13 @@ setup() {
     ENGINE="$BATS_TEST_TMPDIR/engine"
     export NAUST_JOB_DIR="$BATS_TEST_TMPDIR/job"
     mkdir -p "$ENGINE" "$NAUST_JOB_DIR" "$BATS_TEST_TMPDIR/bin"
-    export NAUST_SCREENSHOT_CMD="touch"
+    # A stand-in for the screenshot: writes the file and records what it was asked for.
+    cat > "$BATS_TEST_TMPDIR/bin/shot" <<'EOF'
+#!/usr/bin/env bash
+echo "shot $*" >> "$SHOT_LOG"; touch "$1"
+EOF
+    chmod +x "$BATS_TEST_TMPDIR/bin/shot"
+    export NAUST_SCREENSHOT_CMD="$BATS_TEST_TMPDIR/bin/shot" SHOT_LOG="$BATS_TEST_TMPDIR/shot.log"
     export NAUST_JPS_CMD="true"
     export NAUST_SETTLE_SECONDS=0 NAUST_HEADLESS_TIMEOUT=20 NAUST_LAUNCH_TIMEOUT=20
     export MARKER_HEADLESS="12:00:00.000 [main] INFO  o.t.e.n.internal.NetworkSystemImpl - Started server on port 25777"
@@ -88,15 +94,26 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     [ ! -s "$GRADLEW_LOG" ]
 }
 
-@test "launch boots with the create-last-game flags, screenshots after the renderer line, stops" {
+@test "launch boots with the create-last-game flags, screenshots the game's window after the renderer line, stops" {
     mkdir -p saves/naust-seed; printf '{"title":"naust-seed"}\n' > saves/naust-seed/manifest.json
     run bash "$REALM/terasology/pr-launch.sh"
     [ "$status" -eq 0 ]
     grep -q -- 'gradlew game --args=--create-last-game --no-splash --no-crash-report$' "$GRADLEW_LOG"   # no --no-save-games: the engine cannot load a world under it
     grep -q 'Initialising rendering class' "$NAUST_JOB_DIR/game.log"
     [ -f "$NAUST_JOB_DIR/screenshot.png" ]
+    # The window by its title, never "the primary display": on a machine with several, the game opens wherever the OS puts it.
+    grep -q 'screenshot.png Terasology Alpha$' "$SHOT_LOG"
     [ -d "$NAUST_JOB_DIR/game-logs/run" ]
     gradlew_stopped
+}
+
+@test "screenshot.ps1 still captures a picture when no window carries the title (Windows only)" {
+    case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) ;; *) skip "Windows only" ;; esac
+    unset NAUST_SCREENSHOT_CMD
+    . "$REALM/terasology/pr-lib.sh"
+    run screenshot "$BATS_TEST_TMPDIR/idle.png" "No Such Window Title"
+    [ "$status" -eq 0 ]
+    [ -s "$BATS_TEST_TMPDIR/idle.png" ]
 }
 
 @test "launch keeps the game's output apart from the step log it runs under" {

@@ -68,12 +68,16 @@ stop_game() { # <gradlew pid> [<match>] [<before>]
   done
 }
 
-# Capture the primary display to <out.png> with whatever this OS has.
-screenshot() { # <out.png>
-  if [ -n "${NAUST_SCREENSHOT_CMD:-}" ]; then $NAUST_SCREENSHOT_CMD "$1"; return; fi
+# Capture the window whose title starts with <title> to <out.png>, with
+# whatever this OS has. On Windows the window is found by title and only it
+# is captured, every display when it is not there; the primary display alone
+# was a monitor the game never opened on. macOS and Linux still take the
+# whole screen. An override command gets both arguments.
+screenshot() { # <out.png> [<title>]
+  if [ -n "${NAUST_SCREENSHOT_CMD:-}" ]; then $NAUST_SCREENSHOT_CMD "$1" ${2:+"$2"}; return; fi
   case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
-      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PR_LIB_DIR/screenshot.ps1")" "$(cygpath -w "$1")" ;;
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PR_LIB_DIR/screenshot.ps1")" "$(cygpath -w "$1")" ${2:+"$2"} ;;
     Darwin) screencapture -x "$1" ;;
     *)
       if command -v import >/dev/null 2>&1; then import -window root "$1"
