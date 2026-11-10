@@ -25,7 +25,7 @@ Facts this design builds on, checked on 2026-11-06 and 2026-11-10:
 Phase 3 delivers, per the record's phasing table:
 
 1. The coordinated URL train (nordri, nidavellir, mimir, realm `ecosystem.yaml`), with the `nordri-admin` → `siliconsaga` org rename and the vendor org move riding along.
-2. A way to test an unmerged change before it reaches a live cluster (Decision 1: the promotion ladder).
+2. A way to test an unmerged change before it reaches a prod cluster (Decision 1: the promotion ladder).
 3. The `live` branch and the promotion step that feeds GKE (Decision 1).
 4. `graduate.sh`: preconditions, the swap commit, rollback, and `--retire-seed`'s gates.
 5. GKE graduation and cutover, then the soak.
@@ -41,44 +41,45 @@ Each term answers one question. Keeping them apart is what stops "environment" f
 | Term | Answers | Examples | Declared in |
 |---|---|---|---|
 | **Site** | Where is the hardware or provider? | `homelab`, `gke` | realm config |
-| **Cluster** | Which Kubernetes cluster? | `homelab-home`, `homelab-test`, `gke-prod`, a lab machine's cluster | its cluster-identity |
+| **Cluster** | Which Kubernetes cluster? | `homelab-prod`, `homelab-test`, `gke-prod`, `homelab-<hostname>` for a lab machine | its cluster-identity |
 | **Maturity** | How durable is this cluster's platform? | `bootstrap`, `durable`, `full` | cluster-identity, per cluster |
-| **Role** | What is this cluster for? | `lab`, `test`, `live` | cluster-identity, per cluster |
+| **Role** | What is this cluster for? | `lab`, `test`, `prod` | cluster-identity, per cluster |
 | **Source ref** | Which GitHub branch does this cluster's Forgejo mirror? | `main`, `live` | cluster-identity, per cluster |
 
-Every cluster that reaches `durable` runs its own Forgejo. A site can hold several clusters (the homelab server is expected to run `homelab-home` and `homelab-test`), and none of them reads another cluster's Forgejo. Maturity and role are independent: a test cluster may be `durable` to exercise the durable layer, and a live cluster may still be `bootstrap` while it graduates, as GKE is today.
+Every cluster that reaches `durable` runs its own Forgejo. A site can hold several clusters (the homelab server is expected to run `homelab-prod` and `homelab-test`), and none of them reads another cluster's Forgejo. Maturity and role are independent: a test cluster may be `durable` to exercise the durable layer, and a prod cluster may still be `bootstrap` while it graduates, as GKE is today.
 
 ## Decisions
 
 ### Decision 1 (settled 2026-11-10): changes climb a ladder of clusters, and GKE follows a `live` branch
 
-A change is tested on clusters that exist to be broken, merged on GitHub, soaked on the homelab live cluster, and then promoted to GKE.
+A change is tested on clusters that exist to be broken, merged on GitHub, soaked on `homelab-prod`, and then promoted to GKE.
 
 | Step | Cluster | Role | Maturity | Runs | Fed by |
 |---|---|---|---|---|---|
-| 1 | a lab machine | `lab` | `bootstrap` | local checkouts | seed Gitea, by bootstrap / hydration |
+| 1 | `homelab-<hostname>`, a lab machine | `lab` | `bootstrap` | local checkouts | seed Gitea, by bootstrap / hydration |
 | 2 | `homelab-test` (recycled at will) | `test` | `bootstrap`, or `durable` when testing the durable layer | local checkouts or topic branches | seed Gitea, or its own Forgejo by hydration |
 | — | *merge the PRs on GitHub* | | | | |
-| 3 | `homelab-home` | `live` | `durable` | GitHub `main` | its Forgejo; pullers follow `main`; the change soaks here |
+| 3 | `homelab-prod` | `prod` | `durable` | GitHub `main` | its Forgejo; pullers follow `main`; the change soaks here |
 | — | *`ws promote gke`: fast-forward `live` to the soaked commit* | | | | |
-| 4 | `gke-prod` | `live` | `durable` | GitHub `live` | its Forgejo; pullers follow `live` |
+| 4 | `gke-prod` | `prod` | `durable` | GitHub `live` | its Forgejo; pullers follow `live` |
 
 What this settles:
 
 - **Lab and test clusters carry no real workloads.** They are recycled whenever a test calls for a clean start, so nothing on them is backed up and nothing outside them depends on them.
-- **A test cluster's own Forgejo is its scratch space.** When `homelab-test` runs at `durable`, its canonical org is fed by hydration from working trees: unprotected, no puller. The cluster's `role: test` is what tells the composition to skip protection and the puller. No separate scratch org exists, and no live cluster is ever repointed at a test source, so there is no forgotten test to alert on.
-- **`main` is what homelab runs; `live` is what GKE runs.** Each cluster's identity names its source ref, and its pullers mirror that GitHub branch into Forgejo's `main`. Applications keep `targetRevision: HEAD`, so no manifest changes per cluster. The asymmetry is deliberate: `main` quietly means "homelab live", and `live` means "promoted after the homelab soak".
+- **A test cluster's own Forgejo is its scratch space.** When `homelab-test` runs at `durable`, its canonical org is fed by hydration from working trees: unprotected, no puller. The cluster's `role: test` is what tells the composition to skip protection and the puller. No separate scratch org exists, and no prod cluster is ever repointed at a test source, so there is no forgotten test to alert on.
+- **Lab clusters are named `homelab-<hostname>`.** Any spare machine can run one; the homelab server runs `homelab-prod` and `homelab-test`.
+- **`main` is what homelab runs; `live` is what GKE runs.** Each cluster's identity names its source ref, and its pullers mirror that GitHub branch into Forgejo's `main`. Applications keep `targetRevision: HEAD`, so no manifest changes per cluster. The asymmetry is deliberate: `main` quietly means "homelab prod", and `live` means "promoted after the homelab soak".
 - **Promotion happens on GitHub.** `live` is a protected GitHub branch in every maintained repository, moved only by fast-forward. `ws promote gke` fast-forwards all of them together to the commits homelab soaked, so GKE always receives a set that ran together. It refuses if any repository's `live` is not an ancestor of the target, and it records the promoted commits in its output for the arc notes.
 - **GKE-only changes take a GKE test cluster.** Changes that only run on GCP (the GKE Velero setup, KMS unseal, the wildcard certificate) are not exercised by the homelab soak. A risky one gets a temporary `gke-test` cluster: step 2 of the ladder, run on GCP, torn down after.
 - **Backups cross sites around a promotion.** Homelab backs up before and after a change and uploads to GCP; GKE backs up before and after its promotion, to its own buckets and to homelab. That is a requirement placed on Phase 4's Velero scope, not built here.
 
 The options weighed before the ladder, kept as the record:
 
-- **D — a scratch org per tester, hydrated and repointed at.** Superseded: the ladder puts testing on clusters that exist for it, so a live cluster never reads a scratch org.
+- **D — a scratch org per tester, hydrated and repointed at.** Superseded: the ladder puts testing on clusters that exist for it, so a prod cluster never reads a scratch org.
 - **A — a test branch and a retargeted `targetRevision`.** Rejected: needs a YAML-aware rewrite of every child, keyed on the sibling `repoURL`, because `targetRevision` also pins chart versions.
 - **B — remove protection around a test push.** Rejected: `main` diverges from GitHub for the whole test, and the puller stops being the only writer.
 - **C — keep the seed as the permanent test target.** Partly kept: the seed remains the source for `bootstrap`-maturity lab and test clusters, but no durable cluster keeps it.
-- **Retarget live Applications with `argocd app set --revision`.** Rejected as a mechanism: parents with `selfHeal` revert it, and it leaves no record. Acceptable as a hand poke at a single leaf on a test cluster.
+- **Retarget running Applications with `argocd app set --revision`.** Rejected as a mechanism: parents with `selfHeal` revert it, and it leaves no record. Acceptable as a hand poke at a single leaf on a test cluster.
 - **GKE lagging by a release tag, or by turning off auto-sync.** Rejected for a branch: tags need the puller to resolve "newest", and manual sync leaves GKE showing OutOfSync whenever it lags.
 
 ### Organisation layout
@@ -113,7 +114,7 @@ Listed so the next session resumes cleanly.
 6. **GKE order of operations.** The owner wants the GKE hydrate from current `main`, plus heimdall's XRD, after this design and before implementation finishes. After that: create `live`, bump GKE to `durable` with source ref `live`, let Phase 2's Jobs run on GKE for the first time, soak, and only then run the swap.
 7. **Sync visibility (the owner's parked request).** The puller emits per-repository state somewhere Prometheus can scrape. Then a mid-range alert ("repository X has not matched its source ref for N runs", ntfy priority 3–4, not a page) and a Grafana panel with the last good pull per repository, whether Forgejo's `main` matches the source ref, how far `live` trails `main`, and the mirrors' last sync. Phase 3 or Phase 4 depending on size; the Forgejo `/api/healthz` probe is Phase 3 regardless.
 8. **Recovering a diverged `main`.** The three steps from 2026-11-06 become a runbook entry in nidavellir, and possibly a `ROTATE`-style mode of the configure Job, so recreating the rule does not need a hand-built Job.
-9. **Soak and gates.** The record's gate list mostly stands. Its line "the local-branch loop has been exercised against Forgejo, including suspend and resume" becomes "one change has climbed the whole ladder: lab, `homelab-test`, `homelab-home`, `ws promote gke`, `gke-prod`".
+9. **Soak and gates.** The record's gate list mostly stands. Its line "the local-branch loop has been exercised against Forgejo, including suspend and resume" becomes "one change has climbed the whole ladder: lab, `homelab-test`, `homelab-prod`, `ws promote gke`, `gke-prod`".
 
 ## Later arcs
 
