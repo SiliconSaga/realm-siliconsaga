@@ -11,10 +11,6 @@ repo: MovingBlocks/Terasology           # the watched repository
 # this persona's (GooeyHub), never a person's agent conduit.
 persona: Gooey
 
-poll:
-  debounce_minutes: 10                   # a push burst becomes one job on the last head
-  skip_drafts: true                      # a draft is docked by hand with naust dock
-
 bay:
   ready_ttl_days: 7                      # a finished job waits this long for a human
 
@@ -28,4 +24,5 @@ hooks:
   after_reset: "bash \"$NAUST_REALM_DIR/terasology/pr-seed.sh\" restore"
 
 report:
-  comment: on                            # the owner's call: GDD may post in the oss-wide register here
+  comment: on                            # a job called in from GitHub reports back there (the owner's call: GDD may post in the
+                                         # oss-wide register); a hand-docked job never does unless `naust dock --comment`

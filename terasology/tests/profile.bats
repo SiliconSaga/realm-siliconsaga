@@ -3,13 +3,13 @@
 REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 
 @test "the Terasology profile carries every key naust reads, and none it stopped reading" {
-    for k in .component .repo .persona .poll.debounce_minutes .poll.skip_drafts .bay.ready_ttl_days \
+    for k in .component .repo .persona .bay.ready_ttl_days \
              .steps.compile_all .steps.headless .steps.launch .hooks.after_add .hooks.after_reset .report.comment; do
         v="$(yq "$k" "$REALM/naust/terasology.yaml")"
         [ -n "$v" ] && [ "$v" != null ] || { echo "missing $k"; false; }
     done
-    for k in .runtime_dirs .known_dirt .nested .upstream_remote .default_branch .init .steps.smoke; do
-        [ "$(yq "$k" "$REALM/naust/terasology.yaml")" = null ] || { echo "$k belongs in the adapter now"; false; }
+    for k in .runtime_dirs .known_dirt .nested .upstream_remote .default_branch .init .steps.smoke .poll; do
+        [ "$(yq "$k" "$REALM/naust/terasology.yaml")" = null ] || { echo "$k is not read any more"; false; }
     done
 }
 
@@ -38,8 +38,12 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
     grep -q '^\*\.bats text eol=lf' "$REALM/.gitattributes"
 }
 
-@test "the trust list names at least one maintainer and the nod phrase, and no label" {
-    [ "$(yq '.terasology.maintainers | length' "$REALM/naust/trust.yaml")" -ge 1 ]
-    [ "$(yq '.terasology.nod_phrase' "$REALM/naust/trust.yaml")" = "haul it in" ]
-    [ "$(yq '.terasology.nod_label' "$REALM/naust/trust.yaml")" = null ]
+@test "the trust list maps at least one login to a machine account and names the phrase; nothing runs by author or label" {
+    t="$REALM/naust/trust.yaml"
+    [ "$(yq '.terasology.smidir | length' "$t")" -ge 1 ]
+    [ "$(yq '.terasology.smidir.Cervator' "$t")" = "agent-refr" ]
+    [ "$(yq '.terasology.nod_phrase' "$t")" = "haul it in" ]
+    for k in .terasology.maintainers .terasology.trusted .terasology.nod_label; do
+        [ "$(yq "$k" "$t")" = null ] || { echo "$k is not read any more"; false; }
+    done
 }
