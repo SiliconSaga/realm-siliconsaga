@@ -147,7 +147,7 @@ Each uses a cluster generator selecting the `in-cluster` Secret by its `nordri.s
 
 **`gke-prod`'s existing backups stay restorable.** Nothing deletes what `gke-prod` has already written. Each tool handles the old location its own way:
 
-- Velero: its bucket has no prefix today, so the old backups sit at the bucket root. A second, read-only BackupStorageLocation there would not work: an unprefixed location refuses a bucket root holding anything but Velero's own directories, and the new `gke-prod/` prefix is exactly that, so it would go `Unavailable`. Instead the old backups move into the new prefix once. With the schedule paused, Velero's top-level directories (`backups/`, `restores/`) are moved under `gke-prod/`, then the location's `prefix` is set, and Velero's backup sync lists the old backups from their new place. The GKE install takes volume snapshots through the GCP plugin, and a backup refers to its snapshots by ID, so moving the objects does not orphan them. The check: the number of `Backup` objects after the sync matches the count before the move.
+- Velero: its bucket has no prefix today, so the old backups sit at the bucket root. A second, read-only BackupStorageLocation there would not work: an unprefixed location refuses a bucket root holding anything but Velero's own directories, and the new `gke-prod/` prefix is exactly that, so it would go `Unavailable`. Instead the old backups are copied into the new prefix once, before the prefix change reaches the cluster (the sequence is in 3b-4). Velero's top-level directories (`backups/`, `restores/`) are copied, not moved, under `gke-prod/`, and the copy is verified before anything relies on it: the object listings of source and destination match name for name, and every object's CRC32C (`gcloud storage ls -L` / `objects describe`) matches its original. After the prefix is set, Velero's backup sync lists the old backups from their new place, and the number of `Backup` objects must match the count recorded before the copy. The GKE install takes volume snapshots through the GCP plugin, and a backup refers to its snapshots by ID, so copying the objects does not orphan them. The originals at the bucket root are deleted only after both checks pass, and their deletion is what lets the root hold only `gke-prod/`.
 - pgBackRest: its repository is not moved, because WAL archiving writes to it continuously. The old repository path stays in the runbook as a restore source, named explicitly in place of the cluster's current repository, until its retention lapses.
 - MySQL: the old backup destinations likewise stay as named restore sources. A restore points `backupSource.destination` at one.
 
@@ -269,7 +269,12 @@ In nordri. `graduate.sh <realm> <cluster>`:
 ### 3b-4. GKE order of operations
 
 1. Before implementation finishes (owner's ordering): hydrate GKE from current `main` with today's scripts, plus heimdall's XRD.
-2. After 3a merges: `migrate.sh realm-siliconsaga gke-prod` (as `bootstrap`). GKE now runs generic Git from its seed. Then move Velero's old backups under the new prefix and verify a backup at each new location (Decision 4, "`gke-prod`'s existing backups stay restorable") before anything later relies on them.
+2. After 3a merges, the backup cutover and the migration go together (Decision 4, "`gke-prod`'s existing backups stay restorable"):
+   1. Pause Velero's schedules and wait for any running backup to finish; record the `Backup` count.
+   2. Copy Velero's objects under `gke-prod/` and verify the inventory and checksums.
+   3. `migrate.sh realm-siliconsaga gke-prod` (as `bootstrap`). GKE now runs generic Git from its seed, and the new Velero, pgBackRest and MySQL locations take effect.
+   4. Confirm the `Backup` count after Velero's sync, then resume the schedules.
+   5. Verify a backup at each new location before anything later relies on it, then delete Velero's originals.
 3. After `homelab-prod` has graduated and soaked: `promote.sh --init`, then set `gke-prod` to `durable` with `sourceRef: live` and apply. Forgejo comes up beside the seed, KMS-unsealed OpenBao, persistent disk, wildcard certificate; the puller fills it from `live`.
 4. Soak with both servers running, then `graduate.sh`. The seed stays as the rollback target until Phase 4's restore drills pass, then `--retire-seed`.
 
