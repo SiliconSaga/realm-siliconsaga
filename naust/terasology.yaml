@@ -7,8 +7,8 @@
 component: terasology
 repo: MovingBlocks/Terasology           # the watched repository
 # The name the reports and comments speak as. The GitHub author of a comment
-# is whichever account NAUST_GITHUB_TOKEN belongs to, so that account should be
-# this persona's (GooeyHub), never a person's agent conduit.
+# is whichever account NAUST_GITHUB_TOKEN belongs to: the machine account this
+# naust posts as (agent-refr), never a person's own login.
 persona: Gooey
 
 bay:
@@ -16,7 +16,7 @@ bay:
 
 gradle:
   # The daemon's JVM, written to the shared Gradle home's gradle.properties by naust. Configuring the
-  # full Omega set, ~144 subprojects, thrashes the 512 MiB default; Dionysus has 64 GB.
+  # full Omega set, ~144 subprojects, thrashes the 512 MiB default; the host has memory to spare.
   jvmargs: "-Xmx6g -XX:MaxMetaspaceSize=1g"
 
 steps:
