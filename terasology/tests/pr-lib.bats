@@ -19,7 +19,9 @@ setup() {
 444 D:\Java\bin\java.exe -cp engine.jar org.terasology.engine.Terasology --headless --homedir=terasology-server
 555 D:\Java\bin\java.exe -cp other.jar org.terasology.engine.TerasologyLauncher --no-crash-report
 EOF
-    export NAUST_JVM_LIST_CMD="cat $BATS_TEST_TMPDIR/procs"
+    # The override is a command line, split on spaces, so the fixture is named relative to the cwd.
+    cd "$BATS_TEST_TMPDIR"
+    export NAUST_JVM_LIST_CMD="cat procs"
     [ "$(terasology_jvms)" = $'222\n333\n444' ]
     [ "$(terasology_jvms --no-crash-report)" = "222" ]
     [ "$(terasology_jvms --headless)" = "444" ]
