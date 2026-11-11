@@ -31,7 +31,7 @@ commands:
   build: "./gradlew :facades:PC:build"
   test: "./gradlew :engine-tests:unitTest"
   lint: "./gradlew :engine:check -x test"
-  run: "./gradlew :facades:PC:run"
+  run: "./gradlew game"   # RunTerasology: --homedir=. so saves and logs stay in the checkout; :facades:PC:run is the stock task and uses the user's own home
   clean: "./gradlew :engine:clean :engine-tests:clean :facades:PC:clean"
 
 # Terasology is a workspace in its own right: modules and libraries are independent

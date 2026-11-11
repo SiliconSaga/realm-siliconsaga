@@ -32,7 +32,7 @@ Paths in the Read column, and in the facts below, are relative to the component 
 | Review a PR | `docs/How-to-Work-on-a-PR-Efficiently.mediawiki` + skill `terasology-review` | `ws review terasology <cr#>` |
 | Write or debug a test | `docs/Engine-Testing-Patterns.md` + skill `terasology-testing` | `ws test terasology <ClassName>` |
 | Raise log level in a test | *no doc* — see [gaps](../../../docs/terasology-doc-status.md#gaps) | `./gradlew :engine-tests:test -DlogOverrideLevel=debug`, then read `engine-tests/build/reports/tests/test/` |
-| Run the game | `docs/Playing.md` ⚠, `facades/PC/README.md` | `./gradlew :facades:PC:run` |
+| Run the game | `docs/Playing.md` ⚠, `facades/PC/README.md` | `ws run terasology` (`./gradlew game`, home directory in the checkout) |
 | Run headless as a pre-flight | `docs/Setup-a-headless-server.md` ⚠ | `./gradlew :facades:PC:server` |
 | Write an event handler or system | `docs/Events-and-Systems.md` ⚠⚠ | — |
 | Name and shape a new event type | `docs/Event-Types.md` ⚠ | — |
