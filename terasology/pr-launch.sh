@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# The launch check: a windowed boot. The `game` task adds --homedir=. itself, so the checkout
-# is the home directory; --create-last-game makes a fresh world from the seed
-# save pr-seed.sh restored. The run writes a save back under saves/, which the
+# The launch check: a windowed boot with the checkout as the home directory.
+# The `game` task sets --homedir=. itself, but Gradle's --args replaces the
+# task's argument list rather than adding to it, so the flag is spelled out
+# here: without it the boot runs in the operator's own Terasology home and
+# reads and writes their worlds. --create-last-game makes a fresh world from
+# the seed save pr-seed.sh restored. The run writes a save back under saves/, which the
 # reset removes: --no-save-games would keep it from doing so, but under it the
 # engine binds ReadOnlyStorageManager, which has no injectable constructor, and
 # world loading dies in "failed to inject dependency StorageManager into
@@ -32,7 +35,7 @@ if [ ! -f saves/naust-seed/manifest.json ]; then
 fi
 rm -rf logs "$SHOT"
 before="$(terasology_jvms --no-crash-report | tr '\n' ' ')"
-./gradlew game --args="--create-last-game --no-splash --no-crash-report" > "$LOG" 2>&1 &
+./gradlew game --args="--homedir=. --create-last-game --no-splash --no-crash-report" > "$LOG" 2>&1 &
 pid=$!
 # Whatever ends this script, the game it started does not outlive it.
 trap 'stop_game "$pid" --no-crash-report "$before"' EXIT

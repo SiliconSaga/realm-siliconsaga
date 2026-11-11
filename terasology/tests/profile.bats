@@ -16,7 +16,10 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 @test "the Terasology adapter says how to provision and reset the tree" {
     a="$REALM/adapters/terasology.yaml"
     [ "$(yq '.provision.init' "$a")" = "bash ./groovyw module init omega" ]
-    [ "$(yq '.provision.runtime_dirs | length' "$a")" -eq 3 ]
+    [ "$(yq '.provision.runtime_dirs | length' "$a")" -eq 4 ]
+    # Gradle fills cachedModules/ with artifacts for any module it cannot see as a subproject, and the
+    # engine scans that cache before modules/, so a stale jar there shadows the module's source.
+    [ "$(yq '.provision.runtime_dirs[] | select(. == "cachedModules")' "$a")" = "cachedModules" ]
     [ "$(yq '.provision.known_dirt | length' "$a")" -ge 1 ]
     [ "$(yq '.nested | length' "$a")" -ge 2 ]
 }

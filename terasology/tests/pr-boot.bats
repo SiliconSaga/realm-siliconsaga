@@ -98,7 +98,9 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     mkdir -p saves/naust-seed; printf '{"title":"naust-seed"}\n' > saves/naust-seed/manifest.json
     run bash "$REALM/terasology/pr-launch.sh"
     [ "$status" -eq 0 ]
-    grep -q -- 'gradlew game --args=--create-last-game --no-splash --no-crash-report$' "$GRADLEW_LOG"   # no --no-save-games: the engine cannot load a world under it
+    # --homedir=. is spelled out: --args replaces the game task's own argument list, and without it the
+    # boot runs in the operator's real Terasology home. No --no-save-games: the engine cannot load a world under it.
+    grep -q -- 'gradlew game --args=--homedir=. --create-last-game --no-splash --no-crash-report$' "$GRADLEW_LOG"
     grep -q 'Initialising rendering class' "$NAUST_JOB_DIR/game.log"
     [ -f "$NAUST_JOB_DIR/screenshot.png" ]
     # The window by its title, never "the primary display": on a machine with several, the game opens wherever the OS puts it.
