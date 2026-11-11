@@ -1,9 +1,10 @@
-# Who may vouch for a pull request. A PR by a maintainer or a trusted login,
-# or from a trusted head repository, runs without a nod; anyone else's runs
-# only after a maintainer reviews it: an Approve, or a review whose text says
-# the phrase. GitHub records the commit a review was given on, and that is the
-# only commit the nod admits. Labels are not read.
+# Who may call a pull request into a bay. Nothing runs unasked: a job starts
+# when an operator runs `naust dock` at the keyboard, or when a login listed
+# here reviews the PR with the phrase addressed to a naust's machine account,
+# "@agent-refr haul it in". GitHub records the commit a review was given on,
+# and that is the only commit the call admits; a push after it needs a new
+# call. Approvals and labels are not read.
 terasology:
-  maintainers: [Cervator]                # add the second core contributor when they opt in
-  trusted: []                            # logins or owner/repo head repositories
-  nod_phrase: "haul it in"               # the boathouse hauls the boat in; matched anywhere in a maintainer's review text
+  forges:                                # login -> the machine account their own naust posts as: the forge their PRs come out of
+    Cervator: agent-refr                 # GooeyHub once it is wired; a login may call any listed naust in, not only its own
+  nod_phrase: "haul it in"               # the boathouse hauls the boat in; matched anywhere in the review text, with the @account

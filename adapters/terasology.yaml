@@ -31,7 +31,7 @@ commands:
   build: "./gradlew :facades:PC:build"
   test: "./gradlew :engine-tests:unitTest"
   lint: "./gradlew :engine:check -x test"
-  run: "./gradlew :facades:PC:run"
+  run: "./gradlew game"   # RunTerasology: --homedir=. so saves and logs stay in the checkout; :facades:PC:run is the stock task and uses the user's own home
   clean: "./gradlew :engine:clean :engine-tests:clean :facades:PC:clean"
 
 # Terasology is a workspace in its own right: modules and libraries are independent
@@ -46,7 +46,9 @@ nested:
 # clean-tree check (known_dirt). None of it is needed for ordinary use.
 provision:
   init: "bash ./groovyw module init omega"       # the full module set, once per bay; tens of minutes
-  runtime_dirs: [logs, saves, terasology-server] # gitignored, written by the game; removed on reset
+  runtime_dirs: [logs, saves, terasology-server, cachedModules] # gitignored, written by the game or its build; removed on reset
+  # cachedModules: Gradle puts the artifact of any module it cannot see as a subproject there, and the
+  # engine scans that cache before modules/, so a jar left behind shadows the module's own source.
   known_dirt:
     - "src/test/resources/logback-test.xml"      # the harness copies it into every module it builds
 

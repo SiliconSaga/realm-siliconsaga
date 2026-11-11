@@ -11,12 +11,13 @@ repo: MovingBlocks/Terasology           # the watched repository
 # this persona's (GooeyHub), never a person's agent conduit.
 persona: Gooey
 
-poll:
-  debounce_minutes: 10                   # a push burst becomes one job on the last head
-  skip_drafts: true                      # a draft is docked by hand with naust dock
-
 bay:
   ready_ttl_days: 7                      # a finished job waits this long for a human
+
+gradle:
+  # The daemon's JVM, written to the shared Gradle home's gradle.properties by naust. Configuring the
+  # full Omega set, ~144 subprojects, thrashes the 512 MiB default; Dionysus has 64 GB.
+  jvmargs: "-Xmx6g -XX:MaxMetaspaceSize=1g"
 
 steps:
   compile_all: "./gradlew compileJava"      # unqualified on purpose: every module in the set
@@ -25,7 +26,9 @@ steps:
 
 hooks:
   after_add: "bash \"$NAUST_REALM_DIR/terasology/pr-seed.sh\" generate"
-  after_reset: "bash \"$NAUST_REALM_DIR/terasology/pr-seed.sh\" restore"
+  # Seeded modules arrive without their generated build.gradle, and a deep reset drops it: put it back, then the seed save.
+  after_reset: "bash \"$NAUST_REALM_DIR/terasology/pr-modules.sh\" ensure && bash \"$NAUST_REALM_DIR/terasology/pr-seed.sh\" restore"
 
 report:
-  comment: on                            # the owner's call: GDD may post in the oss-wide register here
+  comment: on                            # a job called in from GitHub reports back there (the owner's call: GDD may post in the
+                                         # oss-wide register); a hand-docked job never does unless `naust dock --comment`

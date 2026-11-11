@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# The launch check: a windowed boot. The `game` task adds --homedir=. itself, so the checkout
-# is the home directory; --create-last-game makes a fresh world from the seed
-# save pr-seed.sh restored; --no-save-games keeps the run from writing one back.
-# Readiness is the renderer's own log line, which a real run shows about six
-# seconds after the world seed and before the first chunks tick; after a settle
-# the primary display is captured and the game stopped.
+# The launch check: a windowed boot with the checkout as the home directory.
+# The `game` task sets --homedir=. itself, but Gradle's --args replaces the
+# task's argument list rather than adding to it, so the flag is spelled out
+# here: without it the boot runs in the operator's own Terasology home and
+# reads and writes their worlds. --create-last-game makes a fresh world from
+# the seed save pr-seed.sh restored. The run writes a save back under saves/, which the
+# reset removes: --no-save-games would keep it from doing so, but under it the
+# engine binds ReadOnlyStorageManager, which has no injectable constructor, and
+# world loading dies in "failed to inject dependency StorageManager into
+# LocalChunkProvider" before the renderer comes up. Readiness is the renderer's
+# own log line, which a real run shows about six seconds after the world seed
+# and before the first chunks tick; after a settle the game's window is
+# captured and the game stopped. --no-crash-report is also how this boot's
+# JVM is told apart from a game a human is playing in another bay.
 #
 # cwd: the engine checkout. Writes $NAUST_JOB_DIR/game.log (the game's own
 # output), screenshot.png and game-logs/. This script's lines go to stdout and
@@ -26,18 +34,18 @@ if [ ! -f saves/naust-seed/manifest.json ]; then
   exit 1
 fi
 rm -rf logs "$SHOT"
-before="$(terasology_jvms --no-save-games | tr '\n' ' ')"
-./gradlew game --args="--create-last-game --no-splash --no-crash-report --no-save-games" > "$LOG" 2>&1 &
+before="$(terasology_jvms --no-crash-report | tr '\n' ' ')"
+./gradlew game --args="--homedir=. --create-last-game --no-splash --no-crash-report" > "$LOG" 2>&1 &
 pid=$!
 # Whatever ends this script, the game it started does not outlive it.
-trap 'stop_game "$pid" --no-save-games "$before"' EXIT
+trap 'stop_game "$pid" --no-crash-report "$before"' EXIT
 trap 'exit 130' INT     # a signal ends the boot at once and as a failure
 trap 'exit 143' TERM
 rc=0
 if wait_for_marker "$LOG" "Initialising rendering class" "$TIMEOUT" "$pid"; then
   sleep "$SETTLE"
   if kill -0 "$pid" 2>/dev/null; then
-    screenshot "$SHOT" || { echo "launch: screenshot failed" >&2; rc=1; }
+    screenshot "$SHOT" "Terasology Alpha" || { echo "launch: screenshot failed" >&2; rc=1; }
   else
     echo "launch: the game exited during the ${SETTLE}s settle; last lines:" >&2
     tail -n 5 "$LOG" >&2 || true
@@ -49,7 +57,7 @@ else
   echo "launch: last lines of $LOG:" >&2
   tail -n 5 "$LOG" >&2 || true
 fi
-stop_game "$pid" --no-save-games "$before"
+stop_game "$pid" --no-crash-report "$before"
 if [ -d logs ]; then rm -rf "$JOB/game-logs"; cp -r logs "$JOB/game-logs"; fi
 [ -f "$SHOT" ] || rc=1
 [ "$rc" -eq 0 ] && echo "launch: renderer up, screenshot at $SHOT, game stopped"

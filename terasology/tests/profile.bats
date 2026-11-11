@@ -3,20 +3,23 @@
 REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 
 @test "the Terasology profile carries every key naust reads, and none it stopped reading" {
-    for k in .component .repo .persona .poll.debounce_minutes .poll.skip_drafts .bay.ready_ttl_days \
+    for k in .component .repo .persona .bay.ready_ttl_days .gradle.jvmargs \
              .steps.compile_all .steps.headless .steps.launch .hooks.after_add .hooks.after_reset .report.comment; do
         v="$(yq "$k" "$REALM/naust/terasology.yaml")"
         [ -n "$v" ] && [ "$v" != null ] || { echo "missing $k"; false; }
     done
-    for k in .runtime_dirs .known_dirt .nested .upstream_remote .default_branch .init .steps.smoke; do
-        [ "$(yq "$k" "$REALM/naust/terasology.yaml")" = null ] || { echo "$k belongs in the adapter now"; false; }
+    for k in .runtime_dirs .known_dirt .nested .upstream_remote .default_branch .init .steps.smoke .poll; do
+        [ "$(yq "$k" "$REALM/naust/terasology.yaml")" = null ] || { echo "$k is not read any more"; false; }
     done
 }
 
 @test "the Terasology adapter says how to provision and reset the tree" {
     a="$REALM/adapters/terasology.yaml"
     [ "$(yq '.provision.init' "$a")" = "bash ./groovyw module init omega" ]
-    [ "$(yq '.provision.runtime_dirs | length' "$a")" -eq 3 ]
+    [ "$(yq '.provision.runtime_dirs | length' "$a")" -eq 4 ]
+    # Gradle fills cachedModules/ with artifacts for any module it cannot see as a subproject, and the
+    # engine scans that cache before modules/, so a stale jar there shadows the module's source.
+    [ "$(yq '.provision.runtime_dirs[] | select(. == "cachedModules")' "$a")" = "cachedModules" ]
     [ "$(yq '.provision.known_dirt | length' "$a")" -ge 1 ]
     [ "$(yq '.nested | length' "$a")" -ge 2 ]
 }
@@ -26,20 +29,25 @@ REALM="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 }
 
 @test "the profile's scripts exist beside this test" {
-    for s in pr-headless.sh pr-launch.sh pr-seed.sh pr-lib.sh screenshot.ps1 seed-manifest.template.json; do
+    for s in pr-headless.sh pr-launch.sh pr-seed.sh pr-modules.sh pr-lib.sh screenshot.ps1 seed-manifest.template.json; do
         [ -f "$REALM/terasology/$s" ] || { echo "missing terasology/$s"; false; }
     done
     grep -q 'pr-headless.sh' "$REALM/naust/terasology.yaml"
     grep -q 'pr-launch.sh' "$REALM/naust/terasology.yaml"
     grep -q 'pr-seed.sh' "$REALM/naust/terasology.yaml"
+    grep -qF 'pr-modules.sh\" ensure' "$REALM/naust/terasology.yaml"
     # A bay on Windows clones this realm with autocrlf on; the scripts run in
     # bash and die on a carriage return, so the realm pins them to LF itself.
     grep -q '^\*\.sh text eol=lf' "$REALM/.gitattributes"
     grep -q '^\*\.bats text eol=lf' "$REALM/.gitattributes"
 }
 
-@test "the trust list names at least one maintainer and the nod phrase, and no label" {
-    [ "$(yq '.terasology.maintainers | length' "$REALM/naust/trust.yaml")" -ge 1 ]
-    [ "$(yq '.terasology.nod_phrase' "$REALM/naust/trust.yaml")" = "haul it in" ]
-    [ "$(yq '.terasology.nod_label' "$REALM/naust/trust.yaml")" = null ]
+@test "the trust list maps at least one login to a machine account and names the phrase; nothing runs by author or label" {
+    t="$REALM/naust/trust.yaml"
+    [ "$(yq '.terasology.forges | length' "$t")" -ge 1 ]
+    [ "$(yq '.terasology.forges.Cervator' "$t")" = "agent-refr" ]
+    [ "$(yq '.terasology.nod_phrase' "$t")" = "haul it in" ]
+    for k in .terasology.maintainers .terasology.trusted .terasology.nod_label; do
+        [ "$(yq "$k" "$t")" = null ] || { echo "$k is not read any more"; false; }
+    done
 }

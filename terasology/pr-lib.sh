@@ -27,13 +27,27 @@ wait_for_marker() { # <file> <text> <timeout-seconds> [<pid>]
   return 1
 }
 
-# Terasology JVMs on this machine, by pid, optionally only those whose main
-# arguments contain <match>. jps ships with the JDK on every OS; -lm shows the
-# main class and its arguments, which is how a naust boot is told apart from a
-# game a human is playing in a ready bay.
+# Every Java process on this machine as "<pid> <command line>", one per line:
+# the process table, read through PowerShell on Windows and ps elsewhere.
+# Not jps: it lists only the JVMs whose perf-data file it can see, and a game
+# a human started from another session keeps that file elsewhere, so the
+# check could not see that game at all, let alone tell it from its own.
+list_jvms() {
+  if [ -n "${NAUST_JVM_LIST_CMD:-}" ]; then $NAUST_JVM_LIST_CMD 2>/dev/null || true; return 0; fi
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='java.exe'\" | ForEach-Object { '{0} {1}' -f \$_.ProcessId, \$_.CommandLine }" 2>/dev/null || true ;;
+    *) ps -eo pid=,args= 2>/dev/null || true ;;
+  esac
+}
+
+# Terasology JVMs on this machine, by pid: the processes whose command line
+# names the engine's main class, optionally only those whose arguments contain
+# <match>, which is how a naust boot is told apart from a game a human is
+# playing in a ready bay.
 terasology_jvms() { # [<match>]
   local match="${1:-}"
-  ${NAUST_JPS_CMD:-jps -lm} 2>/dev/null | awk -v m="$match" '$2 ~ /org\.terasology\.engine\.Terasology$/ && (m == "" || index($0, m)) { print $1 }' || true
+  list_jvms | awk -v m="$match" '{ for (i = 2; i <= NF; i++) if ($i == "org.terasology.engine.Terasology") { if (m == "" || index($0, m)) print $1; break } }' || true
 }
 
 # The JVMs in <all> that are not in <before>, one per line.
@@ -68,12 +82,16 @@ stop_game() { # <gradlew pid> [<match>] [<before>]
   done
 }
 
-# Capture the primary display to <out.png> with whatever this OS has.
-screenshot() { # <out.png>
-  if [ -n "${NAUST_SCREENSHOT_CMD:-}" ]; then $NAUST_SCREENSHOT_CMD "$1"; return; fi
+# Capture the window whose title starts with <title> to <out.png>, with
+# whatever this OS has. On Windows the window is found by title and only it
+# is captured, every display when it is not there; the primary display alone
+# was a monitor the game never opened on. macOS and Linux still take the
+# whole screen. An override command gets both arguments.
+screenshot() { # <out.png> [<title>]
+  if [ -n "${NAUST_SCREENSHOT_CMD:-}" ]; then $NAUST_SCREENSHOT_CMD "$1" ${2:+"$2"}; return; fi
   case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
-      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PR_LIB_DIR/screenshot.ps1")" "$(cygpath -w "$1")" ;;
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$PR_LIB_DIR/screenshot.ps1")" "$(cygpath -w "$1")" ${2:+"$2"} ;;
     Darwin) screencapture -x "$1" ;;
     *)
       if command -v import >/dev/null 2>&1; then import -window root "$1"
