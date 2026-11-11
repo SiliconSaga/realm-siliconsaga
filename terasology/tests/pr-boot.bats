@@ -15,7 +15,7 @@ echo "shot $*" >> "$SHOT_LOG"; touch "$1"
 EOF
     chmod +x "$BATS_TEST_TMPDIR/bin/shot"
     export NAUST_SCREENSHOT_CMD="$BATS_TEST_TMPDIR/bin/shot" SHOT_LOG="$BATS_TEST_TMPDIR/shot.log"
-    export NAUST_JPS_CMD="true"
+    export NAUST_JVM_LIST_CMD="true"
     export NAUST_SETTLE_SECONDS=0 NAUST_HEADLESS_TIMEOUT=20 NAUST_LAUNCH_TIMEOUT=20
     export MARKER_HEADLESS="12:00:00.000 [main] INFO  o.t.e.n.internal.NetworkSystemImpl - Started server on port 25777"
     export MARKER_RENDER="12:00:00.000 [main] INFO  o.t.e.r.world.WorldRendererImpl - Initialising rendering class CoreRenderingModule from CoreRendering module."
@@ -100,7 +100,7 @@ gradlew_stopped() { ! kill -0 "$(cat "$GRADLEW_PID")" 2>/dev/null; }
     [ "$status" -eq 0 ]
     # --homedir=. is spelled out: --args replaces the game task's own argument list, and without it the
     # boot runs in the operator's real Terasology home. No --no-save-games: the engine cannot load a world under it.
-    grep -q -- 'gradlew game --args=--homedir=. --create-last-game --no-splash --no-crash-report$' "$GRADLEW_LOG"
+    grep -q -- 'gradlew game --args=--homedir=\. --create-last-game --no-splash --no-crash-report$' "$GRADLEW_LOG"
     grep -q 'Initialising rendering class' "$NAUST_JOB_DIR/game.log"
     [ -f "$NAUST_JOB_DIR/screenshot.png" ]
     # The window by its title, never "the primary display": on a machine with several, the game opens wherever the OS puts it.

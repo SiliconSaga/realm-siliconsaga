@@ -27,13 +27,27 @@ wait_for_marker() { # <file> <text> <timeout-seconds> [<pid>]
   return 1
 }
 
-# Terasology JVMs on this machine, by pid, optionally only those whose main
-# arguments contain <match>. jps ships with the JDK on every OS; -lm shows the
-# main class and its arguments, which is how a naust boot is told apart from a
-# game a human is playing in a ready bay.
+# Every Java process on this machine as "<pid> <command line>", one per line:
+# the process table, read through PowerShell on Windows and ps elsewhere.
+# Not jps: it lists only the JVMs whose perf-data file it can see, and a game
+# a human started from another session keeps that file elsewhere, so the
+# check could not see that game at all, let alone tell it from its own.
+list_jvms() {
+  if [ -n "${NAUST_JVM_LIST_CMD:-}" ]; then $NAUST_JVM_LIST_CMD 2>/dev/null || true; return 0; fi
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='java.exe'\" | ForEach-Object { '{0} {1}' -f \$_.ProcessId, \$_.CommandLine }" 2>/dev/null || true ;;
+    *) ps -eo pid=,args= 2>/dev/null || true ;;
+  esac
+}
+
+# Terasology JVMs on this machine, by pid: the processes whose command line
+# names the engine's main class, optionally only those whose arguments contain
+# <match>, which is how a naust boot is told apart from a game a human is
+# playing in a ready bay.
 terasology_jvms() { # [<match>]
   local match="${1:-}"
-  ${NAUST_JPS_CMD:-jps -lm} 2>/dev/null | awk -v m="$match" '$2 ~ /org\.terasology\.engine\.Terasology$/ && (m == "" || index($0, m)) { print $1 }' || true
+  list_jvms | awk -v m="$match" '{ for (i = 2; i <= NF; i++) if ($i == "org.terasology.engine.Terasology") { if (m == "" || index($0, m)) print $1; break } }' || true
 }
 
 # The JVMs in <all> that are not in <before>, one per line.
