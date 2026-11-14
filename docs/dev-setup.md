@@ -302,7 +302,7 @@ k3d cluster create refr-k8s \
 
 ```bash
 cd /path/to/nordri
-./bootstrap.sh homelab
+./bootstrap.sh realm-siliconsaga <cluster>
 ```
 
 > **Note on Longhorn**: Longhorn requires `open-iscsi` on cluster nodes. k3d nodes are Docker containers that lack `iscsid`, so Longhorn will not function. The cluster uses the built-in `local-path` storage provisioner instead, which is sufficient for development. For a full-stack environment (including Longhorn), consider using **Rancher Desktop** on macOS, which provides a real VM where `open-iscsi` can be installed.
@@ -322,7 +322,7 @@ k3d cluster delete refr-k8s
 k3d cluster create refr-k8s \
   --port "8080:80@loadbalancer" --port "8443:443@loadbalancer" \
   --agents 2 --k3s-arg "--disable=traefik@server:*"
-./bootstrap.sh homelab
+./bootstrap.sh realm-siliconsaga <cluster>
 ```
 
 ## Node.js and Ruby (site components)

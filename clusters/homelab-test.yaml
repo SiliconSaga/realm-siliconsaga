@@ -1,0 +1,5 @@
+# clusters/homelab-test.yaml — recycled at will; durable when the durable layer is under test.
+environment: homelab
+role: test
+maturity: bootstrap
+tailnetNode: stamped   # <cluster>-<yyyymmdd-HHMM> at bootstrap; devices pruned by hand

@@ -39,7 +39,7 @@ Graduating a cluster starts with a one-line change to its cluster-identity, hydr
 | Database | the shared Mimir PostgreSQL | the shared Mimir PostgreSQL |
 | Backups | not yet — homelab backups are an open decision | Velero disk snapshots, plus pgBackRest to Cloud Storage. Both already cover GKE's other data. Restoring Forgejo from them stays unproven until the Phase 4 drills. |
 
-The organisation is `siliconsaga`. It holds the five maintained repositories (`nordri`, `nidavellir`, `mimir`, `heimdall`, `realm-siliconsaga`) and the vendor mirror. Which repositories exist is decided by one realm file, [`cluster/forgejo/claim.yaml`](../cluster/forgejo/claim.yaml); the platform never hard-codes them.
+There are two organisations. `siliconsaga` holds the five maintained repositories (`nordri`, `nidavellir`, `mimir`, `heimdall`, `realm-siliconsaga`); `siliconsaga-vendor` holds the vendor mirror. Which repositories exist is decided by one realm file, [`cluster/forgejo/claim.yaml`](../cluster/forgejo/claim.yaml); the platform never hard-codes them.
 
 ## Using it
 
@@ -71,6 +71,6 @@ On a homelab, `forgejo.homelab.local` does not resolve by itself: map it in your
 | 0 — slim the seed so a wipe costs one rehydrate | done |
 | 1 — OpenBao auto-unseal, the `maturity` field | done |
 | 2 — Forgejo, its credentials, the puller, the ArgoCD alert | done, validated on homelab |
-| 3 — point ArgoCD at Forgejo, `graduate.sh`, GKE cutover | next |
+| 3 — point ArgoCD at Forgejo, `graduate.sh`, GKE cutover | in progress |
 | 4 — backups and restore drills, retire the seed | after the cutover |
 | 5 — `full`: single sign-on and the rest | later |
