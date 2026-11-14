@@ -19,7 +19,10 @@ metadata:
 spec:
   parameters:
     chartVersion: "17.1.7"
-    org: siliconsaga
+    # Decision 2: the canonical org and the vendor org; the puller writes the first, pull-mirrors fill the second.
+    orgs:
+      - {name: siliconsaga, class: canonical}
+      - {name: siliconsaga-vendor, class: vendor}
     # main is written only by the puller, from these GitHub upstreams.
     repos:
       - {name: nordri, github: SiliconSaga/nordri}

@@ -1,0 +1,7 @@
+# clusters/gke-prod.yaml — GKE production. Stays bootstrap until 3b-4 step 3.
+environment: gke
+role: prod
+maturity: bootstrap
+sourceRef: live
+tailnetNode: gke       # keeps today's device names and the phone's ntfy subscription
+gcpProject: teralivekubernetes

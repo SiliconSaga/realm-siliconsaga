@@ -1,0 +1,5 @@
+# clusters/homelab-prod.yaml — the homelab production cluster on the new server.
+environment: homelab
+role: prod
+maturity: bootstrap   # raised to durable in 3b-1, then graduated
+sourceRef: main

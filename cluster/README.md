@@ -4,12 +4,12 @@ This subtree holds the SiliconSaga realm's own in-cluster GitOps config — the 
 
 ## How it reaches the cluster
 
-`nordri/bootstrap.sh <target> realm-siliconsaga` hydrates this `cluster/` subtree into the in-cluster seed-Gitea as a repo named `realm-siliconsaga` (its contents at the repo root), then registers a generic ArgoCD **realm root-app** pointed at it. nordri learns only the realm's name — never its content. Day-2 changes: `nordri/update-embedded-git.sh <target> realm-siliconsaga` re-hydrates this subtree. Without the realm arg, none of this happens and the stack is generic/demo-only.
+`nordri/bootstrap.sh <realm> <cluster>` hydrates the whole realm checkout into the seed repo `realm-siliconsaga`, and the realm root Application reads `cluster/` from it. nordri learns only the realm's name — never its content. Day-2 changes: `nordri/update-embedded-git.sh realm-siliconsaga` re-hydrates the realm checkout. The cluster's identity comes from this realm's [`clusters/`](../clusters) files.
 
 ## Layout
 
 - `keycloak/` — the SiliconSaga Keycloak realm import (`realm: siliconsaga`) plus the leidangr `openbao-cli` OIDC client + dev user, and the ESO delivery of `secret/leidangr/oidc`. Relocated here from nidavellir; the platform now ships only a generic Keycloak + OpenBao + ESO + the `sso-demo` sample.
-- `forgejo/` — the `ForgejoInstance` claim: org, maintained repositories with their GitHub upstreams, vendor mirrors, break-glass admins. Inert until the cluster's identity says `maturity: durable`; the composition, its Jobs and the puller are nidavellir's (`docs/forgejo.md` there). No seeds: its credentials are born in-cluster and written to OpenBao create-only.
+- `forgejo/` — the `ForgejoInstance` claim: the two orgs (canonical `siliconsaga`, vendor `siliconsaga-vendor`), maintained repositories with their GitHub upstreams, vendor mirrors, break-glass admins. Inert until the cluster's identity says `maturity: durable`; the composition, its Jobs and the puller are nidavellir's (`docs/forgejo.md` there). No seeds: its credentials are born in-cluster and written to OpenBao create-only.
 
 ## Ordering
 
