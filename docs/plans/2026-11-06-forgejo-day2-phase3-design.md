@@ -334,4 +334,4 @@ Two implementation-level changes also departed from the plan's text on the same 
 
 ## Open for review
 
-Nothing at present.
+- **A multi-cluster ArgoCD would need a different generator selector (from the mimir #34 review, 2026-11-16).** Every ApplicationSet selects cluster Secrets by the presence of `nordri.siliconsaga.org/cluster`, and names its Application with no per-cluster suffix. That holds because each cluster runs its own ArgoCD and `identity.sh` labels only that ArgoCD's `in-cluster` Secret, so exactly one Secret matches. Should an ArgoCD ever register a second cluster Secret, two generated Applications would collide on one name; the fix is a label only the local Secret carries, applied across all five ApplicationSets at once. Not a 3a change; recorded so the premise is visible.
