@@ -6,10 +6,9 @@
 # checkout as cwd and NAUST_* in the environment.
 component: terasology
 repo: MovingBlocks/Terasology           # the watched repository
-# The name the reports and comments speak as. The GitHub author of a comment
-# is whichever account NAUST_GITHUB_TOKEN belongs to: the machine account this
-# naust posts as (agent-refr), never a person's own login.
-persona: Gooey
+# Reports and comments speak in no persona's voice. The GitHub author of a
+# comment is whichever account NAUST_GITHUB_TOKEN belongs to: the machine
+# account this naust posts as (agent-refr), never a person's own login.
 
 bay:
   ready_ttl_days: 7                      # a finished job waits this long for a human
