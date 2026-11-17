@@ -1,0 +1,6 @@
+# clusters/homelab-nano76win11.yaml — today's Docker Desktop cluster: a durable
+# test cluster until it is recycled into a generic lab, when this file is deleted.
+environment: homelab
+role: test
+maturity: durable
+tailnetNode: stamped

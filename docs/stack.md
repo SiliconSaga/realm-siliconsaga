@@ -92,7 +92,7 @@ The single most surprising thing about SiliconSaga's deployment model: **pushing
 The flow:
 
 1. You write code locally and commit + push to your GitHub fork (review happens here).
-2. You re-hydrate the in-cluster seed-Gitea from your local working tree via `bash scripts/ws exec nordri ./update-embedded-git.sh <homelab|gke>`. This pushes your local branch into the cluster's Gitea.
+2. You re-hydrate the in-cluster seed-Gitea from your local working tree via `bash scripts/ws exec nordri ./update-embedded-git.sh realm-siliconsaga`. This pushes your local branch into the cluster's Gitea.
 3. ArgoCD (in namespace `argo` — NOT `argocd`, that namespace is reserved to avoid colliding with legacy installations) syncs from seed-Gitea.
 4. Optionally hard-refresh: `kubectl annotate application <name> -n argo argocd.argoproj.io/refresh=hard --overwrite`.
 

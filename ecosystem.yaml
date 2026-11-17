@@ -227,8 +227,8 @@ components:
 
   # -- Vendored upstream mirrors --------------------------------------------
   # Read-only mirrors of third-party repos the stack deploys from. Kept as
-  # individual, intact mirrors (full history + tags) under the SiliconSaga
-  # org so: (1) third-party bytes never inflate the repos we maintain or
+  # individual, intact mirrors (full history + tags) under the realm's vendor
+  # org `siliconsaga-vendor` so: (1) third-party bytes never inflate the repos we maintain or
   # their stats/review surface, (2) `ws clone` fetches them naturally with
   # everything else, (3) the hydration script pushes them — history and
   # tags — into the seed Gitea so ArgoCD can pin exact upstream tags

@@ -1,0 +1,13 @@
+# nidavellir adapter — test/lint commands and AI context pointers
+commands:
+  # Cluster-free: the offline render checks (crossplane render + kubectl
+  # kustomize, both local) and the shell unit tests. The kuttl platform suites
+  # under tests/platform/ and tests/e2e/ need a cluster and stay separate.
+  test: "bash tests/run.sh test"
+  lint: "bash tests/run.sh lint"
+
+ai_context:
+  - path: "README.md"
+    description: "Nidavellir overview — the Tier 2 apps ArgoCD deploys above nordri"
+  - path: "docs/"
+    description: "Per-app docs (forgejo, ntfy, openbao, harbor, …) and the secrets model"
