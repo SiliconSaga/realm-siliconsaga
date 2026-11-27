@@ -33,6 +33,10 @@ A no-op prints `Already up to date.`; a real pull prints the fetched revisions p
 - `IGNORE_PATHS` MUST stay identical across clone and every fetch, or git-svn re-imports excluded paths (hence `config.sh`).
 - Lean by exclusion (not LFS): jars, natives, installers, `3DModels`/`Textures`, and demo homes are filtered; full source + history kept (~162M `.git`, ~7790 commits).
 
+## Fork posture
+
+The defensive and legal posture for any fork work lives in `components/langr/FoundingDocument.md`: trademark, the GPL obligation (owed to recipients only), and `.sh3d` interop as nominative use; the branding choice (Langr over Hús); and the technical menu (a Gestalt-inspired module system, AI/MCP, a git-native workflow, an HVAC layer). Read it before anything ships under a new name. Changes meant for Sweet Home 3D itself go upstream as-is.
+
 ## Common Mistakes
 
 - **`git svn` missing** — Apple's `git` lacks it. macOS: `brew install git git-svn subversion` (`git-svn` is a separate formula). Scripts default `GIT_BIN=/opt/homebrew/bin/git`; override on Intel/CI.

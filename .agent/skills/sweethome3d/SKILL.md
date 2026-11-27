@@ -90,6 +90,16 @@ Yaw is the only rotation left to apply, because it does not change which dimensi
 
 **Reconstructing the tilt yourself from `width`/`depth`/`height` is the trap**, and a costly one: it lands the plan position correctly while putting the elevation off by tens of inches. Runs that are visibly joined on screen then read as broken chains, and the plausible numbers invite you to go fix a model that was never wrong. Prefer the published attributes over any rotation of your own — and if an adjacency result contradicts what the owner sees on screen, suspect the reader before the model.
 
+## Accepted modelling simplifications
+
+**SH3D walls are solid; real walls are hollow on the cavity side.** An open void (the Refrhus kitchen/bathroom one) reads about 2 in narrower than measured, and 5 in walls look chunky through a chase. Both are accepted, not errors to fix.
+
+## Tooling not yet built
+
+- **Geometry scripts.** Keepers such as `parse_chaos.py` and `place_joists.py` sit untracked in `components/langr/sh3d-scripts/`. They should graduate into this realm's `sweethome3d/` tooling plus an `sh3d-geometry` skill.
+- **Allowlisted verbs.** Exposing expand/pack/normalize/sync as `ws run <target> <cmd>` would let the allowlist auto-approve them. `ws run` takes a component and its single `run` command today, so that needs `ws run` to accept hoard and realm targets.
+- **An `sh3d` hoard template.** The `basic` hoard template ships a `.ws-cadence.yaml`, which is specific to the thalamus workflow; an `sh3d` template should omit or adjust it.
+
 ## Common Mistakes
 
 - **`unpack.sh` clears its `dest`** (so deletions propagate) and refuses a `.git` root — always point it at a subdir.
