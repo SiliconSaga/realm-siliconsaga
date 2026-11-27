@@ -88,6 +88,7 @@ limits:
 Rules that are not configurable:
 
 - A move or copy whose target is a Trash or Junk folder is refused. Muninn has no delete permission, and a move to Trash is deletion by another name.
+- An archive is checked as a move. Thunderbird picks the archive destination from the account's settings, so Huginn first asks Muninn where the messages would go, then applies `move_targets` and the Trash and Junk rule to that folder. If the destination cannot be resolved, the archive is refused. Should Thunderbird's interface not expose the destination, `messages.archive` is dropped and archiving is done as a plain move to a folder the policy names.
 - Anything not allowed is denied. An absent policy file means read-only for the read token and nothing for the write token.
 - Policy is checked before forwarding, and a denial is logged with the caller's token name and the request.
 
@@ -113,6 +114,7 @@ Thunderbird finds a native host through a small manifest file that names the pro
 
 ## Implementation choices
 
+- **Repository and licence:** its own repository, separate from Muninn's, under the Apache 2.0 licence.
 - **Language:** Python, standard library only. The owner's other services of this size are Python, and a bridge with no third-party dependencies is easy to audit. On Windows the registered program is a one-line launcher script that starts the interpreter.
 - **Concurrency:** one native-messaging port, requests matched to answers by id, a per-request timeout. HTTP handling is threaded; writes are forwarded one at a time so the log order is the order things happened.
 - **Platforms:** Windows 10 first, where the first testing happens without containers; Linux next, for a homelab virtual machine that will host Thunderbird and the callers.
@@ -133,8 +135,7 @@ Matched to Muninn's, one change request each:
 
 ## Open questions
 
-1. **Names, licence, one repository or two:** shared with the Muninn design.
-2. **Lifetime.** If Thunderbird's background script cannot hold the port open for a whole session, Huginn becomes a long-running service and the native host a thin relay to it. Decided by the first spike.
-3. **Per-caller tokens.** Two role tokens to start; a token per scheduled job would make the audit log name the job. Worth it once there is more than one writer.
-4. **Windows launcher.** A launcher script is the simplest registered program; a packaged executable avoids depending on the interpreter's location. Start with the script.
-5. **Confirming writes.** Whether filing should wait for the mail server to confirm, or return once Thunderbird accepts the request and report failures on a later status call.
+1. **Lifetime.** If Thunderbird's background script cannot hold the port open for a whole session, Huginn becomes a long-running service and the native host a thin relay to it. Decided by the first spike.
+2. **Per-caller tokens.** Two role tokens to start; a token per scheduled job would make the audit log name the job. Worth it once there is more than one writer.
+3. **Windows launcher.** A launcher script is the simplest registered program; a packaged executable avoids depending on the interpreter's location. Start with the script.
+4. **Confirming writes.** Whether filing should wait for the mail server to confirm, or return once Thunderbird accepts the request and report failures on a later status call.

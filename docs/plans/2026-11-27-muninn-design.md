@@ -8,7 +8,7 @@
 
 ## The outcome
 
-An agent or script on the owner's machine can read, search, file and tag mail across every account Thunderbird already syncs, and can leave a reply as a draft for the owner to review. It cannot send mail and cannot delete mail, and that limit is set by the permissions the extension asks Thunderbird for, not by the caller behaving well.
+An agent or script on the owner's machine can read, search, file and tag mail across every account Thunderbird already syncs, and can leave a reply as a draft for the owner to review. It cannot send mail and cannot permanently delete mail, and that limit is set by the permissions the extension asks Thunderbird for, not by the caller behaving well. A move into Trash or Junk is still a move, which the permission list allows; Huginn's policy is the guard against those.
 
 Thunderbird already holds the credentials and the synced mail, so no new token is issued to any agent. This matters most for Gmail, where every permission that can create a draft or change a label can also send.
 
@@ -17,7 +17,7 @@ Thunderbird already holds the credentials and the synced mail, so no new token i
 | Term | Meaning |
 |---|---|
 | **Muninn** | Old Norse, *memory*; one of Odin's two ravens. The Thunderbird extension. It holds no policy of its own beyond its permission list and does what Huginn asks within it. |
-| **Huginn** | Old Norse, *thought*; the other raven. The local bridge process that Thunderbird starts and that callers reach. Its design is a separate document. |
+| **Huginn** | Old Norse, *thought*; the other raven. The local bridge process that Thunderbird starts and that callers reach. Its design is a separate document. It shares its name with an unrelated automation project. |
 | **Caller** | Anything that asks Huginn for something: a scheduled agent run, a script, a person at a terminal. |
 | **Send-proof** | The extension's manifest does not request either permission that allows sending, so no code path in it can send, whatever it is asked. |
 
@@ -59,15 +59,14 @@ The manifest requests exactly these, and the list is the security boundary:
 | `messagesMove` | Move, copy and archive |
 | `messagesUpdate` | Read and flagged state |
 | `messagesTags` | Add and remove tags |
-| `compose.save` | Save a draft |
+| `messages.save` | Save a draft in the background, through `messages.saveMessage` (also needs `messagesRead`) |
 | `nativeMessaging` | Talk to Huginn |
 
-Never requested: `compose.send`, `messagesDelete`, `accountsFolders` (create, rename and delete folders), `messagesImport`, and any host permission. A test in the component reads the manifest and fails if the list grows without the test being changed in the same commit, so widening it is always a visible, reviewed act.
+Never requested: `messages.send`, `compose.send`, `compose` and `compose.save` (no compose window is ever opened), `messagesDelete`, `accountsFolders` (create, rename and delete folders), `messagesImport`, and any host permission. A test in the component reads the manifest and fails if the list grows without the test being changed in the same commit, so widening it is always a visible, reviewed act.
 
-Two things to confirm against Thunderbird's documentation during implementation, because they came from secondary reading:
+`messages.saveMessage` is available from Thunderbird 153, which sets the extension's minimum version.
 
-- That saving a draft without opening a compose window needs Thunderbird 153 or later, and which permission name covers it there.
-- That no permission in the list above implies sending through another route, for example by opening a compose window whose send the owner did not start.
+One thing to confirm against Thunderbird's documentation during implementation: that no permission in the list above implies sending through another route.
 
 ## Operations
 
@@ -83,7 +82,7 @@ Every request is a JSON object with an `id`, an `op` and `params`; every answer 
 | `messages.move` | Move a list of messages to a folder | |
 | `messages.copy` | Copy a list of messages to a folder | |
 | `messages.update` | Read and flagged state, tags | |
-| `messages.archive` | Archive by the account's own archive settings | |
+| `messages.archive` | Archive by the account's own archive settings | Muninn reports the destination first so Huginn can check it; see the Huginn design |
 | `drafts.save` | Save a new message or a reply to a given message as a draft | Returns the draft's message id |
 
 A folder move on an IMAP account is an operation on the mail server. Thunderbird's local folder files are a cache; nothing local is edited directly, and on Gmail a move into a folder applies that label.
@@ -96,7 +95,9 @@ Muninn does enforce two things on its own, as a second line: it answers only on 
 
 ## Mail content is untrusted
 
-A message body can contain text written to steer an agent. Muninn returns bodies as data in a field of their own and never interprets them. The ceiling on what a misled caller can do is set here: misfile mail, mis-tag it, and leave unwanted drafts. It cannot send, delete or reach anything outside Thunderbird's mail store.
+A message body can contain text written to steer an agent. Muninn returns bodies as data in a field of their own and never interprets them. Through Muninn, a misled caller can misfile mail, mis-tag it and leave unwanted drafts. Muninn itself cannot send, permanently delete or reach anything outside Thunderbird's mail store.
+
+That limit covers Muninn only. A caller that also holds network or file tools can read a message through Muninn and pass it on through those, so what else a mail-reading job may use is a decision for whoever configures the job.
 
 ## Calendar and tasks
 
@@ -114,6 +115,7 @@ Writing our own is a choice for a short permission list we control and can test,
 
 ## Packaging and install
 
+- Its own repository, separate from Huginn's, under the Apache 2.0 licence.
 - Plain JavaScript, no build step, Manifest V3.
 - Installed from a file (`.xpi`) or loaded temporarily while developing. Listing it on Thunderbird's add-on site is a later decision.
 - The extension declares a minimum Thunderbird version matching what `drafts.save` needs.
@@ -127,14 +129,11 @@ Writing our own is a choice for a short permission list we control and can test,
 
 1. **Read-only.** `info`, `accounts.list`, `folders.list`, `messages.search`, `messages.get`. The manifest carries only the read permissions and `nativeMessaging`.
 2. **Filing.** Move, copy, update, archive, with the permissions they need.
-3. **Drafts.** `drafts.save` and `compose.save`.
+3. **Drafts.** `drafts.save`, with the `messages.save` permission.
 
 Each phase is a separate change request, so each widening of the permission list gets its own review.
 
 ## Open questions
 
-1. **Names.** *Huginn* is also the name of an established automation project, and both raven names are common in software. Keep them, or pick something rarer before the repositories exist.
-2. **Licence** for the two new components.
-3. **One repository or two.** The extension and the bridge version together and are useless apart; two components keeps each small and lets a different front end reuse Huginn's caller-facing side.
-4. **Background lifetime.** Whether a Manifest V3 background script with an open native-messaging port stays alive for the whole Thunderbird session, or needs a keep-alive. To be tested first, since the whole shape rests on it.
-5. **Body format.** Plain text only, or also the HTML part for messages that have no plain-text part.
+1. **Background lifetime.** Whether a Manifest V3 background script with an open native-messaging port stays alive for the whole Thunderbird session, or needs a keep-alive. To be tested first, since the whole shape rests on it.
+2. **Body format.** Plain text only, or also the HTML part for messages that have no plain-text part.
