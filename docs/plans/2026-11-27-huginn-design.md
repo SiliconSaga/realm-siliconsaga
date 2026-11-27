@@ -76,7 +76,7 @@ tokens:
     ops: [info, accounts.list, folders.list, messages.search, messages.get]
   write:
     accounts: ["personal", "club"]
-    ops: [messages.move, messages.copy, messages.update, messages.archive, drafts.save]
+    ops: [messages.move, messages.copy, messages.update, drafts.save]
     move_targets:
       allow: ["Triage/*", "Newsletters", "Archive/*"]
 limits:
@@ -88,7 +88,7 @@ limits:
 Rules that are not configurable:
 
 - A move or copy whose target is a Trash or Junk folder is refused. Muninn has no delete permission, and a move to Trash is deletion by another name.
-- An archive is checked as a move. Thunderbird picks the archive destination from the account's settings, so Huginn first asks Muninn where the messages would go, then applies `move_targets` and the Trash and Junk rule to that folder. If the destination cannot be resolved, the archive is refused. Should Thunderbird's interface not expose the destination, `messages.archive` is dropped and archiving is done as a plain move to a folder the policy names.
+- There is no separate archive operation. Thunderbird's own archive call picks its destination from the account's settings at the moment it runs, so a destination checked beforehand could differ from the one used. Archiving is a `messages.move` to a folder the policy names, which keeps the checked folder and the used folder the same.
 - Anything not allowed is denied. An absent policy file means read-only for the read token and nothing for the write token.
 - Policy is checked before forwarding, and a denial is logged with the caller's token name and the request.
 

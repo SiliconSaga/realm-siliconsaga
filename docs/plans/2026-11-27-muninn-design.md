@@ -27,7 +27,7 @@ In scope for the first version:
 
 1. List accounts, identities and folders.
 2. Search messages and read one message: headers, plain-text body, attachment names and sizes.
-3. Move and copy messages between folders, add and remove tags, mark read or flagged, archive.
+3. Move and copy messages between folders, add and remove tags, mark read or flagged. Archiving is a move to an archive folder, not a separate operation.
 4. Save a new message or a reply as a draft in the account's Drafts folder.
 5. Report its own version and granted permissions, so Huginn can refuse to run against a build that has more than it should.
 
@@ -56,7 +56,7 @@ The manifest requests exactly these, and the list is the security boundary:
 |---|---|
 | `accountsRead` | List accounts, identities and folders |
 | `messagesRead` | Search and read messages |
-| `messagesMove` | Move, copy and archive |
+| `messagesMove` | Move and copy |
 | `messagesUpdate` | Read and flagged state |
 | `messagesTags` | Add and remove tags |
 | `messages.save` | Save a draft in the background, through `messages.saveMessage` (also needs `messagesRead`) |
@@ -82,7 +82,6 @@ Every request is a JSON object with an `id`, an `op` and `params`; every answer 
 | `messages.move` | Move a list of messages to a folder | |
 | `messages.copy` | Copy a list of messages to a folder | |
 | `messages.update` | Read and flagged state, tags | |
-| `messages.archive` | Archive by the account's own archive settings | Muninn reports the destination first so Huginn can check it; see the Huginn design |
 | `drafts.save` | Save a new message or a reply to a given message as a draft | Returns the draft's message id |
 
 A folder move on an IMAP account is an operation on the mail server. Thunderbird's local folder files are a cache; nothing local is edited directly, and on Gmail a move into a folder applies that label.
@@ -128,7 +127,7 @@ Writing our own is a choice for a short permission list we control and can test,
 ## Phases
 
 1. **Read-only.** `info`, `accounts.list`, `folders.list`, `messages.search`, `messages.get`. The manifest carries only the read permissions and `nativeMessaging`.
-2. **Filing.** Move, copy, update, archive, with the permissions they need.
+2. **Filing.** Move, copy, update, with the permissions they need.
 3. **Drafts.** `drafts.save`, with the `messages.save` permission.
 
 Each phase is a separate change request, so each widening of the permission list gets its own review.
