@@ -72,7 +72,9 @@ PrometheusRule (your component, labeled `release: <chart>`)
 - Rule (the `PrometheusRule` CR) — your component owns it. Label with `release: <chart-release>` or the Operator selector silently ignores it (the #1 silent-invisibility cause).
 - Prometheus + AlertManager — **Heimdall**. Deep skill: `alertmanager-config` (covers the three-way choice between native AM payload templating vs server-side ntfy templating vs a bridge; SiliconSaga chose server-side ntfy).
 - ntfy receiver + server-side template (`heimdall-template.yaml`) — **Nidavellir**. The `?template=<name>` URL form is the seam where severity becomes priority.
-- Phone subscription — out-of-band, user-side.
+- Phone subscription — out-of-band, user-side. The phone reaches ntfy over the tailnet with no fallback, so tailnet disruption means silent alert loss.
+
+**A phone that can't resolve ntfy is usually the phone.** MagicDNS resolves only while the client is connected; check `tailscale status` for the peer before suspecting the server. A recreated Service whose old device lingers gets a `-1` hostname suffix; the `tailscale.com/hostname` annotation pins the name.
 
 **Common stack mistake:** assuming AM owns severity→priority. It doesn't here. Nidavellir's ntfy template does.
 
@@ -112,6 +114,7 @@ Working with only `yggdrasil` + `realms/realm-siliconsaga/` cloned? This skill I
 - **Pushing to GitHub to test on the cluster.** GitHub isn't the cluster's source. `update-embedded-git.sh <env>` hydrates the in-cluster seed-Gitea — that's the actual source. Push to GitHub is for code review + remote backup, not deployment.
 - **`kubectl apply` against a `selfHeal: true` Application.** Controller reverts within ~3 minutes. Test through Git (re-hydrate seed-Gitea + hard-refresh). Covered in Nordri's `argocd-gitops` skill.
 - **Forgetting `release: <chart-release>` label** on `ServiceMonitor` / `PrometheusRule`. Operator selector silently ignores them — alert never fires. Covered in Heimdall's `kube-prometheus-stack` skill.
+- **Putting a per-cluster credential in the workspace `.env`.** `ws` sources it for every command, so it applies to every cluster: a `GITEA_PASS` added for GKE made homelab hydration authenticate with GKE's password, because the env var outranks the `gitea/gitea-admin-credentials` Secret. Keep per-cluster credentials in that cluster's Secret.
 - **Treating a sealed OpenBao as broken.** `openbao-0` at `0/1 Running` after any restart is by design — it's waiting for a manual unseal (2 of 3 key shares), and readiness deliberately gates on seal status. Runbook: `components/nidavellir/docs/secrets-management.md`.
 - **Treating tier as ordering only.** Tier 1/2/3 reflects dependency direction (substrate → platform → end-user), not deploy order. Real deploy order in Nordri's bootstrap is layered Crossplane providers + ProviderConfigs + ArgoCD adoption, documented separately.
 

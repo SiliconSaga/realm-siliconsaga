@@ -195,18 +195,23 @@ docker container prune -f     # stopped containers, and their json logs
 docker image prune -a         # unused images — forces re-pulls on next use
 ```
 
-> **Never blanket `docker volume prune`.** Volumes hold real data — the Rend/KubicRend spike volumes alone are ~2.7GB of UE4 server download that would have to be re-fetched. Remove volumes by name, deliberately.
+> **Never blanket `docker volume prune`.** Volumes hold real data — the Rend/KubicRend spike volumes (`rend-data`, `kubicrend-data`) alone are ~2.7GB of UE4 server download that would have to be re-fetched. Remove volumes by name, deliberately.
 
 **3. Reclaiming inside the VM does not shrink the disk on Windows.** This is the step people miss: a WSL2 `.vhdx` grows monotonically and never shrinks on its own. After pruning 37GB you will still see the same size in `distro-data`. Compacting needs the VM shut down:
 
 ```powershell
+wsl -d rancher-desktop sudo fstrim -av   # hand freed blocks back first
 rdctl shutdown
 wsl --shutdown
 # WSL 2.0+ — lets the disk shrink automatically from now on
 wsl --manage rancher-desktop-data --set-sparse true
 ```
 
-Sanity-check both numbers, since they answer different questions — `docker system df` shows space free *inside* the VM, and the `distro-data` folder size shows what Windows has actually got back.
+Moving the disk to a roomier drive is the other way out. Sanity-check both numbers, since they answer different questions — `docker system df` shows space free *inside* the VM, and the `distro-data` folder size shows what Windows has actually got back. A disk-space fix verified only from inside the guest is not verified.
+
+### WSL2 host-to-VM socket failures
+
+Intermittent "Docker instability" with a disk that is not full can be the WSL2 host-to-VM socket, not Docker. The tell: plain `wsl.exe` fails the same way (`Wsl/Service/0x8007274c`), and concurrent calls fail while serial ones pass. Untested levers: a `.wslconfig` memory cap with `autoMemoryReclaim`, and `wsl --shutdown`.
 
 ### Resetting the Environment
 
