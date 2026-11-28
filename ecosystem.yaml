@@ -225,6 +225,20 @@ components:
   naust:
     tier: supporting
 
+  # huginn — a local service that gives agents one HTTP interface to the
+  # owner's personal content (mail, tasks, later calendar) through adapters,
+  # with tokens and an audit log. Runs on the owner's machine and ships no
+  # chart, so it takes the supporting tier. See
+  # docs/plans/2026-11-27-huginn-design.md.
+  huginn:
+    tier: supporting
+
+  # muninn — the Thunderbird extension behind huginn's mail adapter. Its
+  # permission list leaves out sending and deleting. See
+  # docs/plans/2026-11-27-muninn-design.md.
+  muninn:
+    tier: supporting
+
   # -- Vendored upstream mirrors --------------------------------------------
   # Read-only mirrors of third-party repos the stack deploys from. Kept as
   # individual, intact mirrors (full history + tags) under the SiliconSaga
