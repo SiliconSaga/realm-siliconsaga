@@ -4,11 +4,13 @@
 **Date:** 2026-11-27
 **Owner:** Rasmus Praestholm
 **Arc:** `pkm-life-organization` on the Dionysus thalamus
-**Related:** the [Huginn design](2026-11-27-huginn-design.md) (the local bridge this extension talks to; the two are one system in two components) · the [Knarr design](2026-04-02-knarr-design.md) (the lane for chat and social content, and for notifying the owner) · the PKM v2 workflow design in the owner's private vault (the first user of both ravens)
+**Related:** the [Huginn design](2026-11-27-huginn-design.md) (the local service agents call; Muninn is what stands behind its mail adapter) · the [Knarr design](2026-04-02-knarr-design.md) (the lane for chat and social content, and for notifying the owner) · the PKM v2 workflow design in the owner's private vault (the first user of both ravens)
 
 ## The outcome
 
-An agent or script on the owner's machine can read, search, file and tag mail across every account Thunderbird already syncs, and can leave a reply as a draft for the owner to review. It cannot send mail and cannot permanently delete mail, and that limit is set by the permissions the extension asks Thunderbird for, not by the caller behaving well. A move into Trash or Junk is still a move, which the permission list allows; Huginn's policy is the guard against those.
+An agent or script on the owner's machine can read, search, file and tag mail across every account Thunderbird already syncs, and can leave a reply as a draft for the owner to review. It cannot send mail and cannot permanently delete mail, and that limit is set by the permissions the extension asks Thunderbird for, not by the caller behaving well. A move into Trash or Junk is still a move, which the permission list allows; Muninn's own code refuses those.
+
+Muninn does have write access to mail: filing a message into a folder, tagging it and saving a draft all change what is on the mail server. That is intended. What it lacks is the ability to send or to remove.
 
 Thunderbird already holds the credentials and the synced mail, so no new token is issued to any agent. This matters most for Gmail, where every permission that can create a draft or change a label can also send.
 
@@ -16,8 +18,9 @@ Thunderbird already holds the credentials and the synced mail, so no new token i
 
 | Term | Meaning |
 |---|---|
-| **Muninn** | Old Norse, *memory*; one of Odin's two ravens. The Thunderbird extension. It holds no policy of its own beyond its permission list and does what Huginn asks within it. |
-| **Huginn** | Old Norse, *thought*; the other raven. The local bridge process that Thunderbird starts and that callers reach. Its design is a separate document. It shares its name with an unrelated automation project. |
+| **Muninn** | Old Norse, *memory*; one of Odin's two ravens. The Thunderbird extension, and everything that runs on the Thunderbird side. It does what Huginn asks within its permission list and its two fixed rules. |
+| **Huginn** | Old Norse, *thought*; the other raven. A local service that runs on its own and gives agents one interface to mail, tasks and more. Mail is one of its adapters, and Muninn is how that adapter reaches Thunderbird. Its design is a separate document. |
+| **Relay** | A tiny program shipped with Huginn that Thunderbird starts when Muninn asks. It passes messages between Muninn and the running Huginn. |
 | **Caller** | Anything that asks Huginn for something: a scheduled agent run, a script, a person at a terminal. |
 | **Send-proof** | The extension's manifest does not request either permission that allows sending, so no code path in it can send, whatever it is asked. |
 
@@ -34,7 +37,7 @@ In scope for the first version:
 Out of scope:
 
 - Sending, in any form.
-- Deleting messages or folders. Moves into Trash or Junk are refused by Huginn's policy; see that design.
+- Deleting messages or folders, and moving messages into Trash or Junk.
 - Reading attachment contents. A later version may add it with a size limit.
 - Calendar and tasks. Thunderbird has no stable extension interface for either; see *Calendar and tasks* below.
 - Creating or editing message filters. Thunderbird has no stable interface for it.
@@ -42,11 +45,13 @@ Out of scope:
 ## Shape
 
 ```text
- caller ──HTTP, localhost, bearer token──▶ Huginn ──native messaging──▶ Muninn ──▶ Thunderbird ──IMAP──▶ mail servers
-                                           (policy, audit log)          (permission floor)
+ caller ──HTTP, localhost, bearer token──▶ Huginn ◀──relay◀──native messaging── Muninn ──▶ Thunderbird ──IMAP──▶ mail servers
+                                           (tokens, audit log)                  (permission floor, fixed rules)
 ```
 
-Muninn opens the native-messaging port when Thunderbird starts, which makes Thunderbird launch Huginn. Requests then flow from Huginn to Muninn over that port and answers flow back. Muninn never listens on a network socket.
+An extension cannot be reached from outside Thunderbird; it has to open the connection itself. When Thunderbird starts, Muninn opens a native-messaging port, which makes Thunderbird launch the relay, and the relay connects to the Huginn service that is already running. Requests then flow from Huginn to Muninn and answers flow back. If Huginn is not running, the relay exits and Muninn tries again at intervals.
+
+Muninn never listens on a network socket and holds no network permission. Native messaging is the one channel an extension can open without one, which is why the relay exists.
 
 ## Permissions
 
@@ -60,7 +65,7 @@ The manifest requests exactly these, and the list is the security boundary:
 | `messagesUpdate` | Read and flagged state |
 | `messagesTags` | Add and remove tags |
 | `messages.save` | Save a draft in the background, through `messages.saveMessage` (also needs `messagesRead`) |
-| `nativeMessaging` | Talk to Huginn |
+| `nativeMessaging` | Talk to Huginn through the relay |
 
 Never requested: `messages.send`, `compose.send`, `compose` and `compose.save` (no compose window is ever opened), `messagesDelete`, `accountsFolders` (create, rename and delete folders), `messagesImport`, and any host permission. A test in the component reads the manifest and fails if the list grows without the test being changed in the same commit, so widening it is always a visible, reviewed act.
 
@@ -79,18 +84,25 @@ Every request is a JSON object with an `id`, an `op` and `params`; every answer 
 | `folders.list` | Folder tree for one account | Includes special-use flags (Inbox, Drafts, Trash, Junk) |
 | `messages.search` | Query by folder, sender, subject, date range, tag, read state, text | Paged; returns headers only |
 | `messages.get` | One message: headers, plain-text body, attachment list | Body is truncated at a size limit and says so |
-| `messages.move` | Move a list of messages to a folder | |
-| `messages.copy` | Copy a list of messages to a folder | |
+| `messages.move` | Move a list of messages to a folder | Refused when the target is a Trash or Junk folder |
+| `messages.copy` | Copy a list of messages to a folder | Same refusal |
 | `messages.update` | Read and flagged state, tags | |
 | `drafts.save` | Save a new message or a reply to a given message as a draft | Returns the draft's message id |
 
 A folder move on an IMAP account is an operation on the mail server. Thunderbird's local folder files are a cache; nothing local is edited directly, and on Gmail a move into a folder applies that label.
 
+## Fixed rules in Muninn
+
+Two limits are enforced in Muninn's own code, beside the permission list:
+
+- **No moves or copies into Trash or Junk.** Thunderbird marks those folders by type, so Muninn checks the target folder at the moment of the move and refuses. A move to Trash is deletion by another name, and refusing it here means no configuration elsewhere can allow it.
+- **Only the listed operations.** Muninn answers only on the native-messaging port it opened itself and rejects any `op` not in the table above.
+
+These are weaker than the permission list, since code can have bugs where a missing permission cannot, and a test covers each. One case to check during implementation: on Gmail, whether any ordinary folder move has the effect of trashing a message.
+
 ## What Muninn does not decide
 
-Muninn is deliberately thin. Which accounts a caller may touch, how many messages one request may move, whether Trash is an allowed target, and what gets logged are all Huginn's job. The split keeps the part that runs inside Thunderbird small enough to read in one sitting, and keeps the hard limit (the permission list) separate from the adjustable one (policy).
-
-Muninn does enforce two things on its own, as a second line: it answers only on the native-messaging port it opened itself, and it rejects any `op` not in the table above.
+Muninn is deliberately thin. Which accounts a caller may change and what gets logged are Huginn's job. The split keeps the part that runs inside Thunderbird small enough to read in one sitting.
 
 ## Mail content is untrusted
 
@@ -102,7 +114,12 @@ That limit covers Muninn only. A caller that also holds network or file tools ca
 
 Not in Muninn for now. Thunderbird's extension interfaces for mail are stable; for calendar and tasks there is none yet. A calendars-and-items interface has a patch in review with no target version. The only route inside Thunderbird today is Experiment code, which the monthly release channel is set to stop accepting; the removal is postponed with no published replacement list.
 
-So for the first users of this design: tasks are read through the Google Tasks API by a separate job with a tasks-only permission, and an agent-proposed calendar is a local `.ics` file Thunderbird subscribes to. Muninn takes calendar and tasks on when a stable interface ships.
+An extension also cannot use the Google sign-ins Thunderbird holds for anything beyond what Thunderbird itself does with them, so Muninn is no shortcut to Google's own interfaces.
+
+Tasks and calendar are therefore adapters in Huginn that go to Google directly; see that design. Muninn could take them on if a stable interface ships. Upstream work to check back on:
+
+- [Bugzilla 2035321](https://bugzilla.mozilla.org/show_bug.cgi?id=2035321), a calendars-and-items extension interface, with patch [D296842](https://phabricator.services.mozilla.com/D296842) in review as of 2026-11-27 and no target version.
+- [kewisch/gdata-provider#1123](https://github.com/kewisch/gdata-provider/pull/1123), the open change on the rewrite of Provider for Google Calendar, the add-on that shows Google calendars and task lists inside Thunderbird today through Experiment code.
 
 ## Prior art
 
@@ -122,7 +139,7 @@ Writing our own is a choice for a short permission list we control and can test,
 ## Testing
 
 - Unit tests run the operation handlers against a faked `browser` object, including the manifest test described under *Permissions*.
-- A manual smoke checklist against a throwaway mail account and a scratch folder comes before any real account is touched: search, read, move there and back, tag, save a draft, and confirm in Thunderbird's own add-on page that no send permission is listed.
+- A smoke checklist against a dedicated test mail account comes before any real account is touched: search, read, move there and back, try a move to Trash and see it refused, tag, save a draft, and confirm in Thunderbird's own add-on page that no send permission is listed. The owner has a spare account set aside for this, so the checklist can later run automatically.
 
 ## Phases
 
@@ -134,5 +151,5 @@ Each phase is a separate change request, so each widening of the permission list
 
 ## Open questions
 
-1. **Background lifetime.** Whether a Manifest V3 background script with an open native-messaging port stays alive for the whole Thunderbird session, or needs a keep-alive. To be tested first, since the whole shape rests on it.
+1. **Background lifetime.** Whether a Manifest V3 background script with an open native-messaging port stays alive for the whole Thunderbird session, or needs a keep-alive. To be tested first. Since Huginn runs on its own, a dropped port costs a reconnect, not the service.
 2. **Body format.** Plain text only, or also the HTML part for messages that have no plain-text part.
