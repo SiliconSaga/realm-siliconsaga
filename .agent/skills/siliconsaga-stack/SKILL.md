@@ -80,7 +80,7 @@ PrometheusRule (your component, labeled `release: <chart>`)
 
 ## GitOps Model
 
-ArgoCD lives in namespace **`argo`** (NOT `argocd`). It syncs from the **in-cluster seed-Gitea** in ns `gitea`, NOT from GitHub directly. The seed-Gitea is hydrated from local working trees via `update-embedded-git.sh <homelab|gke>`.
+ArgoCD lives in namespace **`argo`** (NOT `argocd`). It syncs from the **in-cluster seed-Gitea** in ns `gitea`, NOT from GitHub directly. The seed-Gitea is hydrated from local working trees via `update-embedded-git.sh realm-siliconsaga`.
 
 **Implication:** pushing to GitHub does NOT reach the cluster. Testing a local branch on staging = re-hydrate the seed-Gitea + hard-refresh the ArgoCD app. Pushing to GitHub merges code but doesn't touch the running cluster until re-hydration.
 
@@ -111,7 +111,7 @@ Working with only `yggdrasil` + `realms/realm-siliconsaga/` cloned? This skill I
 
 - **Grepping the whole workspace for `SKILL.md` instead of consulting this index first.** Trees like `NemoClaw/node_modules/openclaw/skills/...` create heavy noise. The index above is faster and authoritative.
 - **Assuming AlertManager owns severity→priority mapping.** It doesn't — Nidavellir's ntfy template does. AM POSTs its default envelope; ntfy formats title/message/priority server-side via `?template=<name>`.
-- **Pushing to GitHub to test on the cluster.** GitHub isn't the cluster's source. `update-embedded-git.sh <env>` hydrates the in-cluster seed-Gitea — that's the actual source. Push to GitHub is for code review + remote backup, not deployment.
+- **Pushing to GitHub to test on the cluster.** GitHub isn't the cluster's source. `update-embedded-git.sh realm-siliconsaga` hydrates the in-cluster seed-Gitea — that's the actual source. Push to GitHub is for code review + remote backup, not deployment.
 - **`kubectl apply` against a `selfHeal: true` Application.** Controller reverts within ~3 minutes. Test through Git (re-hydrate seed-Gitea + hard-refresh). Covered in Nordri's `argocd-gitops` skill.
 - **Forgetting `release: <chart-release>` label** on `ServiceMonitor` / `PrometheusRule`. Operator selector silently ignores them — alert never fires. Covered in Heimdall's `kube-prometheus-stack` skill.
 - **Putting a per-cluster credential in the workspace `.env`.** `ws` sources it for every command, so it applies to every cluster: a `GITEA_PASS` added for GKE made homelab hydration authenticate with GKE's password, because the env var outranks the `gitea/gitea-admin-credentials` Secret. Keep per-cluster credentials in that cluster's Secret.
