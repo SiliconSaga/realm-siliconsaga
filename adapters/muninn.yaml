@@ -1,0 +1,12 @@
+# muninn adapter — Node's built-in test runner; the extension itself is plain
+# JavaScript with no build step and no dependencies.
+commands:
+  test: "node --test"
+  # Packs the extension into dist/muninn.xpi for installing from a file.
+  build: "node scripts/pack.mjs"
+
+ai_context:
+  - path: "README.md"
+    description: "What muninn is, its permission list, how to load it in Thunderbird"
+  - path: "AGENTS.md"
+    description: "Agent guidelines for working on muninn, including the permission rule"

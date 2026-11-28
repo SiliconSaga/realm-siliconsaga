@@ -1,0 +1,16 @@
+# huginn adapter — pytest + ruff via the component's own venv.
+# Component cwd is components/huginn/ when ws-test runs; .venv lives there.
+# The path is the Windows venv layout (Scripts/): huginn runs beside the
+# owner's Thunderbird, and the only machine it runs on so far is Windows.
+commands:
+  test: ".venv/Scripts/python -m pytest -q"
+  lint: ".venv/Scripts/python -m ruff check src/ tests/"
+  format: ".venv/Scripts/python -m ruff format src/ tests/"
+  # `ws run huginn <command>` is the whole CLI: serve, install, token.
+  run: ".venv/Scripts/python -m huginn"
+
+ai_context:
+  - path: "README.md"
+    description: "What huginn is, how to install and start it, the HTTP interface"
+  - path: "AGENTS.md"
+    description: "Agent guidelines for working on huginn"
