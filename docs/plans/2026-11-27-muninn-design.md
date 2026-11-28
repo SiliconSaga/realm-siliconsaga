@@ -82,12 +82,16 @@ Every request is a JSON object with an `id`, an `op` and `params`; every answer 
 | `info` | Version, Thunderbird version, granted permissions | Called first on every connection |
 | `accounts.list` | Accounts with identities | No credentials are ever returned |
 | `folders.list` | Folder tree for one account | Includes special-use flags (Inbox, Drafts, Trash, Junk) |
-| `messages.search` | Query by folder, sender, subject, date range, tag, read state, text | Paged; returns headers only. The date range is the message's date, which is how a caller asks for mail received since its last look; Thunderbird keeps no record of when a message was last changed |
+| `messages.search` | Query by folder, sender, subject, date range, tag, read state, text | Paged; returns headers only, including the `Message-ID` header. Can also look a message up by that header. The date range is the sent date written in the message, not its arrival time |
 | `messages.get` | One message: headers, plain-text body, attachment list | Body is truncated at a size limit and says so |
 | `messages.move` | Move a list of messages to a folder | Refused when the target is a Trash or Junk folder |
 | `messages.copy` | Copy a list of messages to a folder | Same refusal |
 | `messages.update` | Read and flagged state, tags | |
 | `drafts.save` | Save a new message or a reply to a given message as a draft | Returns the draft's message id |
+
+Besides answering requests, Muninn sends one kind of message unprompted: a `mail.arrived` notice, carrying the headers of each message Thunderbird reports as new. It uses the `messagesRead` permission already held. Huginn keeps the record of these; Muninn stores nothing.
+
+Thunderbird's message ids change when a message moves and do not survive a restart, so they are used only inside a single request. Every answer carries the account and the `Message-ID` header, and that pair is how Huginn names a message to callers.
 
 A folder move on an IMAP account is an operation on the mail server. Thunderbird's local folder files are a cache; nothing local is edited directly, and on Gmail a move into a folder applies that label.
 

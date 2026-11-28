@@ -54,7 +54,7 @@ A Thunderbird extension cannot be reached from outside; it has to open the conne
 - Everything on the Thunderbird side is Muninn. The relay is a pipe with no logic, and exists only because native messaging is the one channel an extension can open without a network permission.
 - Huginn does not depend on Thunderbird. With Thunderbird closed, the mail adapter reports `adapter_unavailable` and the other adapters work as usual.
 - Start order does not matter. If Huginn is not running when Thunderbird starts, the relay exits at once and Muninn tries again: every 15 seconds for the first few minutes, then once a minute for as long as Thunderbird is open. The same retry reconnects after Huginn restarts.
-- The relay socket is protected on its own; the HTTP tokens do not cover it. It is reachable only by the owner's account (an owner-only pipe on Windows, a socket file in an owner-only directory on Linux), and the relay and Huginn prove themselves to each other with a secret kept in an owner-only file before any request passes. A program that is not Huginn cannot pose as it to Muninn, and one that is not the relay cannot pose as Muninn to Huginn. This holds whichever socket type is chosen.
+- The relay socket is protected on its own; the HTTP tokens do not cover it. It is reachable only by the owner's account (an owner-only pipe on Windows, a socket file in an owner-only directory on Linux), and the relay and Huginn prove themselves to each other with a secret kept in an owner-only file before any request passes. This keeps other accounts on the machine out. It does not tell Huginn or the relay apart from another program running as the owner, which can read the same secret; as with the HTTP tokens, the defence against that is the narrow access each adapter has. This holds whichever socket type is chosen.
 
 The alternative considered: Muninn connects straight to Huginn over a local WebSocket. It needs no relay and no registration, but it gives a mail-reading extension a network permission, which the Muninn design is built to avoid.
 
@@ -65,7 +65,7 @@ Endpoints are grouped by adapter under a version prefix, for example `POST /v1/m
 - **Authentication** is a bearer token on every request.
 - **Errors** carry a stable `code` (`denied`, `not_found`, `adapter_unavailable`, `source_error`, `timeout`, `too_large`) and a readable `message`.
 - **Paging** is by an opaque cursor.
-- **Polling.** What "new since last time" means depends on the adapter, and each says which it offers. Tasks accepts `updated_since` and reports every task changed after that moment, because Google records a change time. Mail accepts `received_since` and reports messages that arrived after that moment; Thunderbird records no change time, so a later tag or move on an old message is not reported, and a caller that needs that looks the message up again by id.
+- **Polling.** What "new since last time" means depends on the adapter, and each says which it offers. Tasks accepts `updated_since` and reports every task changed after that moment, because Google records a change time. Mail has no such record in Thunderbird, so the mail adapter keeps its own; see *The mail adapter*.
 - **Dry run.** Every changing endpoint accepts `dry_run: true` and returns what would be done.
 - **Idempotency.** Changing requests may carry an `idempotency_key`; a repeat with the same key inside a day returns the first result and does nothing more.
 - **`GET /v1/health`** lists each adapter, whether it is available, and its version details.
@@ -77,6 +77,15 @@ Content from every adapter is returned as data in fields of its own. Message bod
 Its operations are the ones in the Muninn design, passed through unchanged. Muninn's permission list is the hard limit, and Muninn itself refuses moves into Trash or Junk. On connecting, the adapter asks Muninn for its granted permissions and refuses to serve mail if the list contains a send or delete permission.
 
 There is no archive operation: archiving is a move to a folder the caller names.
+
+**Naming a message.** Thunderbird's own message ids are short-lived: they change when a message moves and do not survive a restart. Callers therefore identify a message by its account and its `Message-ID` header, which travels with the message. The adapter looks that pair up at the moment of each request and returns every copy it finds with its folder, since a copied message, or one seen under several Gmail labels, exists in more than one place. Thunderbird's ids never leave the adapter.
+
+**Noticing new mail.** Muninn passes Thunderbird's new-mail event to Huginn as each message arrives, and the adapter appends it to a small arrival journal with a running number. A caller asks for journal entries after the last number it saw, which is exact and does not depend on dates.
+
+- The journal can have gaps: mail that arrived while Huginn was down or the relay was disconnected was never reported. The adapter records a gap marker each time Muninn reconnects.
+- A caller that sees a gap marker catches up with a search by date over a window wider than the gap, and drops what it has already seen by `Message-ID`. The date Thunderbird searches on is the sent date in the message, not the arrival time, which is why the window is generous and why the journal, not a date filter, is the normal path.
+- Changes to mail already seen (a tag, a move, a read flag) are not journalled. A caller that cares looks the message up again by its `Message-ID`.
+- To confirm during implementation: which folders the new-mail event covers, and whether it fires for mail fetched when Thunderbird starts.
 
 ## The tasks adapter
 
