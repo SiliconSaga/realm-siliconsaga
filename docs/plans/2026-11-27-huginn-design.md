@@ -63,7 +63,7 @@ The alternative considered: Muninn connects straight to Huginn over a local WebS
 Endpoints are grouped by adapter under a version prefix, for example `POST /v1/mail/messages/search` and `POST /v1/tasks/tasks/create`. Request and answer bodies are JSON. A few fixed rules:
 
 - **Authentication** is a bearer token on every request.
-- **Errors** carry a stable `code` (`denied`, `not_found`, `adapter_unavailable`, `source_error`, `timeout`, `too_large`) and a readable `message`.
+- **Errors** carry a stable `code` (`denied`, `not_found`, `ambiguous`, `adapter_unavailable`, `source_error`, `timeout`, `too_large`) and a readable `message`.
 - **Paging** is by an opaque cursor.
 - **Polling.** What "new since last time" means depends on the adapter, and each says which it offers. Tasks accepts `updated_since` and reports every task changed after that moment, because Google records a change time. Mail has no such record in Thunderbird, so the mail adapter keeps its own; see *The mail adapter*.
 - **Dry run.** Every changing endpoint accepts `dry_run: true` and returns what would be done.
@@ -80,10 +80,14 @@ There is no archive operation: archiving is a move to a folder the caller names.
 
 **Naming a message.** Thunderbird's own message ids are short-lived: they change when a message moves and do not survive a restart. Callers therefore identify a message by its account and its `Message-ID` header, which travels with the message. The adapter looks that pair up at the moment of each request and returns every copy it finds with its folder, since a copied message, or one seen under several Gmail labels, exists in more than one place. Thunderbird's ids never leave the adapter.
 
+- **Changing one copy.** A request that changes a message (move, copy, tag, flag) may also name the folder of the copy it means. Without a folder, the request goes through only when exactly one copy exists; with several it is refused as `ambiguous` and nothing is changed.
+- **Mail without a `Message-ID`.** The header is optional in the mail standard, though rare to be missing. Such a message appears in search results and the arrival journal with its headers and a `no_message_id` mark, and it cannot be fetched or changed through Huginn. The owner handles it in Thunderbird.
+
 **Noticing new mail.** Muninn passes Thunderbird's new-mail event to Huginn as each message arrives, and the adapter appends it to a small arrival journal with a running number. A caller asks for journal entries after the last number it saw, which is exact and does not depend on dates.
 
 - The journal can have gaps: mail that arrived while Huginn was down or the relay was disconnected was never reported. The adapter records a gap marker each time Muninn reconnects.
-- A caller that sees a gap marker catches up with a search by date over a window wider than the gap, and drops what it has already seen by `Message-ID`. The date Thunderbird searches on is the sent date in the message, not the arrival time, which is why the window is generous and why the journal, not a date filter, is the normal path.
+- A caller that sees a gap marker catches up with two searches and drops what it has already seen, matching on account and `Message-ID` together so the same mail delivered to two accounts counts twice. The first is by date over a window wider than the gap. The date Thunderbird searches on is the sent date in the message, not the arrival time, so the second is a search for unread mail in the watched folders with no date range, which finds mail that arrived in the gap carrying an older date.
+- One case is not recovered: mail that arrived in the gap with a sent date before the window and that the owner has already read. The owner has seen it, so the cost is that no caller acts on it.
 - Changes to mail already seen (a tag, a move, a read flag) are not journalled. A caller that cares looks the message up again by its `Message-ID`.
 - To confirm during implementation: which folders the new-mail event covers, and whether it fires for mail fetched when Thunderbird starts.
 
