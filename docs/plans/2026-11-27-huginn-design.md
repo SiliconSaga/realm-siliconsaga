@@ -80,13 +80,14 @@ There is no archive operation: archiving is a move to a folder the caller names.
 
 **Naming a message.** Thunderbird's own message ids are short-lived: they change when a message moves and do not survive a restart. Callers therefore identify a message by its account and its `Message-ID` header, which travels with the message. The adapter looks that pair up at the moment of each request and returns every copy it finds with its folder, since a copied message, or one seen under several Gmail labels, exists in more than one place. Thunderbird's ids never leave the adapter.
 
-- **Changing one copy.** A request that changes a message (move, copy, tag, flag) may also name the folder of the copy it means. Without a folder, the request goes through only when exactly one copy exists; with several it is refused as `ambiguous` and nothing is changed.
+- **Changing one copy.** A request that changes a message (move, copy, tag, flag) may also name the folder of the copy it means. The request goes through only when it matches exactly one copy. If several match, whether across folders with no folder named or inside the named folder, it is refused as `ambiguous` and nothing is changed.
 - **Mail without a `Message-ID`.** The header is optional in the mail standard, though rare to be missing. Such a message appears in search results and the arrival journal with its headers and a `no_message_id` mark, and it cannot be fetched or changed through Huginn. The owner handles it in Thunderbird.
 
 **Noticing new mail.** Muninn passes Thunderbird's new-mail event to Huginn as each message arrives, and the adapter appends it to a small arrival journal with a running number. A caller asks for journal entries after the last number it saw, which is exact and does not depend on dates.
 
 - The journal can have gaps: mail that arrived while Huginn was down or the relay was disconnected was never reported. The adapter records a gap marker each time Muninn reconnects.
 - A caller that sees a gap marker catches up with two searches and drops what it has already seen, matching on account and `Message-ID` together so the same mail delivered to two accounts counts twice. The first is by date over a window wider than the gap. The date Thunderbird searches on is the sent date in the message, not the arrival time, so the second is a search for unread mail in the watched folders with no date range, which finds mail that arrived in the gap carrying an older date.
+- Mail with no `Message-ID` cannot be matched this way, so catch-up returns every such message it finds and a caller may see one twice.
 - One case is not recovered: mail that arrived in the gap with a sent date before the window and that the owner has already read. The owner has seen it, so the cost is that no caller acts on it.
 - Changes to mail already seen (a tag, a move, a read flag) are not journalled. A caller that cares looks the message up again by its `Message-ID`.
 - To confirm during implementation: which folders the new-mail event covers, and whether it fires for mail fetched when Thunderbird starts.
