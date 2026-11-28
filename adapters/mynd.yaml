@@ -1,0 +1,14 @@
+# mynd adapter — pytest + ruff via the component's own venv.
+# Component cwd is components/mynd/ when ws-test runs; .venv lives there.
+# The path is the Windows venv layout (Scripts/); mynd's renderer needs a desktop QGIS,
+# and the only machine it runs on so far is Windows.
+commands:
+  test: ".venv/Scripts/python -m pytest -q"
+  lint: ".venv/Scripts/python -m ruff check src/ tests/ render/"
+  format: ".venv/Scripts/python -m ruff format src/ tests/ render/"
+
+ai_context:
+  - path: "README.md"
+    description: "What mynd is and the command for each output"
+  - path: "docs/plans/"
+    description: "Wall-map design and per-stage implementation plans"
