@@ -49,7 +49,7 @@ Out of scope:
                                            (tokens, audit log)                  (permission floor, fixed rules)
 ```
 
-An extension cannot be reached from outside Thunderbird; it has to open the connection itself. When Thunderbird starts, Muninn opens a native-messaging port, which makes Thunderbird launch the relay, and the relay connects to the Huginn service that is already running. Requests then flow from Huginn to Muninn and answers flow back. If Huginn is not running, the relay exits and Muninn tries again at intervals.
+An extension cannot be reached from outside Thunderbird; it has to open the connection itself. When Thunderbird starts, Muninn opens a native-messaging port, which makes Thunderbird launch the relay, and the relay connects to the Huginn service that is already running. Requests then flow from Huginn to Muninn and answers flow back. If Huginn is not running, the relay exits at once and Muninn tries again: every 15 seconds for the first few minutes, then once a minute for as long as Thunderbird is open. Start order therefore does not matter, and a restarted Huginn is picked up on the next try.
 
 Muninn never listens on a network socket and holds no network permission. Native messaging is the one channel an extension can open without one, which is why the relay exists.
 
@@ -82,7 +82,7 @@ Every request is a JSON object with an `id`, an `op` and `params`; every answer 
 | `info` | Version, Thunderbird version, granted permissions | Called first on every connection |
 | `accounts.list` | Accounts with identities | No credentials are ever returned |
 | `folders.list` | Folder tree for one account | Includes special-use flags (Inbox, Drafts, Trash, Junk) |
-| `messages.search` | Query by folder, sender, subject, date range, tag, read state, text | Paged; returns headers only |
+| `messages.search` | Query by folder, sender, subject, date range, tag, read state, text | Paged; returns headers only. The date range is the message's date, which is how a caller asks for mail received since its last look; Thunderbird keeps no record of when a message was last changed |
 | `messages.get` | One message: headers, plain-text body, attachment list | Body is truncated at a size limit and says so |
 | `messages.move` | Move a list of messages to a folder | Refused when the target is a Trash or Junk folder |
 | `messages.copy` | Copy a list of messages to a folder | Same refusal |

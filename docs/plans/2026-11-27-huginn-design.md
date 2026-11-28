@@ -53,7 +53,8 @@ A Thunderbird extension cannot be reached from outside; it has to open the conne
 
 - Everything on the Thunderbird side is Muninn. The relay is a pipe with no logic, and exists only because native messaging is the one channel an extension can open without a network permission.
 - Huginn does not depend on Thunderbird. With Thunderbird closed, the mail adapter reports `adapter_unavailable` and the other adapters work as usual.
-- If Huginn is not running when Thunderbird starts, the relay exits and Muninn tries again at intervals.
+- Start order does not matter. If Huginn is not running when Thunderbird starts, the relay exits at once and Muninn tries again: every 15 seconds for the first few minutes, then once a minute for as long as Thunderbird is open. The same retry reconnects after Huginn restarts.
+- The relay socket is protected on its own; the HTTP tokens do not cover it. It is reachable only by the owner's account (an owner-only pipe on Windows, a socket file in an owner-only directory on Linux), and the relay and Huginn prove themselves to each other with a secret kept in an owner-only file before any request passes. A program that is not Huginn cannot pose as it to Muninn, and one that is not the relay cannot pose as Muninn to Huginn. This holds whichever socket type is chosen.
 
 The alternative considered: Muninn connects straight to Huginn over a local WebSocket. It needs no relay and no registration, but it gives a mail-reading extension a network permission, which the Muninn design is built to avoid.
 
@@ -64,7 +65,7 @@ Endpoints are grouped by adapter under a version prefix, for example `POST /v1/m
 - **Authentication** is a bearer token on every request.
 - **Errors** carry a stable `code` (`denied`, `not_found`, `adapter_unavailable`, `source_error`, `timeout`, `too_large`) and a readable `message`.
 - **Paging** is by an opaque cursor.
-- **Polling.** List and search calls accept `updated_since`, so a long-running agent can ask "what is new" cheaply.
+- **Polling.** What "new since last time" means depends on the adapter, and each says which it offers. Tasks accepts `updated_since` and reports every task changed after that moment, because Google records a change time. Mail accepts `received_since` and reports messages that arrived after that moment; Thunderbird records no change time, so a later tag or move on an old message is not reported, and a caller that needs that looks the message up again by id.
 - **Dry run.** Every changing endpoint accepts `dry_run: true` and returns what would be done.
 - **Idempotency.** Changing requests may carry an `idempotency_key`; a repeat with the same key inside a day returns the first result and does nothing more.
 - **`GET /v1/health`** lists each adapter, whether it is available, and its version details.
@@ -84,7 +85,7 @@ Google Tasks is where the owner's voice-dictated reminders land, in the default 
 | Op | Does | Notes |
 |---|---|---|
 | `lists.list` | The owner's task lists | |
-| `tasks.list` | Tasks in one list | Filter by open or completed and `updated_since` |
+| `tasks.list` | Tasks in one list | Filter by open or completed, and by `updated_since` |
 | `tasks.get` | One task | Title, notes, due date, status, parent, links |
 | `tasks.create` | A new task in a named list | Returns the task id |
 | `tasks.update` | Title, notes, due date | |
@@ -158,7 +159,7 @@ Thunderbird is not the route for calendar and tasks: an extension cannot use the
 
 ## Open questions
 
-1. **Google sign-in lifetime.** A Google client left in testing status loses its authorization every seven days. Whether publishing it as "in production" without verification gives a lasting sign-in for a single owner's own account is to be confirmed with Google's documentation and a test.
-2. **Relay socket.** A named pipe on Windows and a Unix socket on Linux, or loopback TCP with a shared secret on both. The first is tidier; the second is one code path.
+1. **Relay socket.** A named pipe on Windows and a Unix socket on Linux, or loopback TCP on both. The first is tidier; the second is one code path. Either carries the owner-only and shared-secret requirements above.
+2. **Google sign-in lifetime.** A Google client left in testing status loses its authorization every seven days. A weekly browser confirmation is acceptable to start with; `health` reports the days left so a caller can remind the owner. A longer-lived arrangement is looked at only if that becomes a nuisance.
 3. **Per-caller tokens.** Two role tokens to start; a token per job would make the audit log name the job.
 4. **Policy engine.** Which engine to adopt when the light rules stop being enough, and whether it sits inside Huginn or in front of it.
