@@ -1,6 +1,6 @@
 # Muninn — a send-proof Thunderbird extension for agents: design
 
-**Status:** Draft for review. No code exists yet.
+**Status:** Phase 1 (read-only) is implemented in [SiliconSaga/muninn](https://github.com/SiliconSaga/muninn); later phases are design only.
 **Date:** 2026-11-27
 **Owner:** Rasmus Praestholm
 **Arc:** `pkm-life-organization` on the Dionysus thalamus
@@ -62,14 +62,18 @@ The manifest requests exactly these, and the list is the security boundary:
 | `accountsRead` | List accounts, identities and folders |
 | `messagesRead` | Search and read messages |
 | `messagesMove` | Move and copy |
-| `messagesUpdate` | Read and flagged state |
-| `messagesTags` | Add and remove tags |
+| `messagesUpdate` | Read and flagged state, and the tags on a message |
 | `messages.save` | Save a draft in the background, through `messages.saveMessage` (also needs `messagesRead`) |
 | `nativeMessaging` | Talk to Huginn through the relay |
+| `alarms` | Wake once a minute to retry the connection; see *Background lifetime* |
 
-Never requested: `messages.send`, `compose.send`, `compose` and `compose.save` (no compose window is ever opened), `messagesDelete`, `accountsFolders` (create, rename and delete folders), `messagesImport`, and any host permission. A test in the component reads the manifest and fails if the list grows without the test being changed in the same commit, so widening it is always a visible, reviewed act.
+Never requested: `compose.send`, `compose` and `compose.save` (no compose window is ever opened), `messagesDelete`, `accountsFolders` (create, rename and delete folders), `messagesImport`, `messagesTags` (it creates and deletes tag definitions; putting a tag on a message needs only `messagesUpdate`), and any host permission. A test in the component reads the manifest and fails if the list grows without the test being changed in the same commit, so widening it is always a visible, reviewed act.
 
-`messages.saveMessage` is available from Thunderbird 153, which sets the extension's minimum version.
+The read-only phase needs Thunderbird 128, the first release with Manifest V3. `messages.saveMessage` is available from Thunderbird 153, which becomes the minimum when drafts are added.
+
+### Background lifetime
+
+A Manifest V3 background script is stopped after about 30 seconds of idleness. Mozilla's source exempts a script that holds an open native-messaging port, so while Huginn is connected Muninn stays loaded. While Huginn is not running there is no port, the script may be stopped, and its timers stop with it; an alarm wakes it once a minute to try again. Both points are read from Mozilla's code, which Thunderbird shares, and are to be confirmed hands-on.
 
 One thing to confirm against Thunderbird's documentation during implementation: that no permission in the list above implies sending through another route.
 
@@ -155,5 +159,6 @@ Each phase is a separate change request, so each widening of the permission list
 
 ## Open questions
 
-1. **Background lifetime.** Whether a Manifest V3 background script with an open native-messaging port stays alive for the whole Thunderbird session, or needs a keep-alive. To be tested first. Since Huginn runs on its own, a dropped port costs a reconnect, not the service.
-2. **Body format.** Plain text only, or also the HTML part for messages that have no plain-text part.
+1. **Hands-on confirmation.** Nothing here has run inside Thunderbird yet. To confirm with a test account: the background lifetime described above, that a folder is found by its path, which folders the new-mail event covers, and whether it fires for mail fetched at startup.
+
+Bodies are returned as plain text when the message has a plain-text part and as HTML otherwise, with the content type stated.

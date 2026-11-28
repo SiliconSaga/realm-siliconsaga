@@ -1,6 +1,6 @@
 # Huginn — a local interface for agents to personal content: design
 
-**Status:** Draft for review. No code exists yet.
+**Status:** Phase 1 (core and read-only mail) is implemented in [SiliconSaga/huginn](https://github.com/SiliconSaga/huginn); later phases are design only.
 **Date:** 2026-11-27
 **Owner:** Rasmus Praestholm
 **Arc:** `pkm-life-organization` on the Dionysus thalamus
@@ -63,7 +63,7 @@ The alternative considered: Muninn connects straight to Huginn over a local WebS
 Endpoints are grouped by adapter under a version prefix, for example `POST /v1/mail/messages/search` and `POST /v1/tasks/tasks/create`. Request and answer bodies are JSON. A few fixed rules:
 
 - **Authentication** is a bearer token on every request.
-- **Errors** carry a stable `code` (`denied`, `not_found`, `ambiguous`, `adapter_unavailable`, `source_error`, `timeout`, `too_large`) and a readable `message`.
+- **Errors** carry a stable `code` (`bad_request`, `unauthenticated`, `denied`, `not_found`, `ambiguous`, `adapter_unavailable`, `source_error`, `timeout`, `too_large`) and a readable `message`.
 - **Paging** is by an opaque cursor.
 - **Polling.** What "new since last time" means depends on the adapter, and each says which it offers. Tasks accepts `updated_since` and reports every task changed after that moment, because Google records a change time. Mail has no such record in Thunderbird, so the mail adapter keeps its own; see *The mail adapter*.
 - **Dry run.** Every changing endpoint accepts `dry_run: true` and returns what would be done.
@@ -114,13 +114,15 @@ Google Tasks is where the owner's voice-dictated reminders land, in the default 
 
 A small configuration file says which adapters are on, which mail accounts and task lists the write token may change, and nothing more:
 
-```yaml
-adapters:
-  mail:
-    write_accounts: ["personal"]
-  tasks:
-    write_lists: ["Agent test"]
+```toml
+[adapters.mail]
+write_accounts = ["personal"]
+
+[adapters.tasks]
+write_lists = ["Agent test"]
 ```
+
+The file is TOML because Python reads it without an added dependency.
 
 - The read token may read everything an enabled adapter offers. The write token may also change what the file lists. Anything not listed is denied.
 - Each adapter's "never" column above is fixed in code and cannot be configured away.
@@ -147,7 +149,7 @@ Thunderbird is not the route for calendar and tasks: an extension cannot use the
 ## Running it
 
 - `huginn serve` runs the service in the foreground. Starting it at login is a per-machine choice; the relay never starts it.
-- `huginn install` writes the relay's native-messaging registration for the current user and generates the tokens; `huginn uninstall` removes them. Neither needs administrator rights. The exact registry key and directory Thunderbird reads for the registration are to be confirmed from Thunderbird's documentation.
+- `huginn install` writes the relay's native-messaging registration for the current user and generates the tokens; `huginn uninstall` removes them. Neither needs administrator rights. Thunderbird reads the registration from the places Firefox does: a value under `HKCU\Software\Mozilla\NativeMessagingHosts` on Windows, a file in `~/.mozilla/native-messaging-hosts` on Linux. This is read from Mozilla's code, not from Thunderbird's documentation, and is to be confirmed hands-on.
 - `huginn auth google` runs the one-time browser sign-in for the tasks adapter.
 - A small command-line client covers every endpoint, so a shell script or a person can call it without writing HTTP.
 
@@ -173,7 +175,7 @@ Thunderbird is not the route for calendar and tasks: an extension cannot use the
 
 ## Open questions
 
-1. **Relay socket.** A named pipe on Windows and a Unix socket on Linux, or loopback TCP on both. The first is tidier; the second is one code path. Either carries the owner-only and shared-secret requirements above.
+1. **Relay socket on Windows.** The relay socket is a named pipe on Windows and a Unix socket on Linux, both through Python's standard connection module, which also does the two-way secret check. To confirm: that the pipe's default access list refuses other accounts as Microsoft documents.
 2. **Google sign-in lifetime.** A Google client left in testing status loses its authorization every seven days. A weekly browser confirmation is acceptable to start with; `health` reports the days left so a caller can remind the owner. A longer-lived arrangement is looked at only if that becomes a nuisance.
 3. **Per-caller tokens.** Two role tokens to start; a token per job would make the audit log name the job.
 4. **Policy engine.** Which engine to adopt when the light rules stop being enough, and whether it sits inside Huginn or in front of it.
