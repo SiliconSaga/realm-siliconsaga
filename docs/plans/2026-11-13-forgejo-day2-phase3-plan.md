@@ -739,7 +739,7 @@ and the error text to name `$owner/$repo_name`. In `lib/hydrate.sh`: `hydrate_pu
 
 **Interfaces:**
 - Consumes: Task 1–3 functions.
-- Produces: `./bootstrap.sh <realm> <cluster>`; `./update-embedded-git.sh <realm> [--target forgejo]` (target defaults to whatever the `git` Service points at; refused on a graduated `prod` cluster; `--target forgejo` refused on `prod`); `scripts/reseed-gitea.sh <realm> <cluster>`; environment variables `GITEA_HOST`, `GITEA_SCHEME`, `GITEA_PASS`, `KUBE_CONTEXT`, `REALM_DIR`, `NIDAVELLIR_DIR`, `MIMIR_DIR`, `HEIMDALL_DIR`, `VENDOR_MIRRORS` unchanged; `HYDRATE_URL_MODE`, `GCP_PROJECT` gone. Every hydration commit carries a `Source-Commit: <sha>` trailer (read by `graduate.sh` in Task 16).
+- Produces: `./bootstrap.sh <realm> <cluster>`; `./update-embedded-git.sh <realm> [--target forgejo|seed]` (target defaults to whatever the `git` Service points at; refused on a graduated `prod` cluster; `--target forgejo` refused on `prod`; `--target seed` fills the seed even where the Service points at Forgejo, which is what `reseed-gitea.sh` prints); `scripts/reseed-gitea.sh <realm> <cluster>`; environment variables `GITEA_HOST`, `GITEA_SCHEME`, `GITEA_PASS`, `KUBE_CONTEXT`, `REALM_DIR`, `NIDAVELLIR_DIR`, `MIMIR_DIR`, `HEIMDALL_DIR`, `VENDOR_MIRRORS` unchanged; `HYDRATE_URL_MODE`, `GCP_PROJECT` gone. Every hydration commit carries a `Source-Commit: <sha>` trailer (read by `graduate.sh` in Task 16).
 
 - [ ] **Step 1: Write the failing test** `tests/unit/bootstrap-args-test.sh`. Bootstrap cannot run under test, so this tests the shape: usage, the argument order, the absence of the deleted libraries and placeholders, and that the hydration scripts no longer carry a `sed` on manifests:
 
@@ -1582,7 +1582,7 @@ tailnetNode: stamped
 - Consumes: Tasks 1–4.
 - Produces: `lib/argo.sh`: `argo_wait_settled <timeout>` (today's loop: no `Unknown`), `argo_wait_synced_healthy <timeout>` (every Application `Synced` and `Healthy`), `argo_wait_operations_done <timeout>` (no Application with `status.operationState.phase` in `Running`), `argo_hard_refresh_all`, `argo_remove_finalizer <app>` (patch `metadata.finalizers` to `[]` when it is only the resources finalizer). `scripts/migrate.sh <realm> <cluster>`: the eight steps of 3a-5, re-runnable.
 
-- [ ] **Step 1: Write the failing test** `tests/unit/migrate-order-test.sh`: a `kubectl` stub records calls; stubs for `argo_wait_*` record order; the test asserts the sequence: policy-override check reads `argocd-cmd-params-cm`; refusal when it is not `true`; `identity.sh apply` runs before the finalizer patches; the three finalizer patches name `tailscale-operator`, `vegvisir`, `velero`; `gitops_ensure_org` ×2 and `gitops_ensure_git_service` run before the hydrate; root apps are applied before the hard refresh; `identity.sh apply` runs a second time after `argo_wait_operations_done`; `argo_wait_synced_healthy` is last. Implement with `MIGRATE_DRY_RUN=1` making the hydrate call print instead of push.
+- [ ] **Step 1: Write the failing test** `tests/unit/migrate-order-test.sh`: a `kubectl` stub records calls; stubs for `argo_wait_*` record order; the test asserts the sequence: the policy override is read from `argocd-cmd-params-cm` and, when not `true`, patched in; the running applicationset controller's env (`kubectl exec … printenv ARGOCD_APPLICATIONSET_CONTROLLER_ENABLE_POLICY_OVERRIDE`) is checked and, when it lacks the flag, the controller is restarted and awaited before the ConfigMap is re-read (so a ConfigMap already `true` over a controller an interrupted run never restarted still restarts it); a flag that does not survive the re-read is refused before anything else runs; on gke, unpaused Velero schedules, a backup in progress, or a root object without its copy under the cluster prefix are refused before step 1; `identity.sh apply` runs before the finalizer patches; the three finalizer patches name `tailscale-operator`, `vegvisir`, `velero`; `gitops_ensure_org` ×2 and `gitops_ensure_git_service` run before the hydrate; root apps are applied before the hard refresh; `identity.sh apply` runs a second time after `argo_wait_operations_done`; `argo_wait_synced_healthy` is last. Implement with `MIGRATE_DRY_RUN=1` making the hydrate call print instead of push.
 
 - [ ] **Step 2: `lib/argo.sh`** — extract the loop from `argo-settle.sh` into `argo_wait_settled`, generalised by a predicate; add the two other waits and the two helpers:
 
@@ -1660,8 +1660,25 @@ require_kube_context "$TARGET" || exit 1
 GITOPS_ORG="$(gitops_canonical_org "$REALM")"; GITOPS_VENDOR_ORG="$(gitops_vendor_org "$REALM")"
 
 echo "1/8 ApplicationSet policy override"
-override=$(kubectl get configmap -n argo argocd-cmd-params-cm -o 'jsonpath={.data.applicationsetcontroller\.enable\.policy\.override}' 2>/dev/null | tr -d '\r')
-[[ "$override" == "true" ]] || { echo "❌ ArgoCD does not allow ApplicationSet policy overrides (argocd-cmd-params-cm). Sync the argocd Application from a nordri main that carries it, then re-run." >&2; exit 1; }
+# A pre-Phase-3 cluster cannot receive the flag by sync before the Git switch
+# (its argocd Application reads the old seed; update-embedded-git.sh refuses a
+# cluster without an identity), so it is set here. The ConfigMap saying true is
+# not the controller running with it: only a restart delivers the env var, and a
+# run interrupted between patch and restart leaves the ConfigMap true over a
+# controller still on the default, so the running pod's env is what is checked.
+read_override() { kubectl get configmap -n argo argocd-cmd-params-cm -o 'jsonpath={.data.applicationsetcontroller\.enable\.policy\.override}' 2>/dev/null | tr -d '\r'; }
+running_override() { kubectl exec -n argo deployment/argocd-applicationset-controller -- printenv ARGOCD_APPLICATIONSET_CONTROLLER_ENABLE_POLICY_OVERRIDE 2>/dev/null | tr -d '\r'; }
+if [[ "$(read_override)" != "true" ]]; then
+    echo "   argocd-cmd-params-cm does not allow it yet: setting the flag"
+    kubectl patch configmap -n argo argocd-cmd-params-cm --type merge -p '{"data":{"applicationsetcontroller.enable.policy.override":"true"}}' >/dev/null || exit 1
+fi
+if [[ "$(running_override)" != "true" ]]; then
+    echo "   the running applicationset controller does not have it yet: restarting it to read the flag"
+    kubectl rollout restart deployment -n argo argocd-applicationset-controller >/dev/null || exit 1
+    kubectl rollout status deployment -n argo argocd-applicationset-controller --timeout=180s >/dev/null || exit 1
+    [[ "$(read_override)" == "true" ]] || { echo "❌ ArgoCD still does not allow ApplicationSet policy overrides after setting it: the argocd Application has likely reverted the key. Record that; nothing else has run." >&2; exit 1; }
+    [[ "$(running_override)" == "true" ]] || { echo "❌ the restarted applicationset controller still runs without the flag; nothing else has run." >&2; exit 1; }
+fi
 
 echo "2/8 identity (ConfigMap, cluster Secret; EnvironmentConfig marked Prune=false while tracked)"
 REALM_DIR="$REALM_DIR" bash "$SCRIPT_DIR/scripts/identity.sh" apply "$REALM" "$CLUSTER" || exit 1
@@ -1753,6 +1770,10 @@ Starts after 3a has merged in all four repos and GKE has migrated (Task 20, step
 ```bash
 set -uo pipefail
 : "${FORGEJO_URL:=http://forgejo-http.forgejo.svc.cluster.local:3000}"
+# The Applications read the stable address, never Forgejo's own: the health
+# check matches their repoURL against this one; clone, push and ls-remote go to
+# FORGEJO_URL.
+: "${GIT_STABLE_URL:=http://git.gitops.svc.cluster.local:3000}"
 : "${GITHUB_BASE:=https://github.com}"
 : "${ORG:?set ORG}"; : "${PULLER_USERNAME:?set PULLER_USERNAME}"
 : "${PULLER_TOKEN_FILE:=/etc/forgejo-puller/token}"; : "${REPOS_FILE:=/etc/forgejo/repos}"; : "${ASKPASS:=/scripts/askpass.sh}"
@@ -1786,7 +1807,8 @@ state_set() { # $1 jq filter with $now bound
 # Healthy, and its parent carries the commit check.
 apps_json() { kubectl get applications,applicationsets -n "$ARGO_NAMESPACE" -o json 2>/dev/null || echo '{"items":[]}'; }
 repo_healthy() { # $1 repo $2 commit → 0 healthy, 1 not, 2 no dependents
-  local repo="$1" commit="$2" url="$FORGEJO_URL/$ORG/$repo.git"
+  local repo="$1" commit="$2"
+  local url="$GIT_STABLE_URL/$ORG/$repo.git" # a second local: one statement expands every word before it assigns any, so $repo is not yet set in the first
   jq -e --arg url "$url" --arg sha "$commit" '
     .items as $all
     | [ $all[] | select(.kind=="Application" and (.spec.source.repoURL|rtrimstr(".git")) == ($url|rtrimstr(".git"))) ] as $roots
@@ -1818,7 +1840,8 @@ github_sha() { # $1 owner/repo $2 ref (branch or tag) → sha or ""
 # fast-forward main with a lease on the tip we saw. Protection refuses a
 # non-fast-forward for everyone, so a refusal here is a divergence (3b-7).
 move_main() { # $1 repo $2 github owner/repo $3 target sha → 0 moved/up-to-date, 1 refused/failed
-  local repo="$1" upstream="$2" sha="$3" expected d="$work/$repo"
+  local repo="$1" upstream="$2" sha="$3" expected
+  local d="$work/$repo"
   expected=$(forgejo_tip "$repo" main) || return 1
   [ "$expected" = "$sha" ] && { echo "$repo: up to date at ${sha:0:12}"; return 0; }
   rm -rf "$d"; git init -q -b main "$d" || return 1
@@ -1859,7 +1882,8 @@ state_set --arg p "$promotion" '.sourceRef=$ENV.SOURCE_REF' 2>/dev/null || true
 jq --argjson p "$promotion" '.promotion=$p' "$work/state.json" > "$work/s" && mv "$work/s" "$work/state.json"
 for l in "${LINES[@]}"; do set -- $l; name=$1 upstream=$2 sha=${TARGET[$1]}
   if move_main "$name" "$upstream" "$sha"; then
-    jq --arg n "$name" --arg sha "$sha" --arg now "$(now)" '.pending -= [$n] | .repos[$n] = ((.repos[$n] // {}) + {commit:$sha,lastRun:$now,lastResult:"ok"})' "$work/state.json" > "$work/s" && mv "$work/s" "$work/state.json"
+    # A new commit starts its own soak: healthySince is cleared with it, and kept only while the commit is the same.
+    jq --arg n "$name" --arg sha "$sha" --arg now "$(now)" '.pending -= [$n] | .repos[$n] = ((.repos[$n] // {}) as $r | $r + {commit:$sha,lastRun:$now,lastResult:"ok",healthySince:(if ($r.commit // "") == $sha then $r.healthySince else null end)})' "$work/state.json" > "$work/s" && mv "$work/s" "$work/state.json"
   else
     fails=$((fails+1))
     jq --arg n "$name" --arg now "$(now)" '.pending = ((.pending + [$n]) | unique) | .repos[$n] = ((.repos[$n] // {}) + {lastRun:$now,lastResult:"failed"})' "$work/state.json" > "$work/s" && mv "$work/s" "$work/state.json"
@@ -1900,7 +1924,7 @@ echo "puller[$SOURCE_REF${promotion:+ live-$promotion}]: $(( ${#LINES[@]} - fail
 - Consumes: ConfigMap `forgejo-puller-state` on `homelab-prod` (current context), Prometheus in `heimdall`, `gh` authenticated as the owner, the realm's Forgejo claim for the repo list (`cluster/forgejo/claim.yaml` `repos[].github`).
 - Produces: `scripts/promote.sh gke [--soak <duration>] [--unsoaked] [--to <repo>=<sha>]... [--init]`; promotion log in the realm at `promotions/live-<n>.md` (committed by the operator); `scripts/protect-live.sh <realm>` creates or updates the two rulesets on each of the five repositories.
 
-- [ ] **Step 1: Write the failing test** `tests/unit/promote-test.sh`. Stubs: `kubectl` (returns a state ConfigMap JSON with `healthySince` 30h ago for four repos and 2h for one; `get applications -o json` all Synced/Healthy at the recorded commits; `get pods -n heimdall` a pod name; `exec` answers the Prometheus query with an empty result), `gh` (records calls; answers `matching-refs/tags/live-` with `live-1` everywhere, and `git/ref/heads/live` with a sha). Assert: (a) with the 2h repo the script asks and, with stdin `n`, exits 3 having written nothing; (b) with `--unsoaked` it fast-forwards five `live` refs (`PATCH .../git/refs/heads/live` with `force: false`) then creates five `live-2` tags, in that order, and prints the ages; (c) a Degraded Application in the fixture refuses before any `gh` write (exit 2); (d) a Prometheus result with a non-Healthy sample refuses; (e) `--init` with no `live` ref creates `refs/heads/live` and tag `live-1`; (f) an incomplete `live-2` (four of five) is completed with the same commits recorded in `promotions/live-2.md`, never a new set.
+- [ ] **Step 1: Write the failing test** `tests/unit/promote-test.sh`. Stubs: `kubectl` (returns a state ConfigMap JSON with `healthySince` 30h ago for four repos and 2h for one; `get applications -o json` all Synced/Healthy at the recorded commits; `get pods -n heimdall` a pod name; `exec` answers the Prometheus query with an empty result), `gh` (records calls; answers `matching-refs/tags/live-` with `live-1` everywhere, and `git/ref/heads/live` with a sha). Assert: (a) with the 2h repo the script asks and, with stdin `n`, exits 3 having written nothing; (b) with `--unsoaked` it fast-forwards five `live` refs (`PATCH .../git/refs/heads/live` with `force: false`) then creates five `live-2` tags, in that order, and prints the ages; (c) a Degraded Application in the fixture refuses before any `gh` write (exit 2); (d) a Prometheus result with a non-Healthy sample refuses; (e) `--init` with no `live` ref creates `refs/heads/live` and tag `live-1`; (f) an incomplete `live-2` (four of five) is completed with the same commits recorded in `promotions/live-2.md`, never a new set, and those commits go through the gates: with the fixture's Applications at a newer commit than the recorded one, it refuses (exit 2) and writes nothing; (g) an Application Synced and Healthy at a commit other than the candidate's refuses (exit 2); (h) the puller test (`tests/unit/puller-test.sh`) asserts that moving a repository to a new commit clears its `healthySince`, and that an unchanged commit keeps it.
 
 - [ ] **Step 2: `scripts/promote.sh`:**
 
@@ -1946,21 +1970,56 @@ state=$(kubectl get configmap -n forgejo forgejo-puller-state -o jsonpath='{.dat
 apps=$(kubectl get applications -n argo -o json)
 now=$(date -u +%s)
 
+# ── promotion number: finish an incomplete set, never reuse one ─────────────
+# Decided before the candidate set: an incomplete set fixes the candidates (its
+# recorded commits), and every gate below runs on those, not on the puller's
+# latest, so nothing reaches live unchecked.
+declare -A HAVE=() RECORDED=()
+max=0
+for name in "${!GH[@]}"; do
+  tags=$(gh api "repos/${GH[$name]}/git/matching-refs/tags/live-" --jq '.[].ref' 2>/dev/null | sed 's|refs/tags/live-||' | sort -n)
+  HAVE[$name]="$tags"; last=$(printf '%s\n' "$tags" | tail -1); [[ ${last:-0} -gt $max ]] && max=$last
+done
+complete=1; for name in "${!GH[@]}"; do grep -qx "$max" <<< "${HAVE[$name]}" || complete=0; done
+if [[ $max -eq 0 ]]; then
+  [[ $INIT -eq 1 ]] || { echo "❌ no live-<n> tag exists yet; run with --init for the first promotion" >&2; exit 1; }; n=1
+elif [[ $complete -eq 0 ]]; then
+  n=$max; echo "⚠ promotion live-$n is incomplete; finishing it with its recorded commits"
+  [[ ${#OVERRIDE[@]} -eq 0 ]] || { echo "❌ --to cannot change an incomplete set; finish live-$n first" >&2; exit 1; }
+  logf="$REALM_DIR/promotions/live-$n.md"; [[ -f "$logf" ]] || { echo "❌ live-$n is incomplete and $logf is missing; cannot know its commits" >&2; exit 1; }
+  while read -r r s; do RECORDED[$r]=$s; done < <(sed -n 's/^| \([a-z0-9-]*\) | \([0-9a-f]\{40\}\) |.*/\1 \2/p' "$logf")
+  for name in "${!GH[@]}"; do [[ -n "${RECORDED[$name]:-}" ]] || { echo "❌ $logf records no commit for $name" >&2; exit 1; }; done
+else
+  n=$((max + 1))
+fi
+
 # ── the frozen candidate set ────────────────────────────────────────────────
 declare -A SHA=() AGE=() NOTE=()
 for name in "${!GH[@]}"; do
   if [[ -n "${OVERRIDE[$name]:-}" ]]; then SHA[$name]=${OVERRIDE[$name]}; AGE[$name]=-1; NOTE[$name]="overridden with --to"; continue; fi
-  SHA[$name]=$(jq -r --arg n "$name" '.repos[$n].commit // ""' <<< "$state")
-  [[ -n "${SHA[$name]}" ]] || { echo "❌ $name: no commit recorded by the puller" >&2; exit 2; }
+  cur=$(jq -r --arg n "$name" '.repos[$n].commit // ""' <<< "$state")
+  if [[ -n "${RECORDED[$name]:-}" ]]; then
+    SHA[$name]=${RECORDED[$name]}
+    # The puller's soak age describes its current commit; a recorded commit it has left behind has none.
+    if [[ "$cur" != "${SHA[$name]}" ]]; then AGE[$name]=-1; NOTE[$name]="recorded in live-$n.md; the puller has since moved to ${cur:0:12}"; continue; fi
+  else
+    SHA[$name]=$cur; [[ -n "${SHA[$name]}" ]] || { echo "❌ $name: no commit recorded by the puller" >&2; exit 2; }
+  fi
   hs=$(jq -r --arg n "$name" '.repos[$n].healthySince // ""' <<< "$state")
   if [[ -z "$hs" ]]; then AGE[$name]=-1; NOTE[$name]="not healthy at the last puller run"; else AGE[$name]=$(( now - $(date -u -d "$hs" +%s) )); NOTE[$name]=""; fi
 done
 
-# ── health gate 1: live re-check ────────────────────────────────────────────
-bad=$(jq -r --argjson want "$(for n in "${!SHA[@]}"; do printf '{"repo":"%s","sha":"%s"}\n' "$n" "${SHA[$n]}"; done | jq -s .)" '
-  [ .items[] | select(.spec.source.repoURL | test("git.gitops.svc.cluster.local:3000/[^/]+/(" + ($want|map(.repo)|join("|")) + ")\\.git$")) ]
-  | map(select(.status.sync.status != "Synced" or .status.health.status != "Healthy")) | map(.metadata.name) | join(" ")' <<< "$apps")
-[[ -z "$bad" ]] || { echo "❌ health gate: not Synced and Healthy right now: $bad" >&2; exit 2; }
+# ── health gate 1: live re-check, Synced and Healthy AT the candidate commit ─
+# Each Application sourced from a candidate repository must run that
+# candidate's sha: a --to override nothing has run, or a repository at another
+# healthy commit, fails here rather than reaching live.
+bad=$(jq -r --argjson want "$(for r in "${!SHA[@]}"; do printf '{"repo":"%s","sha":"%s"}\n' "$r" "${SHA[$r]}"; done | jq -s .)" '
+  [ .items[] as $app | $want[] as $w
+    | select(($app.spec.source.repoURL // "") | test("git.gitops.svc.cluster.local:3000/[^/]+/" + $w.repo + "\\.git$"))
+    | select($app.status.sync.status != "Synced" or $app.status.health.status != "Healthy" or $app.status.sync.revision != $w.sha)
+    | $app.metadata.name ] | unique | join(" ")' <<< "$apps")
+[[ -z "$bad" ]] || { echo "❌ health gate: not Synced and Healthy at the candidate commit right now: $bad" >&2
+  [[ ${#RECORDED[@]} -eq 0 ]] || echo "   live-$n's recorded commits no longer run on $cluster: tag the missing repositories by hand at those commits, or delete the partial live-$n tags, then re-run" >&2; exit 2; }
 unhealthy_now=$(jq -r '[ .items[] | select(.status.health.status != "Healthy") | .metadata.name ] | join(" ")' <<< "$apps")
 [[ -z "$unhealthy_now" ]] || { echo "❌ health gate: Applications not Healthy on $cluster: $unhealthy_now" >&2; exit 2; }
 
@@ -1990,25 +2049,8 @@ if [[ ${#under[@]} -gt 0 ]]; then
   fi
 fi
 
-# ── promotion number: finish an incomplete set, never reuse one ─────────────
-declare -A HAVE=()
-max=0
-for name in "${!GH[@]}"; do
-  tags=$(gh api "repos/${GH[$name]}/git/matching-refs/tags/live-" --jq '.[].ref' 2>/dev/null | sed 's|refs/tags/live-||' | sort -n)
-  HAVE[$name]="$tags"; last=$(printf '%s\n' "$tags" | tail -1); [[ ${last:-0} -gt $max ]] && max=$last
-done
-complete=1; for name in "${!GH[@]}"; do grep -qx "$max" <<< "${HAVE[$name]}" || complete=0; done
-if [[ $max -eq 0 ]]; then
-  [[ $INIT -eq 1 ]] || { echo "❌ no live-<n> tag exists yet; run with --init for the first promotion" >&2; exit 1; }; n=1
-elif [[ $complete -eq 0 ]]; then
-  n=$max; echo "⚠ promotion live-$n is incomplete; finishing it with its recorded commits"
-  logf="$REALM_DIR/promotions/live-$n.md"; [[ -f "$logf" ]] || { echo "❌ live-$n is incomplete and $logf is missing; cannot know its commits" >&2; exit 1; }
-  while read -r r s; do SHA[$r]=$s; done < <(sed -n 's/^| \([a-z0-9-]*\) | \([0-9a-f]\{40\}\) |.*/\1 \2/p' "$logf")
-else
-  n=$((max + 1))
-fi
-
 # ── write: branches first, then the tag set, tags last ──────────────────────
+# (n and the candidate set were fixed above, before the gates.)
 for name in $(printf '%s\n' "${!GH[@]}" | sort); do
   repo=${GH[$name]}; sha=${SHA[$name]}
   if gh api "repos/$repo/git/ref/heads/live" --jq .object.sha >/dev/null 2>&1; then
@@ -2089,6 +2131,10 @@ forgejo_open() { # port-forward forgejo-http on 3001; sets FJ_URL FJ_USER FJ_PAS
   FJ_URL=http://localhost:3001; FJ_USER=$(kubectl get secret -n forgejo forgejo-admin -o jsonpath='{.data.username}' | base64 -d)
   umask 077; kubectl get secret -n forgejo forgejo-admin -o jsonpath='{.data.password}' | base64 -d > "$work/fjpw"; FJ_PASS_FILE="$work/fjpw"
   printf 'user = "%s:%s"\n' "$FJ_USER" "$(cat "$FJ_PASS_FILE")" > "$work/fj.cfg"
+  # git gets the password from GIT_ASKPASS, never from the URL or argv (Global
+  # Constraints): FJ_BASE carries the user only, and git asks for the rest.
+  printf '#!/bin/sh\ncat "%s"\n' "$FJ_PASS_FILE" > "$work/askpass"; chmod 700 "$work/askpass"
+  export GIT_ASKPASS="$work/askpass" GIT_TERMINAL_PROMPT=0; FJ_BASE="http://$FJ_USER@localhost:3001"
 }
 fj_api() { curl -sS -o "$work/resp" -w '%{http_code}' -K "$work/fj.cfg" "$FJ_URL/api/v1$1"; }
 # Tags every Application pins on a vendor repository: (repo, tag) pairs.
@@ -2111,7 +2157,7 @@ content_diff() { # $1 from-base $2 to-base → prints differing repos; returns c
 populate_test_forgejo() { # role test: push the seed's trees verbatim into Forgejo (same push update-embedded-git.sh --target forgejo makes)
   echo "📤 role test: filling Forgejo from the seed"; local r d
   for r in "${REPOS[@]}"; do d="$work/p-$r"; git clone -q "$GITEA_GIT_BASE/$ORG/$r.git" "$d" || return 1
-    git -C "$d" push -q --force "http://$FJ_USER:$(cat "$FJ_PASS_FILE")@localhost:3001/$ORG/$r.git" HEAD:refs/heads/main || return 1; done
+    git -C "$d" push -q --force "$FJ_BASE/$ORG/$r.git" HEAD:refs/heads/main || return 1; done
 }
 preconditions() {
   [[ "$MATURITY" == durable || "$MATURITY" == full ]] || { echo "❌ maturity is '$MATURITY'; graduation needs durable" >&2; return 1; }
@@ -2123,7 +2169,7 @@ preconditions() {
     local last; last=$(kubectl get configmap -n forgejo forgejo-puller-state -o jsonpath='{.data.state\.json}' 2>/dev/null | jq -r '[.repos[].lastResult] | all(. == "ok")' 2>/dev/null)
     [[ "$last" == true ]] || { echo "❌ the puller's last run did not succeed for every repository" >&2; return 1; }
   fi
-  tags_resolve_on "http://$FJ_USER:$(cat "$FJ_PASS_FILE")@localhost:3001" || { echo "❌ a pinned vendor tag does not resolve on Forgejo" >&2; return 1; }
+  tags_resolve_on "$FJ_BASE" || { echo "❌ a pinned vendor tag does not resolve on Forgejo" >&2; return 1; }
 }
 repoint_and_wait() { gitops_ensure_git_service "$1" || return 1; argo_hard_refresh_all; argo_wait_operations_done 900 && argo_wait_synced_healthy 1200; }
 
@@ -2133,7 +2179,7 @@ graduate)
   preconditions || exit 1
   [[ "$ROLE" == test ]] && { populate_test_forgejo || exit 1; }
   echo "🔍 content: seed HEAD vs Forgejo main"
-  if ! content_diff "$GITEA_GIT_BASE" "http://$FJ_USER:$(cat "$FJ_PASS_FILE")@localhost:3001"; then
+  if ! content_diff "$GITEA_GIT_BASE" "$FJ_BASE"; then
     [[ $ACCEPT_DIFF -eq 1 ]] || { echo "❌ the repoint would change what the cluster runs; re-run with --accept-diff" >&2; exit 2; }
   fi
   repoint_and_wait "$GIT_FORGEJO_SERVICE" || exit 1
@@ -2143,11 +2189,11 @@ rollback)
   tags_resolve_on "$GITEA_GIT_BASE" || { echo "❌ a pinned vendor tag does not resolve on the seed; rollback would leave that Application unable to sync" >&2; exit 1; }
   if forgejo_open; then
     if [[ $REFRESH_SEED -eq 1 ]]; then echo "📤 refreshing the seed from Forgejo main"; HYDRATE_COMMITTER="Nordri Rollback"
-      for r in "${REPOS[@]}"; do d="$work/r-$r"; git clone -q --branch main "http://$FJ_USER:$(cat "$FJ_PASS_FILE")@localhost:3001/$ORG/$r.git" "$d" || exit 1; git -C "$d" push -q --force "$GITEA_GIT_BASE/$ORG/$r.git" HEAD:refs/heads/main || exit 1; done
+      for r in "${REPOS[@]}"; do d="$work/r-$r"; git clone -q --branch main "$FJ_BASE/$ORG/$r.git" "$d" || exit 1; git -C "$d" push -q --force "$GITEA_GIT_BASE/$ORG/$r.git" HEAD:refs/heads/main || exit 1; done
       while IFS=$'\t' read -r r _; do [[ -z "$r" ]] && continue; curl -sS -o /dev/null -u "$GITEA_USER:$GITEA_PASS" -X POST "$GITEA_API_URL/api/v1/repos/$VORG/$r/mirror-sync" || true; done < <(pinned_vendor_tags)
     fi
     echo "🔍 content: Forgejo main vs seed HEAD"
-    if ! content_diff "http://$FJ_USER:$(cat "$FJ_PASS_FILE")@localhost:3001" "$GITEA_GIT_BASE"; then
+    if ! content_diff "$FJ_BASE" "$GITEA_GIT_BASE"; then
       [[ $ACCEPT_DIFF -eq 1 ]] || { echo "❌ rollback would change what the cluster runs; re-run with --accept-diff (or --refresh-seed)" >&2; exit 2; }
     fi
   else
