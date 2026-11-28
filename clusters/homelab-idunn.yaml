@@ -1,0 +1,10 @@
+# clusters/homelab-idunn.yaml — Idunn's k3d cluster `nordri-test` (context
+# k3d-nordri-test): a Gitea-era bootstrap, 152 days old on 2026-11-27, kept as a
+# second in-place migration target beside Nano76 (Task 12 step 2). Its seed is
+# the pre-2026-09 shape (Postgres-HA and Valkey subcharts); migrate.sh uses it
+# as it is, and only a reseed would need `helm uninstall gitea` first. Raise
+# maturity to durable after the migration is green to bring Forgejo up there.
+environment: homelab
+role: test
+maturity: bootstrap
+tailnetNode: stamped   # the old device tailscale-operator-idunn becomes the prune candidate
